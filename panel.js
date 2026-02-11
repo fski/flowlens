@@ -11,6 +11,8 @@ const els = {
   refreshFrames: document.getElementById("refreshFrames"),
   frameSelect: document.getElementById("frameSelect"),
   copyFrameUrl: document.getElementById("copyFrameUrl"),
+  settingsPanelToggle: document.getElementById("settingsPanelToggle"),
+  settingsSection: document.getElementById("settingsSection"),
   profileSelect: document.getElementById("profileSelect"),
   alsoConsole: document.getElementById("alsoConsole"),
   pinFrame: document.getElementById("pinFrame"),
@@ -18,6 +20,9 @@ const els = {
   themeToggle: document.getElementById("themeToggle"),
   wcagLevel: document.getElementById("wcagLevel"),
 
+  exportAnchor: document.getElementById("exportAnchor"),
+  exportToggle: document.getElementById("exportToggle"),
+  exportMenu: document.getElementById("exportMenu"),
   copyJson: document.getElementById("copyJson"),
   downloadJson: document.getElementById("downloadJson"),
   copyMd: document.getElementById("copyMd"),
@@ -28,13 +33,13 @@ const els = {
   sessionExportJson: document.getElementById("sessionExportJson"),
   sessionExportMd: document.getElementById("sessionExportMd"),
   sessionMdHint: document.getElementById("sessionMdHint"),
-  sessionHudLine: document.getElementById("sessionHudLine"),
+  sessionMeta: document.getElementById("sessionMeta"),
+  sessionStatus: document.getElementById("sessionStatus"),
+  sessionBanner: document.getElementById("sessionBanner"),
 
   presetQuick: document.getElementById("presetQuick"),
   presetRelease: document.getElementById("presetRelease"),
   presetFocus: document.getElementById("presetFocus"),
-  presetToggle: document.getElementById("presetToggle"),
-  presetMenu: document.getElementById("presetMenu"),
   runCurrentMode: document.getElementById("runCurrentMode"),
 
   json: document.getElementById("json"),
@@ -48,6 +53,13 @@ const els = {
   runSummary: document.getElementById("runSummary"),
   sevBadges: document.getElementById("sevBadges"),
   topTableBody: document.querySelector("#topTable tbody"),
+  topCount: document.getElementById("topCount"),
+  allCount: document.getElementById("allCount"),
+  statsRow: document.getElementById("statsRow"),
+  topFilterChips: document.getElementById("topFilterChips"),
+  topBlockingAlert: document.getElementById("topBlockingAlert"),
+  emptyState: document.getElementById("emptyState"),
+  resultsZone: document.getElementById("resultsZone"),
 
   // explorer
   q: document.getElementById("q"),
@@ -60,13 +72,15 @@ const els = {
   toast: document.getElementById("toast"),
   viewSelect: document.getElementById("viewSelect"),
   clearHistory: document.getElementById("clearHistory"),
-  viewRun: document.getElementById("viewRun"),
-  viewContrast: document.getElementById("viewContrast"),
-  viewTab: document.getElementById("viewTab"),
-  viewWatch: document.getElementById("viewWatch"),
-  viewObserve: document.getElementById("viewObserve"),
   rerunCurrent: document.getElementById("rerunCurrent"),
   currentModeText: document.getElementById("currentModeText"),
+  runIcon: document.getElementById("runIcon"),
+  runLabel: document.getElementById("runLabel"),
+  progressWrap: document.getElementById("progressWrap"),
+  progressBar: document.getElementById("progressBar"),
+  progressLabel: document.getElementById("progressLabel"),
+  progressTime: document.getElementById("progressTime"),
+  progressStatus: document.getElementById("progressStatus"),
   contrastSection: document.getElementById("contrastSection"),
   contrastTbody: document.querySelector("#contrastTable tbody"),
   tabWalkSection: document.getElementById("tabWalkSection"),
@@ -78,7 +92,26 @@ const els = {
 
 const ORDER = { high: 3, medium: 2, low: 1, info: 0 };
 
-const state = { top: [], explorer: [], records: [], byId: {}, currentId: null, currentFindings: [], lastResult: null, bestFrameId: 0, _toastTimer: null, running: false, _progressInterval: null, contrastData: [], contrastSamples: [], tabData: [], activeMode: "run", pinnedFrameId: null };
+const state = {
+  top: [],
+  explorer: [],
+  records: [],
+  byId: {},
+  currentId: null,
+  currentFindings: [],
+  lastResult: null,
+  bestFrameId: 0,
+  _toastTimer: null,
+  running: false,
+  _progressInterval: null,
+  _progressStartedAt: 0,
+  contrastData: [],
+  contrastSamples: [],
+  tabData: [],
+  activeMode: "run",
+  pinnedFrameId: null,
+  topSeverityFilter: "",
+};
 
 /**
  * @typedef {"strict"|"heuristic"|"advisory"} Confidence
@@ -105,9 +138,17 @@ const CAPTURE_SLOW_MS = 4000;
 const MODE_LABELS = {
   run: "Audit",
   contrast: "Contrast",
-  tabWalk: "Tab order",
+  tabWalk: "Tab Walk",
   watch: "Watch",
   observe: "Observe",
+};
+
+const RUN_BUTTON_LABELS = {
+  run: "Run Audit",
+  observe: "Start Observe",
+  watch: "Start Watch",
+  tabWalk: "Run Tab Walk",
+  contrast: "Run Contrast",
 };
 
 const SCOPE_LABELS = {
@@ -148,6 +189,7 @@ const sessionState = {
   captureSlowTimer: null,
   captureSlow: false,
   lastPersistReasonCode: "-",
+  hudTimer: null,
 };
 
 function debugSession(...args) {
@@ -405,38 +447,78 @@ function toast(message) {
 }
 
 const DURATIONS = { watch: 40, observe: 12, tabWalk: 5, contrast: 3, run: 2 };
+const PROGRESS_LABELS = {
+  run: "Scanning...",
+  contrast: "Checking contrast...",
+  tabWalk: "Walking focusables...",
+  watch: "Monitoring...",
+  observe: "Observing...",
+};
 
-function showProgress(durationSec) {
-  const wrap = document.getElementById('progressWrap');
-  const bar = document.getElementById('progressBar');
-  const label = document.getElementById('progressLabel');
+function setProgressA11y(bar, percent, valueText) {
+  if (!bar) return;
+  const p = Math.max(0, Math.min(100, Number(percent) || 0));
+  bar.setAttribute("aria-valuenow", String(Math.round(p)));
+  bar.setAttribute("aria-valuetext", String(valueText || `${Math.round(p)}%`));
+}
+
+function showProgress(action, durationSec) {
+  const wrap = els.progressWrap;
+  const bar = els.progressBar;
+  const label = els.progressLabel;
+  const time = els.progressTime;
+  const status = els.progressStatus;
   if (!wrap || !bar) return;
   wrap.hidden = false;
+  wrap.classList.add("active");
+  wrap.setAttribute("aria-busy", "true");
+  state._progressStartedAt = performance.now();
   bar.style.transition = 'none';
   bar.style.width = '0%';
   bar.offsetWidth;
   bar.style.transition = `width ${durationSec}s linear`;
   bar.style.width = '100%';
+  const prefix = PROGRESS_LABELS[action] || "Running";
   let remaining = durationSec;
-  if (label) label.textContent = `~${remaining}s`;
+  if (label) label.textContent = `${prefix}`;
+  if (time) time.textContent = "0.0s";
+  if (status) status.textContent = `${prefix}, ${remaining} seconds remaining`;
+  setProgressA11y(bar, 0, `${remaining}s remaining`);
   clearInterval(state._progressInterval);
   state._progressInterval = setInterval(() => {
+    const elapsed = Math.max(0, (performance.now() - state._progressStartedAt) / 1000);
     remaining--;
+    const pct = durationSec > 0 ? ((durationSec - Math.max(remaining, 0)) / durationSec) * 100 : 100;
+    if (time) time.textContent = `${elapsed.toFixed(1)}s`;
     if (remaining <= 0) {
       clearInterval(state._progressInterval);
-      if (label) label.textContent = 'finishing\u2026';
+      if (label) label.textContent = `${prefix} • finishing\u2026`;
+      if (status) status.textContent = `${prefix}, finishing`;
+      setProgressA11y(bar, pct, "finishing");
     } else {
-      if (label) label.textContent = `~${remaining}s`;
+      if (status) status.textContent = `${prefix}, ${remaining} seconds remaining`;
+      setProgressA11y(bar, pct, `${remaining}s remaining`);
     }
   }, 1000);
 }
 
 function hideProgress() {
   clearInterval(state._progressInterval);
-  const wrap = document.getElementById('progressWrap');
-  const bar = document.getElementById('progressBar');
-  if (wrap) wrap.hidden = true;
-  if (bar) { bar.style.transition = 'none'; bar.style.width = '0%'; }
+  const wrap = els.progressWrap;
+  const bar = els.progressBar;
+  if (wrap) {
+    wrap.hidden = true;
+    wrap.classList.remove("active");
+    wrap.setAttribute("aria-busy", "false");
+  }
+  if (els.progressLabel) els.progressLabel.textContent = "";
+  if (els.progressTime) els.progressTime.textContent = "";
+  if (els.progressStatus) els.progressStatus.textContent = "Audit idle";
+  if (bar) {
+    bar.style.transition = 'none';
+    bar.style.width = '0%';
+    setProgressA11y(bar, 0, "0%");
+  }
 }
 
 function scrollToResults(action) {
@@ -451,12 +533,25 @@ function scrollToResults(action) {
 async function _runSingle(action, opts) {
   const btn = document.querySelector(`[data-action="${action}"]`);
   if (btn) btn.classList.add('running');
-  showProgress(DURATIONS[action] || 2);
+  showProgress(action, DURATIONS[action] || 2);
   try {
     return await runAction(action, opts);
   } finally {
     if (btn) btn.classList.remove('running');
     hideProgress();
+  }
+}
+
+function setRunButtonBusy(busy) {
+  if (!els.runCurrentMode) return;
+  els.runCurrentMode.classList.toggle("running", !!busy);
+  if (els.runIcon) {
+    if (busy) els.runIcon.innerHTML = '<span class="spinner" aria-hidden="true"></span>';
+    else els.runIcon.textContent = "▶";
+  }
+  if (els.runLabel) {
+    if (busy) els.runLabel.textContent = "Running…";
+    else els.runLabel.textContent = runButtonLabel(state.activeMode || "run");
   }
 }
 
@@ -466,7 +561,7 @@ async function _lockedPreset(actions) {
   const toolbar = document.querySelector('.toolbar');
   let lastSuccessAction = null;
   if (toolbar) toolbar.classList.add('isRunning');
-  if (els.runCurrentMode) els.runCurrentMode.classList.add('running');
+  setRunButtonBusy(true);
   try {
     for (const a of actions) {
       setPressed(a);
@@ -478,8 +573,30 @@ async function _lockedPreset(actions) {
   } finally {
     state.running = false;
     if (toolbar) toolbar.classList.remove('isRunning');
-    if (els.runCurrentMode) els.runCurrentMode.classList.remove('running');
+    setRunButtonBusy(false);
   }
+}
+
+function setSettingsPanelOpen(open, { restoreFocus = false } = {}) {
+  if (!els.settingsSection || !els.settingsPanelToggle) return;
+  const isOpen = !!open;
+  els.settingsSection.hidden = !isOpen;
+  els.settingsPanelToggle.setAttribute("aria-expanded", String(isOpen));
+  if (!isOpen && restoreFocus) els.settingsPanelToggle.focus();
+}
+
+function exportMenuItems() {
+  if (!els.exportMenu) return [];
+  return [...els.exportMenu.querySelectorAll(".emItem")];
+}
+
+function setExportMenuOpen(open, { restoreFocus = false } = {}) {
+  if (!els.exportMenu || !els.exportToggle) return;
+  const isOpen = !!open;
+  els.exportMenu.hidden = !isOpen;
+  els.exportMenu.classList.toggle("open", isOpen);
+  els.exportToggle.setAttribute("aria-expanded", String(isOpen));
+  if (!isOpen && restoreFocus) els.exportToggle.focus();
 }
 
 async function copyText(text) {
@@ -547,10 +664,24 @@ function modeLabel(mode) {
   return MODE_LABELS[mode] || String(mode || "run");
 }
 
+function runButtonLabel(mode) {
+  return RUN_BUTTON_LABELS[mode] || `Run ${modeLabel(mode)}`;
+}
+
 function countBySeverity(findings = []) {
   const out = { high: 0, medium: 0, low: 0, info: 0 };
   for (const f of findings) out[f.severity] = (out[f.severity] || 0) + 1;
   return out;
+}
+
+function severityBadgeButtonsHtml(counts) {
+  const c = counts || { high: 0, medium: 0, low: 0, info: 0 };
+  return [
+    `<button class="badge high" type="button" data-sev="high" title="Filter by high severity">high: ${c.high}</button>`,
+    `<button class="badge medium" type="button" data-sev="medium" title="Filter by medium severity">medium: ${c.medium}</button>`,
+    `<button class="badge low" type="button" data-sev="low" title="Filter by low severity">low: ${c.low}</button>`,
+    `<button class="badge info" type="button" data-sev="info" title="Filter by info severity">info: ${c.info}</button>`,
+  ].join("");
 }
 
 function topFindings(findings = [], limit = 30) {
@@ -575,16 +706,17 @@ function recordLabel(rec) {
 }
 
 function setPressed(action) {
-  const map = { run: els.viewRun, contrast: els.viewContrast, tabWalk: els.viewTab, watch: els.viewWatch, observe: els.viewObserve };
-  Object.entries(map).forEach(([k,btn]) => { if (btn) btn.setAttribute("aria-pressed", String(k===action)); });
   if (action) state.activeMode = action;
-  if (els.currentModeText) els.currentModeText.textContent = modeLabel(state.activeMode || "run");
+  if (els.currentModeText) els.currentModeText.textContent = state.activeMode || "run";
   // Update mode selector buttons aria-pressed
   document.querySelectorAll("button[data-action]").forEach(btn => {
     btn.setAttribute("aria-pressed", String(btn.dataset.action === (state.activeMode || "run")));
+    btn.classList.toggle("active", btn.dataset.action === (state.activeMode || "run"));
   });
   // Update run button label
-  if (els.runCurrentMode) els.runCurrentMode.textContent = "Run " + modeLabel(state.activeMode || "run");
+  const label = runButtonLabel(state.activeMode || "run");
+  if (els.runLabel) els.runLabel.textContent = label;
+  else if (els.runCurrentMode) els.runCurrentMode.textContent = label;
 }
 
 function showMode(mode) {
@@ -592,10 +724,52 @@ function showMode(mode) {
   const explorer = document.getElementById("explorerSection");
   const contrast = document.getElementById("contrastSection");
   const tab = document.getElementById("tabWalkSection");
-  if (findings) findings.hidden = mode !== "run";
-  if (explorer) explorer.hidden = mode !== "run";
+  const runLike = mode === "run" || mode === "observe";
+  if (findings) findings.hidden = !runLike;
+  if (explorer) explorer.hidden = !runLike;
   if (contrast) contrast.hidden = mode !== "contrast";
   if (tab) tab.hidden = mode !== "tabWalk";
+}
+
+function updateResultsVisibility(forceValue = null) {
+  const hasResults = typeof forceValue === "boolean" ? forceValue : state.records.length > 0;
+  if (els.emptyState) els.emptyState.hidden = hasResults;
+  if (els.resultsZone) {
+    els.resultsZone.hidden = false;
+    els.resultsZone.classList.toggle("visible", !!hasResults);
+  }
+  if (els.exportAnchor) els.exportAnchor.hidden = !hasResults;
+}
+
+function updateTopCount(total = 0, shown = total) {
+  if (!els.topCount) return;
+  const t = Number(total) || 0;
+  const s = Number(shown);
+  els.topCount.textContent = Number.isFinite(s) && s !== t ? `${s} / ${t}` : `${t}`;
+}
+
+function clearStatsRow() {
+  if (!els.statsRow) return;
+  els.statsRow.innerHTML = "";
+  els.statsRow.hidden = true;
+}
+
+function renderStatsRow(findings = []) {
+  if (!els.statsRow) return;
+  const c = countBySeverity(findings);
+  const cards = [
+    { key: "high", label: "high" },
+    { key: "medium", label: "medium" },
+    { key: "low", label: "low" },
+    { key: "info", label: "info" },
+  ];
+  els.statsRow.innerHTML = cards.map(({ key, label }) => `
+    <div class="statCard">
+      <span class="statValue ${key}">${escapeHtml(String(c[key] ?? 0))}</span>
+      <span class="statLabel">${escapeHtml(label)}</span>
+    </div>
+  `).join("");
+  els.statsRow.hidden = false;
 }
 
 function updateViewSelect() {
@@ -750,6 +924,7 @@ function renderRecord(rec) {
   state.currentId = rec.id;
   setPressed(rec.action);
   updateViewSelect();
+  updateResultsVisibility(true);
   resetFilters();
 
   const bestResult = rec?.best?.result || null;
@@ -759,7 +934,12 @@ function renderRecord(rec) {
   els.sevBadges.innerHTML = "";
   els.topTableBody.innerHTML = "";
   els.allTableBody.innerHTML = "";
+  if (els.topFilterChips) els.topFilterChips.innerHTML = "";
+  if (els.topBlockingAlert) els.topBlockingAlert.hidden = true;
   state.currentFindings = [];
+  updateTopCount(0);
+  if (els.allCount) els.allCount.textContent = "0";
+  clearStatsRow();
   showMode(mode);
 
   if (mode === "run") {
@@ -780,6 +960,7 @@ function renderRecord(rec) {
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
     els.sevBadges.innerHTML = `<span class="badge info">failures: ${escapeHtml(String(failures))}</span><span class="badge low">scanned: ${escapeHtml(String(scanned))}</span>`;
+    clearStatsRow();
     renderContrast(bestResult);
   } else if (mode === "tabWalk") {
     const walked = bestResult?.walked ?? "—";
@@ -793,6 +974,7 @@ function renderRecord(rec) {
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
     els.sevBadges.innerHTML = `<span class="badge info">events: ${escapeHtml(String(evtCount))}</span><span class="badge low">walked: ${escapeHtml(String(walked))}/${escapeHtml(String(totalFoc))}</span>`;
+    clearStatsRow();
     renderTabWalk(bestResult);
   } else if (mode === "observe" && bestResult) {
     const snapshots = Array.isArray(bestResult.snapshots) ? bestResult.snapshots : [];
@@ -807,16 +989,16 @@ function renderRecord(rec) {
       </div>`;
     if (oFindings.length) {
       const c = countBySeverity(oFindings);
-      els.sevBadges.innerHTML =
-        `<span class="badge high" data-sev="high" tabindex="0" role="button" title="Filter by high severity">high: ${c.high}</span>` +
-        `<span class="badge medium" data-sev="medium" tabindex="0" role="button" title="Filter by medium severity">medium: ${c.medium}</span>` +
-        `<span class="badge low" data-sev="low" tabindex="0" role="button" title="Filter by low severity">low: ${c.low}</span>` +
-        `<span class="badge info" data-sev="info" tabindex="0" role="button" title="Filter by info severity">info: ${c.info}</span>`;
+      els.sevBadges.innerHTML = severityBadgeButtonsHtml(c);
+      renderStatsRow(oFindings);
       state.currentFindings = oFindings;
-      showMode("run");
+      showMode("observe");
       buildOptionsFromFindings(oFindings, els.prod, "product");
       buildOptionsFromFindings(oFindings, els.type, "type");
+      renderTopFindingsTable(oFindings);
       renderExplorer(oFindings);
+    } else {
+      clearStatsRow();
     }
   } else if (mode === "watch" && bestResult) {
     const verdicts = Array.isArray(bestResult.verdicts) ? bestResult.verdicts : [];
@@ -835,6 +1017,7 @@ function renderRecord(rec) {
     els.sevBadges.innerHTML = overBudget
       ? `<span class="badge high">Over budget: ${verdicts.map(v => escapeHtml(String(v.metric))).join(", ")}</span>`
       : `<span class="badge info">Budgets OK</span>`;
+    clearStatsRow();
   } else {
     const ts = (bestResult?.timestamp || bestResult?.endedAt || rec.at) ? new Date(bestResult?.timestamp || bestResult?.endedAt || rec.at).toLocaleTimeString() : "";
     els.runSummary.innerHTML = `
@@ -843,6 +1026,7 @@ function renderRecord(rec) {
         <span class="runStat">frame <b>${escapeHtml(String(rec?.best?.frameId ?? "—"))}</b></span>
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
+    clearStatsRow();
   }
 }
 
@@ -1148,35 +1332,87 @@ function setLastMarkStatus(status, reasonCode = "-") {
   };
 }
 
+function formatElapsedHms(startIso, endIso = null) {
+  const start = Date.parse(startIso || "");
+  if (!Number.isFinite(start)) return "0:00";
+  const end = endIso ? Date.parse(endIso) : Date.now();
+  const totalSec = Math.max(0, Math.round((end - start) / 1000));
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+}
+
+function ensureSessionHudTicker() {
+  const hasSession = !!sessionState.current;
+  if (hasSession && !sessionState.hudTimer) {
+    sessionState.hudTimer = window.setInterval(() => {
+      if (!sessionState.current) return;
+      renderSessionHud();
+    }, 1000);
+    return;
+  }
+  if (!hasSession && sessionState.hudTimer) {
+    window.clearInterval(sessionState.hudTimer);
+    sessionState.hudTimer = null;
+  }
+}
+
 function renderSessionHud() {
   const sess = sessionState.current;
-  if (!els.sessionHudLine) return;
+  const statusEl = els.sessionStatus;
+  const metaEl = els.sessionMeta;
   if (!sess?.id) {
-    els.sessionHudLine.textContent = "Session • none";
-    els.sessionHudLine.title = "No active session";
+    if (metaEl) {
+      metaEl.textContent = "0 steps · 0:00";
+      metaEl.title = "No active session";
+    }
+    if (statusEl) {
+      statusEl.textContent = "IDLE";
+      statusEl.className = "sessionStatus idle";
+      statusEl.title = "No active session";
+    }
     return;
   }
   const steps = Array.isArray(sess?.steps) ? sess.steps : [];
+  const elapsed = formatElapsedHms(sess.startedAt, sess.endedAt);
   if (sessionState.inFlight) {
-    const slowText = sessionState.captureSlow ? "Capturing… (slow)" : "Capturing…";
-    els.sessionHudLine.textContent = `Session • ${steps.length} steps • ${slowText}`;
-    els.sessionHudLine.title = "Capture in-flight";
+    const slowText = sessionState.captureSlow ? "CAPTURING (SLOW)" : "CAPTURING";
+    if (metaEl) {
+      metaEl.textContent = `${steps.length} steps · ${elapsed}`;
+      metaEl.title = "Capture in-flight";
+    }
+    if (statusEl) {
+      statusEl.textContent = slowText;
+      statusEl.className = "sessionStatus running";
+      statusEl.title = "Capture in-flight";
+    }
     return;
   }
-  const lastAt = steps.length ? steps[steps.length - 1]?.at : null;
   const status = sessionState.lastMarkStep?.status || "—";
   const reasonCode = sessionState.lastMarkStep?.reasonCode || (status === "OK" ? "-" : "—");
-  els.sessionHudLine.textContent = `Session • ${steps.length} steps • Last ${formatTimeHms(lastAt)} • ${status}/${reasonCode}`;
-  els.sessionHudLine.title = `${status} (${reasonCode}) — ${reasonDetail(reasonCode)}`;
+  const normalized = status === "OK" ? "ok" : status === "PARTIAL" ? "partial" : status === "FAILED" ? "failed" : "idle";
+  if (metaEl) {
+    metaEl.textContent = `${steps.length} steps · ${elapsed}`;
+    metaEl.title = `${status}/${reasonCode}`;
+  }
+  if (statusEl) {
+    statusEl.textContent = status === "—" ? "READY" : status;
+    statusEl.className = `sessionStatus ${normalized}`;
+    statusEl.title = `${status} (${reasonCode}) — ${reasonDetail(reasonCode)}`;
+  }
 }
 
 function updateSessionButtons() {
   const hasSession = !!sessionState.current;
   const inFlight = !!sessionState.inFlight;
-  // Action row: toggle visibility based on session state
+  ensureSessionHudTicker();
+  if (els.sessionBanner) els.sessionBanner.hidden = !hasSession && !inFlight;
+  // Quick-start row session toggle
   if (els.sessionStart) {
-    els.sessionStart.disabled = hasSession || inFlight;
-    els.sessionStart.hidden = hasSession;
+    els.sessionStart.disabled = inFlight;
+    els.sessionStart.classList.toggle("on", hasSession);
+    els.sessionStart.textContent = hasSession ? "\u25F7 Session active" : "\u25F7 Start session";
+    els.sessionStart.title = hasSession ? "Session is active" : "Start capture session";
   }
   if (els.sessionMark) {
     els.sessionMark.disabled = !hasSession || inFlight;
@@ -1189,11 +1425,7 @@ function updateSessionButtons() {
     els.sessionEnd.disabled = !hasSession || inFlight;
     els.sessionEnd.hidden = !hasSession;
   }
-  // Run button: demote to secondary when session active (Mark step becomes primary action)
-  if (els.runCurrentMode) {
-    els.runCurrentMode.classList.toggle("primary", !hasSession || inFlight);
-    els.runCurrentMode.classList.toggle("secondary", hasSession && !inFlight);
-  }
+  if (els.runCurrentMode) els.runCurrentMode.classList.toggle("sessionActive", hasSession && !inFlight);
   if (els.sessionExportJson) els.sessionExportJson.disabled = !hasSession;
   if (els.sessionExportMd) els.sessionExportMd.disabled = !hasSession;
   renderSessionHud();
@@ -1992,11 +2224,70 @@ function actionIsWatch(resultObj) {
   return !!(resultObj && ("silentMs" in resultObj || "bursts" in resultObj) && ("focusLossCount" in resultObj));
 }
 
+function renderTopFilterMeta(findings = [], shown = []) {
+  const counts = countBySeverity(findings);
+  if (els.topFilterChips) {
+    const sevOrder = [
+      { key: "high", label: "High", short: "high" },
+      { key: "medium", label: "Med", short: "medium" },
+      { key: "low", label: "Low", short: "low" },
+      { key: "info", label: "Info", short: "info" },
+    ];
+    els.topFilterChips.innerHTML = sevOrder.map(({ key, label, short }) => {
+      const active = state.topSeverityFilter === key;
+      return `<button class="fChip${active ? ` active a-${short}` : ""}" type="button" data-sev="${short}" aria-pressed="${active ? "true" : "false"}">${label} <span class="ct">${escapeHtml(String(counts[key] ?? 0))}</span></button>`;
+    }).join("");
+  }
+  if (els.topBlockingAlert) {
+    const blocking = Number(counts.high || 0);
+    els.topBlockingAlert.hidden = blocking <= 0;
+    els.topBlockingAlert.textContent = `${blocking} blocking issue${blocking === 1 ? "" : "s"} need attention \u2192`;
+  }
+  updateTopCount(findings.length, shown.length);
+}
+
+function renderTopFindingsTable(findings = []) {
+  const topRaw = topFindings(findings, 30);
+  const severity = state.topSeverityFilter || "";
+  const filteredRaw = severity ? topRaw.filter(f => String(f?.severity || "") === severity) : topRaw;
+  const top = applySortState(filteredRaw, 'top');
+  renderTopFilterMeta(topRaw, top);
+  if (!top.length) {
+    const emptyText = topRaw.length ? "No issues in this severity filter" : "\u2714 No accessibility issues found";
+    els.topTableBody.innerHTML = '<tr><td colspan="9"><div class="successState">&#x2714; No accessibility issues found</div></td></tr>';
+    els.topTableBody.querySelector(".successState").textContent = emptyText;
+    state.top = top;
+    return;
+  }
+  els.topTableBody.innerHTML = top.map((f, idx) => `
+    <tr data-idx="${idx}" class="trow" tabindex="0">
+      <td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span></td>
+      <td>${escapeHtml(f.product ?? "")}</td>
+      <td>${escapeHtml(f.type ?? "")}</td>
+      <td>${escapeHtml(f.wcag ?? "")}</td>
+      <td>${cellHtml(f.name, 50)}</td>
+      <td>${escapeHtml(f.role ?? "")}</td>
+      <td>${escapeHtml(f.testId ?? "")}</td>
+      <td>${cellHtml(f.note, 60)}</td>
+      <td class="fixCol">${cellHtml(f.fix, 60)}</td>
+    </tr>
+  `).join("");
+  state.top = top;
+}
+
 function renderRunSummary(r) {
   if (!r) {
-    els.runSummary.innerHTML = '<div class="emptyGuide">Press <kbd>R</kbd> to run an audit, or use a preset above.</div>';
+    state.topSeverityFilter = "";
+    els.runSummary.innerHTML = '<div class="emptyGuide">Pick a mode and hit <kbd>Run Audit</kbd>, or use a quick start preset.</div>';
     els.sevBadges.innerHTML = "";
     els.topTableBody.innerHTML = "";
+    if (els.topFilterChips) els.topFilterChips.innerHTML = "";
+    if (els.topBlockingAlert) {
+      els.topBlockingAlert.hidden = true;
+      els.topBlockingAlert.textContent = "";
+    }
+    clearStatsRow();
+    updateTopCount(0);
     return;
   }
 
@@ -2015,34 +2306,9 @@ function renderRunSummary(r) {
   `;
 
   const c = countBySeverity(findings);
-  els.sevBadges.innerHTML = `
-    <span class="badge high" data-sev="high" tabindex="0" role="button" title="Filter by high severity">high: ${c.high}</span>
-    <span class="badge medium" data-sev="medium" tabindex="0" role="button" title="Filter by medium severity">medium: ${c.medium}</span>
-    <span class="badge low" data-sev="low" tabindex="0" role="button" title="Filter by low severity">low: ${c.low}</span>
-    <span class="badge info" data-sev="info" tabindex="0" role="button" title="Filter by info severity">info: ${c.info}</span>
-  `;
-
-  const topRaw = topFindings(findings, 30);
-  const top = applySortState(topRaw, 'top');
-  if (!top.length) {
-    els.topTableBody.innerHTML = '<tr><td colspan="9"><div class="successState">&#x2714; No accessibility issues found</div></td></tr>';
-    state.top = top;
-    return;
-  }
-  els.topTableBody.innerHTML = top.map((f, idx) => `
-    <tr data-idx="${idx}" class="trow" tabindex="0">
-      <td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span></td>
-      <td>${escapeHtml(f.product ?? "")}</td>
-      <td>${escapeHtml(f.type ?? "")}</td>
-      <td>${escapeHtml(f.wcag ?? "")}</td>
-      <td>${cellHtml(f.name, 50)}</td>
-      <td>${escapeHtml(f.role ?? "")}</td>
-      <td>${escapeHtml(f.testId ?? "")}</td>
-      <td>${cellHtml(f.note, 60)}</td>
-      <td class="fixCol">${cellHtml(f.fix, 60)}</td>
-    </tr>
-  `).join("");
-  state.top = top;
+  els.sevBadges.innerHTML = severityBadgeButtonsHtml(c);
+  renderStatsRow(findings);
+  renderTopFindingsTable(findings);
 }
 
 function buildOptionsFromFindings(findings, elSelect, key) {
@@ -2177,17 +2443,21 @@ function renderExplorer(findings) {
   }
 
   // Update explorer section toggle with count
-  const explorerToggle = document.querySelector('#explorerSection .sectionToggle');
-  if (explorerToggle) {
-    const countSpan = explorerToggle.querySelector('.toggleCount') || (() => {
-      const s = document.createElement('span');
-      s.className = 'toggleCount';
-      explorerToggle.appendChild(s);
-      return s;
-    })();
-    countSpan.textContent = filtered.length < (findings || []).length
-      ? `${filtered.length} / ${(findings || []).length}`
-      : `${filtered.length}`;
+  const total = (findings || []).length;
+  const countText = filtered.length < total ? `${filtered.length} / ${total}` : `${filtered.length}`;
+  if (els.allCount) {
+    els.allCount.textContent = countText;
+  } else {
+    const explorerToggle = document.querySelector('#explorerSection .sectionToggle');
+    if (explorerToggle) {
+      const countSpan = explorerToggle.querySelector('.toggleCount') || (() => {
+        const s = document.createElement('span');
+        s.className = 'toggleCount';
+        explorerToggle.appendChild(s);
+        return s;
+      })();
+      countSpan.textContent = countText;
+    }
   }
 }
 
@@ -2219,7 +2489,14 @@ function refreshInspectedUrl(retries = 3) {
       state.currentId = state.records[0].id;
       renderRecord(state.records[0]);
     } else {
+      state.currentId = null;
+      state.currentFindings = [];
+      renderRunSummary(null);
+      updateTopCount(0);
+      if (els.allCount) els.allCount.textContent = "0";
       updateViewSelect();
+      showMode(state.activeMode || "run");
+      updateResultsVisibility(false);
     }
 
     // load pinned frame preference for this origin
@@ -2767,6 +3044,7 @@ async function exportSessionJson() {
       return false;
     }
     downloadText(buildSessionFileName(payload), JSON.stringify(payload, null, 2), "application/json");
+    setExportMenuOpen(false);
     toast("Session JSON exported");
     return true;
   } catch (err) {
@@ -2791,6 +3069,7 @@ async function exportSessionMarkdown() {
     const ok = await copyText(md);
     if (ok) {
       flashInlineHint(els.sessionMdHint);
+      setExportMenuOpen(false);
       return true;
     }
     return false;
@@ -2917,18 +3196,66 @@ if (els.runCurrentMode) {
   els.runCurrentMode.addEventListener("click", () => _lockedPreset([state.activeMode || "run"]));
 }
 
-// Preset dropdown toggle
-if (els.presetToggle && els.presetMenu) {
-  els.presetToggle.addEventListener("click", () => {
-    const open = els.presetMenu.hidden;
-    els.presetMenu.hidden = !open;
-    els.presetToggle.setAttribute("aria-expanded", String(open));
+if (els.exportToggle && els.exportMenu) {
+  els.exportToggle.addEventListener("click", () => {
+    setExportMenuOpen(els.exportMenu.hidden);
+  });
+  els.exportToggle.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      setExportMenuOpen(true);
+      const first = exportMenuItems().find(item => !item.disabled);
+      if (first) first.focus();
+      return;
+    }
+    if (e.key === "Escape" && !els.exportMenu.hidden) {
+      e.preventDefault();
+      setExportMenuOpen(false, { restoreFocus: true });
+    }
+  });
+  els.exportMenu.addEventListener("keydown", (e) => {
+    const items = exportMenuItems().filter(item => !item.disabled);
+    if (!items.length) return;
+    const currentIdx = items.findIndex(item => item === document.activeElement);
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setExportMenuOpen(false, { restoreFocus: true });
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      items[(currentIdx + 1 + items.length) % items.length].focus();
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      items[(currentIdx - 1 + items.length) % items.length].focus();
+      return;
+    }
+    if (e.key === "Tab") setExportMenuOpen(false);
   });
   document.addEventListener("click", (e) => {
-    if (!els.presetToggle.contains(e.target) && !els.presetMenu.contains(e.target)) {
-      els.presetMenu.hidden = true;
-      els.presetToggle.setAttribute("aria-expanded", "false");
+    const target = e.target;
+    if (els.exportToggle.contains(target) || els.exportMenu.contains(target)) return;
+    setExportMenuOpen(false);
+  });
+}
+
+if (els.settingsPanelToggle && els.settingsSection) {
+  els.settingsPanelToggle.addEventListener("click", () => {
+    setSettingsPanelOpen(els.settingsSection.hidden);
+  });
+  els.settingsSection.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setSettingsPanelOpen(false, { restoreFocus: true });
     }
+  });
+  document.addEventListener("click", (e) => {
+    if (els.settingsSection.hidden) return;
+    const t = e.target;
+    if (els.settingsPanelToggle.contains(t) || els.settingsSection.contains(t)) return;
+    setSettingsPanelOpen(false);
   });
 }
 
@@ -2970,6 +3297,7 @@ if (els.copyFrameUrl) {
 
 els.copyJson.addEventListener("click", async () => {
   await copyText(pretty(state.lastResult || {}));
+  setExportMenuOpen(false);
   toast("Copied JSON");
 });
 
@@ -2982,11 +3310,20 @@ els.downloadJson.addEventListener("click", () => {
   a.download = `a11yflowaudit-${Date.now()}.json`;
   a.click();
   URL.revokeObjectURL(url);
+  setExportMenuOpen(false);
   toast("Downloaded JSON");
 });
 
-els.copyMd.addEventListener("click", copyMarkdown);
-if (els.sessionStart) els.sessionStart.addEventListener("click", () => startSession());
+els.copyMd.addEventListener("click", async () => {
+  await copyMarkdown();
+  setExportMenuOpen(false);
+});
+if (els.sessionStart) {
+  els.sessionStart.addEventListener("click", () => {
+    if (sessionState.current) endSession();
+    else startSession();
+  });
+}
 if (els.sessionMark) els.sessionMark.addEventListener("click", () => captureStepOptionC());
 if (els.sessionEnd) els.sessionEnd.addEventListener("click", () => endSession());
 if (els.sessionExportJson) els.sessionExportJson.addEventListener("click", () => exportSessionJson());
@@ -3008,18 +3345,6 @@ if (els.viewSelect) {
   });
 }
 
-async function switchToAction(action) {
-  setPressed(action);
-  const rec = state.records.find(r => r.action === action);
-  if (rec) return renderRecord(rec);
-  toast(`No stored result for ${modeLabel(action)} yet`);
-}
-
-if (els.viewRun) els.viewRun.addEventListener("click", () => switchToAction("run"));
-if (els.viewContrast) els.viewContrast.addEventListener("click", () => switchToAction("contrast"));
-if (els.viewTab) els.viewTab.addEventListener("click", () => switchToAction("tabWalk"));
-if (els.viewWatch) els.viewWatch.addEventListener("click", () => switchToAction("watch"));
-if (els.viewObserve) els.viewObserve.addEventListener("click", () => switchToAction("observe"));
 if (els.rerunCurrent) {
   els.rerunCurrent.addEventListener("click", () => _lockedPreset([state.activeMode || "run"]));
 }
@@ -3038,6 +3363,11 @@ if (els.clearHistory) {
       state.byId = {};
       state.currentId = null;
       await storageSet({ [scopeKey]: [] });
+      renderRunSummary(null);
+      updateTopCount(0);
+      if (els.allCount) els.allCount.textContent = "0";
+      showMode(state.activeMode || "run");
+      updateResultsVisibility(false);
       updateViewSelect();
       toast("Cleared stored results");
     } else {
@@ -3121,9 +3451,19 @@ if (els.allTableBody && !els.allTableBody.__bound) {
   });
 }
 
-if (els.presetQuick) els.presetQuick.addEventListener("click", () => { if (els.presetMenu) { els.presetMenu.hidden = true; els.presetToggle.setAttribute("aria-expanded", "false"); } presetQuick(); });
-if (els.presetRelease) els.presetRelease.addEventListener("click", () => { if (els.presetMenu) { els.presetMenu.hidden = true; els.presetToggle.setAttribute("aria-expanded", "false"); } presetRelease(); });
-if (els.presetFocus) els.presetFocus.addEventListener("click", () => { if (els.presetMenu) { els.presetMenu.hidden = true; els.presetToggle.setAttribute("aria-expanded", "false"); } presetFocus(); });
+if (els.presetQuick) els.presetQuick.addEventListener("click", () => { presetQuick(); });
+if (els.presetRelease) els.presetRelease.addEventListener("click", () => { presetRelease(); });
+if (els.presetFocus) els.presetFocus.addEventListener("click", () => { presetFocus(); });
+
+if (els.topFilterChips) {
+  els.topFilterChips.addEventListener("click", (e) => {
+    const chip = e.target.closest(".fChip[data-sev]");
+    if (!chip) return;
+    const next = String(chip.dataset.sev || "");
+    state.topSeverityFilter = state.topSeverityFilter === next ? "" : next;
+    renderTopFindingsTable(state.currentFindings || []);
+  });
+}
 
 // Clickable severity badges → filter explorer
 els.sevBadges.addEventListener("click", (e) => {
@@ -3133,13 +3473,6 @@ els.sevBadges.addEventListener("click", (e) => {
   scheduleExplorerRender();
   const explorer = document.getElementById('explorerSection');
   if (explorer) explorer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-});
-els.sevBadges.addEventListener("keydown", (e) => {
-  if (e.key !== "Enter" && e.key !== " ") return;
-  const badge = e.target.closest('.badge[data-sev]');
-  if (!badge) return;
-  e.preventDefault();
-  badge.click();
 });
 
 if (els.density) {
@@ -3330,26 +3663,7 @@ function initSortableHeaders() {
     {
       id: 'top',
       thead: document.querySelector('#topTable thead'),
-      render: () => {
-        const findings = state.currentFindings;
-        const topRaw = topFindings(findings, 30);
-        const top = applySortState(topRaw, 'top');
-        if (!top.length) return;
-        els.topTableBody.innerHTML = top.map((f, idx) => `
-          <tr data-idx="${idx}" class="trow" tabindex="0">
-            <td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span></td>
-            <td>${escapeHtml(f.product ?? "")}</td>
-            <td>${escapeHtml(f.type ?? "")}</td>
-            <td>${escapeHtml(f.wcag ?? "")}</td>
-            <td>${cellHtml(f.name, 50)}</td>
-            <td>${escapeHtml(f.role ?? "")}</td>
-            <td>${escapeHtml(f.testId ?? "")}</td>
-            <td>${cellHtml(f.note, 60)}</td>
-            <td class="fixCol">${cellHtml(f.fix, 60)}</td>
-          </tr>
-        `).join("");
-        state.top = top;
-      },
+      render: () => renderTopFindingsTable(state.currentFindings),
     },
     {
       id: 'explorer',
@@ -3484,6 +3798,7 @@ if (_jsonToggle) {
     const expanded = _jsonToggle.getAttribute('aria-expanded') === 'true';
     _jsonToggle.setAttribute('aria-expanded', String(!expanded));
     els.json.classList.toggle('collapsed', expanded);
+    els.json.hidden = expanded;
   });
 }
 
@@ -3493,11 +3808,26 @@ document.querySelectorAll('.sectionToggle[data-collapse]').forEach(btn => {
     const expanded = btn.getAttribute('aria-expanded') === 'true';
     btn.setAttribute('aria-expanded', String(!expanded));
     const target = document.getElementById(btn.dataset.collapse);
-    if (target) target.classList.toggle('collapsed', expanded);
+    if (target) {
+      target.classList.toggle('collapsed', expanded);
+      target.hidden = expanded;
+    }
   });
 });
 
+function syncCollapsedSections() {
+  document.querySelectorAll(".sectionBody").forEach((section) => {
+    section.hidden = section.classList.contains("collapsed");
+  });
+  if (els.json) {
+    els.json.hidden = els.json.classList.contains("collapsed");
+  }
+}
+
 // initial
+setSettingsPanelOpen(false);
+syncCollapsedSections();
+updateResultsVisibility(false);
 initVirtualTables();
 initSortableHeaders();
 initColToggles();

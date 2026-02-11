@@ -12,6 +12,68 @@ const TAB_BLOCKING_EVENT_TYPES = new Set([
   "focus_on_body",
   "focus_failed",
 ]);
+const MESSAGE_TYPES = new Set(["LIST_FRAMES", "HIGHLIGHT", "RUN_AUDIT", "CAPTURE_STEP"]);
+const AUDIT_ACTIONS = new Set(["run", "observe", "watch", "tabWalk", "contrast"]);
+const WCAG_LEVELS = new Set(["2.1-AA", "2.1-AAA", "2.2-AA", "2.2-AAA"]);
+
+function isPlainObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isNonNegativeInt(value) {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0;
+}
+
+function isStringArray(value, maxItems = 100, maxLen = 256) {
+  if (!Array.isArray(value) || value.length > maxItems) return false;
+  return value.every(v => typeof v === "string" && v.length <= maxLen);
+}
+
+function validateIncomingMessage(msg, sender) {
+  if (sender?.id !== chrome.runtime.id) return { ok: false, error: "UNAUTHORIZED_SENDER" };
+  if (!isPlainObject(msg)) return { ok: false, error: "BAD_MESSAGE_SCHEMA" };
+  if (!MESSAGE_TYPES.has(msg.type)) return { ok: false, error: "UNKNOWN_MESSAGE" };
+
+  if ((msg.type === "LIST_FRAMES" || msg.type === "RUN_AUDIT" || msg.type === "CAPTURE_STEP" || msg.type === "HIGHLIGHT")
+      && !isNonNegativeInt(msg.tabId)) {
+    return { ok: false, error: "BAD_TAB_ID" };
+  }
+
+  if (msg.type === "HIGHLIGHT") {
+    if (!isNonNegativeInt(msg.frameId)) return { ok: false, error: "BAD_FRAME_ID" };
+    if (msg.finding != null && !isPlainObject(msg.finding)) return { ok: false, error: "BAD_FINDING" };
+  }
+
+  if (msg.type === "RUN_AUDIT") {
+    if (!AUDIT_ACTIONS.has(msg.action)) return { ok: false, error: "BAD_ACTION" };
+    if (msg.wcagLevel != null && !WCAG_LEVELS.has(String(msg.wcagLevel))) return { ok: false, error: "BAD_WCAG_LEVEL" };
+    if (msg.target != null && !isPlainObject(msg.target)) return { ok: false, error: "BAD_TARGET" };
+    if (msg.match != null && !isPlainObject(msg.match)) return { ok: false, error: "BAD_MATCH" };
+    if (msg.modeHints != null && !isPlainObject(msg.modeHints)) return { ok: false, error: "BAD_MODE_HINTS" };
+    if (msg.appMarkers != null && typeof msg.appMarkers !== "string") return { ok: false, error: "BAD_APP_MARKERS" };
+    if (msg.match?.urlIncludes != null && !isStringArray(msg.match.urlIncludes, 80, 256)) return { ok: false, error: "BAD_MATCH_URLS" };
+    if (msg.match?.domSelectorsAny != null && !isStringArray(msg.match.domSelectorsAny, 80, 256)) return { ok: false, error: "BAD_MATCH_SELECTORS" };
+  }
+
+  if (msg.type === "CAPTURE_STEP") {
+    if (msg.wcagLevel != null && !WCAG_LEVELS.has(String(msg.wcagLevel))) return { ok: false, error: "BAD_WCAG_LEVEL" };
+    if (msg.target != null && !isPlainObject(msg.target)) return { ok: false, error: "BAD_TARGET" };
+    if (msg.match != null && !isPlainObject(msg.match)) return { ok: false, error: "BAD_MATCH" };
+    if (msg.modeHints != null && !isPlainObject(msg.modeHints)) return { ok: false, error: "BAD_MODE_HINTS" };
+    if (msg.appMarkers != null && typeof msg.appMarkers !== "string") return { ok: false, error: "BAD_APP_MARKERS" };
+    if (msg.activeMode != null && !AUDIT_ACTIONS.has(String(msg.activeMode))) return { ok: false, error: "BAD_ACTIVE_MODE" };
+    if (msg.match?.urlIncludes != null && !isStringArray(msg.match.urlIncludes, 80, 256)) return { ok: false, error: "BAD_MATCH_URLS" };
+    if (msg.match?.domSelectorsAny != null && !isStringArray(msg.match.domSelectorsAny, 80, 256)) return { ok: false, error: "BAD_MATCH_SELECTORS" };
+  }
+
+  return { ok: true };
+}
+
+function sanitizeWcagLevel(level) {
+  const v = String(level || "2.1-AA");
+  return WCAG_LEVELS.has(v) ? v : "2.1-AA";
+}
 
 function asNumber(value, fallback = 0) {
   const n = Number(value);
@@ -494,16 +556,25 @@ async function executeAuditAcrossFrames({
   };
 }
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
+    const validation = validateIncomingMessage(msg, sender);
+    if (!validation.ok) {
+      sendResponse(validation);
+      return;
+    }
+
     if (msg.type === "LIST_FRAMES") {
-      const frames = await chrome.webNavigation.getAllFrames({ tabId: msg.tabId });
+      const tabId = Number(msg.tabId);
+      const frames = await chrome.webNavigation.getAllFrames({ tabId });
       sendResponse({ ok: true, frames: frames || [] });
       return;
     }
 
     if (msg.type === "HIGHLIGHT") {
-      const { tabId, frameId, finding } = msg;
+      const tabId = Number(msg.tabId);
+      const frameId = Number(msg.frameId);
+      const finding = isPlainObject(msg.finding) ? msg.finding : {};
       await chrome.scripting.executeScript({
         target: { tabId, frameIds: [frameId] },
         world: "MAIN",
@@ -610,7 +681,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     }
 
     if (msg.type === "RUN_AUDIT") {
-      const { tabId, action, target, match, modeHints, appMarkers, alsoConsole, wcagLevel } = msg;
+      const tabId = Number(msg.tabId);
+      const action = String(msg.action);
+      const target = isPlainObject(msg.target) ? msg.target : {};
+      const match = isPlainObject(msg.match) ? msg.match : null;
+      const modeHints = isPlainObject(msg.modeHints) ? msg.modeHints : null;
+      const appMarkers = typeof msg.appMarkers === "string" ? msg.appMarkers : null;
+      const alsoConsole = !!msg.alsoConsole;
+      const wcagLevel = sanitizeWcagLevel(msg.wcagLevel);
       const frames = await chrome.webNavigation.getAllFrames({ tabId });
       const resolved = await resolveTargetFrameIds({ tabId, target, frames, match });
       const frameProbeById = await collectFrameProbeData({ tabId, frames, match });
@@ -634,7 +712,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === "CAPTURE_STEP") {
       const startedAt = Date.now();
       const {
-        tabId,
         target,
         match,
         modeHints,
@@ -643,21 +720,28 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         wcagLevel,
         activeMode,
       } = msg;
-      const safeActiveMode = ["run", "contrast", "tabWalk", "watch", "observe"].includes(activeMode) ? activeMode : "run";
+      const tabId = Number(msg.tabId);
+      const safeTarget = isPlainObject(target) ? target : {};
+      const safeMatch = isPlainObject(match) ? match : null;
+      const safeModeHints = isPlainObject(modeHints) ? modeHints : null;
+      const safeAppMarkers = typeof appMarkers === "string" ? appMarkers : null;
+      const safeAlsoConsole = !!alsoConsole;
+      const safeWcagLevel = sanitizeWcagLevel(wcagLevel);
+      const safeActiveMode = AUDIT_ACTIONS.has(String(activeMode)) ? String(activeMode) : "run";
 
       const frames = await chrome.webNavigation.getAllFrames({ tabId });
-      const resolved = await resolveTargetFrameIds({ tabId, target, frames, match });
-      const frameProbeById = await collectFrameProbeData({ tabId, frames, match });
+      const resolved = await resolveTargetFrameIds({ tabId, target: safeTarget, frames, match: safeMatch });
+      const frameProbeById = await collectFrameProbeData({ tabId, frames, match: safeMatch });
 
       const baseline = await executeAuditAcrossFrames({
         tabId,
         action: "run",
-        target,
-        match,
-        modeHints,
-        appMarkers,
-        alsoConsole,
-        wcagLevel,
+        target: safeTarget,
+        match: safeMatch,
+        modeHints: safeModeHints,
+        appMarkers: safeAppMarkers,
+        alsoConsole: safeAlsoConsole,
+        wcagLevel: safeWcagLevel,
         frames,
         finalTarget: resolved,
         frameProbeById,
@@ -668,12 +752,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         : await executeAuditAcrossFrames({
           tabId,
           action: safeActiveMode,
-          target,
-          match,
-          modeHints,
-          appMarkers,
-          alsoConsole,
-          wcagLevel,
+          target: safeTarget,
+          match: safeMatch,
+          modeHints: safeModeHints,
+          appMarkers: safeAppMarkers,
+          alsoConsole: safeAlsoConsole,
+          wcagLevel: safeWcagLevel,
           frames,
           finalTarget: resolved,
           frameProbeById,
