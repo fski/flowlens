@@ -1,0 +1,209 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <div>
+          <div class="h1">FlowLens <span class="versionBadge" id="versionBadge" data-version="2.13.0">v2.13.0</span></div>
+          <div class="byline">by <span class="author">fski</span></div>
+        </div>
+
+        
+        <div class="controls" aria-label="Frame controls">
+          <div class="controlsRow">
+            <label class="sr-only" for="target">Target frame selection</label>
+            <select id="target" aria-label="Target frame selection">
+              <option value="auto">Auto (HC frame)</option>
+              <option value="top">Top frame (staging/direct)</option>
+              <option value="all">All frames (fallback)</option>
+              <option value="manual">Manual (pick frame)</option>
+            </select>
+
+            <button class="btn" id="refreshFrames">Refresh frames</button>
+          </div>
+
+          <div class="controlsRow">
+            <label class="sr-only" for="frameSelect">Select a frame</label>
+            <select id="frameSelect" aria-label="Select a frame" disabled></select>
+          </div>
+        </div>
+
+      </header>
+
+      
+      <section class="toolbar" aria-label="Audit controls">
+        <div class="row">
+          <div class="group">
+            <button class="btn primary" data-action="run" title="R — Full strict WCAG audit">Run (strict)</button>
+            <button class="btn" data-action="observe" title="O — Watch DOM for 12s, catch dynamic a11y issues">Observe 12s</button>
+            <button class="btn" data-action="watch" title="W — Monitor loading/focus/mutations for 40s">Watch 40s</button>
+            <button class="btn" data-action="tabWalk" title="T — Tab through 80 focusable elements, detect traps">TabWalk 80</button>
+            <button class="btn" data-action="contrast" title="C — Color contrast audit on up to 250 text nodes">Contrast 250</button>
+          </div>
+        </div>
+
+        <div class="row spread">
+          <div class="group">
+            <button class="btn secondary" id="copyJson">Copy JSON</button>
+            <button class="btn secondary" id="downloadJson">Download JSON</button>
+            <button class="btn secondary" id="copyMd">Copy Markdown</button>
+          </div>
+
+          <div class="group">
+            <span class="mutedLabel">Presets</span>
+            <button class="btn" id="presetQuick" title="Run + Contrast">Quick</button>
+            <button class="btn" id="presetRelease" title="Watch + Observe + Run — full pre-release check">Release</button>
+            <button class="btn" id="presetFocus" title="TabWalk + Run — keyboard focus check">Focus</button>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="group toggles" role="group" aria-label="Options">
+            <label class="switch"><input id="onlyHcFrames" type="checkbox" checked /> <span class="slider" aria-hidden="true"></span><span class="switchText">Prefer HC frames</span></label>
+            <label class="switch"><input id="alsoConsole" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Also log to Console</span></label>
+            <label class="switch"><input id="pinFrame" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Pin selected frame for this origin</span></label>
+          
+            <label class="switch"><input id="density" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Compact density</span></label>
+          </div>
+        </div>
+      </section>
+
+      <div class="progress" id="progressWrap" hidden aria-label="Audit progress">
+        <div class="progressBar" id="progressBar"></div>
+        <span class="progressLabel" id="progressLabel"></span>
+      </div>
+
+      <section class="viewbar" aria-label="Results navigation">
+        <div class="viewbarLeft">
+          <label class="sr-only" for="viewSelect">Select stored result</label>
+          <select id="viewSelect" aria-label="Select stored result">
+            <option value="">(no stored results yet)</option>
+          </select>
+          <button class="btn" id="clearHistory" type="button" title="Clear stored results">Clear</button>
+        </div>
+        <div class="viewbarRight" aria-label="Quick views">
+          <button class="seg" id="viewRun" type="button" aria-pressed="false">Run</button>
+          <button class="seg" id="viewContrast" type="button" aria-pressed="false">Contrast</button>
+          <button class="seg" id="viewTab" type="button" aria-pressed="false">TabWalk</button>
+          <button class="seg" id="viewWatch" type="button" aria-pressed="false">Watch</button>
+          <button class="seg" id="viewObserve" type="button" aria-pressed="false">Observe</button>
+        </div>
+      </section>
+
+      <section class="status"
+ aria-label="Run status">
+        <div class="statusRow">
+          <b>Inspected URL:</b>
+          <span id="inspectedUrl" class="truncate mono" title="—">—</span>
+          <button class="btn xs" id="copyInspectedUrl" type="button" aria-label="Copy inspected URL">Copy</button>
+        </div>
+        <div class="statusRow">
+          <b>Detected:</b>
+          <span id="brandEnv" class="truncate mono" title="—">—</span>
+          <button class="btn xs" id="copyDetected" type="button" aria-label="Copy detected origin and environment">Copy</button>
+        </div>
+        <div class="statusRow"><b>Used frameIds:</b> <span id="usedFrames" class="mono">—</span></div>
+        <div class="statusRow"><b>Summary:</b> <span id="summary">—</span></div>
+        <div class="statusRow"><b>Diff vs last:</b> <span id="diff">—</span></div>
+      </section>
+
+      <section class="cards">
+        <div class="card">
+          <div class="cardTitle">Run summary</div>
+          <div class="kvs" id="runSummary">(no run yet)</div>
+        </div>
+
+        <div class="card">
+          <div class="cardTitle">Findings by severity</div>
+          <div class="badges" id="sevBadges"></div>
+        </div>
+      </section>
+
+      <section class="tableWrap" id="findingsSection">
+        <div class="tableTitle">Top findings</div>
+        <table class="tbl" id="topTable">
+          <caption class="sr-only">Top findings</caption>
+          <thead>
+            <tr>
+              <th scope="col">sev</th><th scope="col">product</th><th scope="col">type</th><th scope="col">wcag</th><th scope="col">name</th><th scope="col">role</th><th scope="col">testId</th><th scope="col">note</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section class="card" id="explorerSection">
+        <div class="cardTitle">Findings explorer</div>
+        <div class="filters">
+          <label class="sr-only" for="q">Search findings</label>
+          <input id="q" type="text" aria-label="Search findings" placeholder="Search (type/name/testId/wcag/path)…" />
+          <label class="sr-only" for="sev">Filter by severity</label>
+          <select id="sev" aria-label="Filter by severity">
+            <option value="">All severities</option>
+            <option value="high">high</option>
+            <option value="medium">medium</option>
+            <option value="low">low</option>
+            <option value="info">info</option>
+          </select>
+          <label class="sr-only" for="prod">Filter by product</label>
+          <select id="prod" aria-label="Filter by product"><option value="">All products</option></select>
+          <label class="sr-only" for="type">Filter by type</label>
+          <select id="type" aria-label="Filter by type"><option value="">All types</option></select>
+          <label class="chk"><input id="unique" type="checkbox" checked /> Unique</label>
+        </div>
+        <div class="tableWrap vscroll" style="margin-top:10px;">
+          <table class="tbl" id="allTable">
+            <caption class="sr-only">All findings</caption>
+            <thead>
+              <tr>
+                <th scope="col">sev</th><th scope="col">product</th><th scope="col">type</th><th scope="col">wcag</th><th scope="col">name</th><th scope="col">testId</th><th scope="col">path</th><th scope="col">note</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="out">
+        <button class="outToggle" id="jsonToggle" type="button" aria-expanded="false">
+          <span class="outToggleIcon">&#x25B6;</span> Raw JSON
+        </button>
+        <pre id="json" class="collapsed">(no results yet)</pre>
+      </section>
+      <section class="tableWrap vscroll" id="contrastSection" hidden>
+        <div class="tableTitle">Color audit — Contrast failures</div>
+        <table class="tbl" id="contrastTable">
+          <caption class="sr-only">Contrast failures</caption>
+          <thead>
+            <tr>
+              <th scope="col">ratio</th><th scope="col">req</th><th scope="col">large</th><th scope="col">text</th><th scope="col">tag</th><th scope="col">testId</th><th scope="col">path</th><th scope="col">note</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section class="tableWrap vscroll" id="tabWalkSection" hidden>
+        <div class="tableTitle">Keystrokes — TabWalk events</div>
+        <table class="tbl" id="tabTable">
+          <caption class="sr-only">TabWalk events</caption>
+          <thead>
+            <tr>
+              <th scope="col">i</th><th scope="col">type</th><th scope="col">tabIndex</th><th scope="col">name</th><th scope="col">path</th><th scope="col">note</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+
+      <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+    </div>
+
+    <script src="panel.js"></script>
+  </body>
+</html>
