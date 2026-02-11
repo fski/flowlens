@@ -2,17 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FlowLens</title>
     <link rel="stylesheet" href="panel.css" />
   </head>
   <body>
-    <div class="wrap">
-      <header class="top">
-        <div>
-          <h1 class="h1">FlowLens <span class="versionBadge" id="versionBadge" data-version="3.0.0">v3.0.0</span> <a class="authorBadge" href="https://fski.app" target="_blank" rel="noopener">by fski</a></h1>
-        </div>
-
-        
-        <div class="controls" aria-label="Frame controls">
+    <main class="wrap" role="main">
+      <header class="top headerBar">
+        <h1 class="h1">
+          <span class="sr-only">FlowLens</span>
+          <span class="brandWordmark" aria-hidden="true">
+            <img class="brandLogo brandLogo--dark" src="icons/flowlens-wordmark-dark.svg" alt="" />
+            <img class="brandLogo brandLogo--light" src="icons/flowlens-wordmark-light.svg" alt="" />
+          </span>
+          <span class="versionBadge mono" id="versionBadge" data-version="3.0.0">v3.0.0</span>
+          <a class="authorBadge" href="https://fski.app" target="_blank" rel="noopener">by fski</a>
+        </h1>
+        <span class="divider" aria-hidden="true"></span>
+        <div class="frameRow controls" aria-label="Frame controls">
           <div class="controlsRow">
             <label class="sr-only" for="target">Scope</label>
             <select id="target" aria-label="Scope">
@@ -21,112 +28,107 @@
               <option value="embedded">Embedded frame only</option>
               <option value="all">All frames</option>
             </select>
-
-            <button class="btn" id="refreshFrames">Refresh frames</button>
-          </div>
-
-          <div class="controlsRow">
             <label class="sr-only" for="frameSelect">Select a frame</label>
             <select id="frameSelect" aria-label="Select a frame" disabled></select>
+            <button class="btn xs" id="refreshFrames">&#8635; Refresh</button>
             <button class="btn xs" id="copyFrameUrl" type="button" aria-label="Copy selected frame URL">Copy URL</button>
           </div>
         </div>
-
+        <span class="spacer" aria-hidden="true"></span>
+        <div class="headerActions">
+          <button class="btn xs" id="settingsPanelToggle" type="button" aria-expanded="false" aria-controls="settingsSection">&#x2699; Settings</button>
+          <div class="exportAnchor" id="exportAnchor" hidden>
+            <button class="exportBtn" id="exportToggle" type="button" aria-expanded="false" aria-haspopup="menu" aria-controls="exportMenu">&#8595; Export &#x25BE;</button>
+            <div class="exportMenu" id="exportMenu" role="menu" aria-labelledby="exportToggle" hidden>
+              <div class="emLabel">Single run</div>
+              <button class="emItem" id="copyJson" type="button" role="menuitem"><span class="l">Copy JSON</span><span class="dd">Result as JSON</span></button>
+              <button class="emItem" id="copyMd" type="button" role="menuitem"><span class="l">Copy Markdown</span><span class="dd">Formatted report</span></button>
+              <button class="emItem" id="downloadJson" type="button" role="menuitem"><span class="l">Download .json</span><span class="dd">Save to file</span></button>
+              <span class="inlineHint sr-only" id="copyMdHint" aria-live="polite"></span>
+              <div class="emSep"></div>
+              <div class="emLabel">Session</div>
+              <button class="emItem" id="sessionExportJson" type="button" role="menuitem" disabled><span class="l">Session JSON</span><span class="dd">Full session data</span></button>
+              <button class="emItem" id="sessionExportMd" type="button" role="menuitem" disabled><span class="l">Session Markdown</span><span class="dd">Step-by-step report</span></button>
+              <span class="inlineHint sr-only" id="sessionMdHint" aria-live="polite"></span>
+            </div>
+          </div>
+        </div>
       </header>
 
+      <section class="settingsPanel" id="settingsSection" aria-label="Settings panel" hidden>
+        <div class="settingsGrid" id="settingsBody" role="region" aria-labelledby="settingsPanelToggle">
+          <div class="settingsGroup">
+            <span class="settingsLabel">Profiles</span>
+            <div id="profileSelect" class="profilePills" role="group" aria-label="Active MFE profiles"></div>
+          </div>
+          <div class="settingsGroup">
+            <span class="settingsLabel">Display</span>
+            <div class="settingsToggles">
+              <label class="switch"><input id="density" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Compact</span></label>
+              <label class="switch"><input id="themeToggle" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Light theme</span></label>
+            </div>
+          </div>
+          <div class="settingsGroup">
+            <span class="settingsLabel">Audit config</span>
+            <div class="settingsToggles">
+              <label class="switch"><input id="alsoConsole" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Log to console</span></label>
+              <label class="switch"><input id="pinFrame" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Pin frame</span></label>
+            </div>
+          </div>
+          <div class="settingsGroup">
+            <span class="settingsLabel">WCAG Level</span>
+            <label class="sr-only" for="wcagLevel">WCAG compliance level</label>
+            <select id="wcagLevel" aria-label="WCAG compliance level">
+              <option value="2.1-AA">WCAG 2.1 AA</option>
+              <option value="2.1-AAA">WCAG 2.1 AAA</option>
+              <option value="2.2-AA">WCAG 2.2 AA</option>
+              <option value="2.2-AAA">WCAG 2.2 AAA</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
       
-      <section class="toolbar" aria-label="Audit controls">
-        <div class="row toolbarRow spread" aria-label="Mode selection">
-          <span class="mutedLabel">MODE</span>
-          <div class="group">
-            <button class="btn" data-action="run" aria-pressed="true" title="Strict WCAG audit"><kbd>R</kbd> Audit</button>
-            <button class="btn" data-action="observe" aria-pressed="false" title="Re-run checks every ~1s for 12s"><kbd>O</kbd> Observe</button>
-            <button class="btn" data-action="watch" aria-pressed="false" title="Monitor loaders and focus for 40s"><kbd>W</kbd> Watch</button>
-            <button class="btn" data-action="tabWalk" aria-pressed="false" title="Walk 80 focusable elements"><kbd>T</kbd> Tab order</button>
-            <button class="btn" data-action="contrast" aria-pressed="false" title="Check contrast on up to 250 text nodes"><kbd>C</kbd> Contrast</button>
-          </div>
-          <div class="presetDropdownGroup">
-            <div class="presetDropdown">
-              <button class="btn xs" id="presetToggle" type="button" aria-expanded="false" aria-haspopup="true" title="Run preset sequences">Preset &#x25BE;</button>
-              <div class="presetMenu" id="presetMenu" hidden>
-                <button class="presetOption" id="presetQuick" title="Run + Contrast">Quick</button>
-                <button class="presetOption" id="presetRelease" title="Watch + Observe + Run">Release</button>
-                <button class="presetOption" id="presetFocus" title="TabWalk + Run">Focus</button>
-              </div>
-            </div>
-          </div>
+      <section class="toolbar auditBar" aria-label="Audit controls">
+        <div class="row presetsRow toolbarRow" aria-label="Quick start">
+          <span class="mutedLabel">Quick start</span>
+          <button class="presetChip" id="presetQuick" type="button" title="Run Audit + Contrast">&#9889; Quick <span class="d">Audit + Contrast</span></button>
+          <button class="presetChip" id="presetRelease" type="button" title="Run Watch + Observe + Audit">&#9678; Release <span class="d">Watch + Observe + Audit</span></button>
+          <button class="presetChip" id="presetFocus" type="button" title="Run Tab Walk + Audit">&#8677; Focus <span class="d">Tab Walk + Audit</span></button>
+          <span class="spacer" aria-hidden="true"></span>
+          <button class="sessionBtn" id="sessionStart" type="button" title="Start capture session">&#9687; Start session</button>
         </div>
-
-        <div class="row toolbarRow" aria-label="Actions">
-          <span class="mutedLabel">ACTION</span>
-          <div class="group">
-            <button class="btn primary" id="runCurrentMode" title="Run the selected mode">Run Audit</button>
-            <button class="btn secondary" id="sessionStart" title="Start capture session">Start session</button>
-            <button class="btn secondary" id="sessionMark" title="Capture current step" disabled hidden>Mark step</button>
-            <button class="btn secondary" id="sessionEnd" title="End active session" disabled hidden>End session</button>
-          </div>
-        </div>
-
-        <div class="row toolbarRow" aria-label="Evidence and exports">
-          <span class="mutedLabel">EXPORT</span>
-          <div class="group exportClusters">
-            <div class="exportCluster">
-              <button class="btn secondary" id="copyJson" title="Copy latest single-run result as JSON">JSON</button>
-              <button class="btn secondary" id="copyMd" title="Copy latest single-run result as Markdown">Markdown</button>
-              <span class="inlineHint" id="copyMdHint" aria-live="polite"></span>
-              <button class="btn secondary" id="downloadJson" title="Download latest single-run result as JSON file">Download</button>
-            </div>
-            <div class="exportCluster exportClusterSession">
-              <button class="btn secondary" id="sessionExportJson" title="Export active session as JSON" disabled>Session JSON</button>
-              <button class="btn secondary" id="sessionExportMd" title="Export active session as Markdown" disabled>Session MD</button>
-              <span class="inlineHint" id="sessionMdHint" aria-live="polite"></span>
-            </div>
-          </div>
-          <div class="sessionHud mono truncate" id="sessionHudLine" aria-live="polite">Session • none</div>
+        <div class="auditDiv" aria-hidden="true"></div>
+        <div class="row modesRow toolbarRow" aria-label="Mode selection">
+          <button class="modeTab" data-action="run" aria-pressed="true" title="Strict WCAG audit [R]">&#9673; Audit</button>
+          <button class="modeTab" data-action="observe" aria-pressed="false" title="Re-run checks every ~1s for 12s [O]">&#9678; Observe <span class="dur">12s</span></button>
+          <button class="modeTab" data-action="watch" aria-pressed="false" title="Monitor loaders and focus for 40s [W]">&#9673; Watch <span class="dur">40s</span></button>
+          <button class="modeTab" data-action="tabWalk" aria-pressed="false" title="Walk 80 focusable elements [T]">&#8677; Tab Walk</button>
+          <button class="modeTab" data-action="contrast" aria-pressed="false" title="Check contrast on up to 250 text nodes [C]">&#9680; Contrast</button>
+          <span class="spacer" aria-hidden="true"></span>
+          <button class="runBtn" id="runCurrentMode" type="button" title="Run the selected mode"><span id="runIcon">▶</span> <span id="runLabel">Run Audit</span></button>
         </div>
       </section>
 
-      <section class="card" id="settingsSection">
-        <button class="sectionToggle" type="button" aria-expanded="false" data-collapse="settingsBody">
-          <span class="outToggleIcon">&#x25B6;</span> <svg class="si" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="2"/><path d="M8 1v2m0 10v2M1 8h2m10 0h2M3.05 3.05l1.41 1.41m7.08 7.08l1.41 1.41M12.95 3.05l-1.41 1.41M4.46 11.54l-1.41 1.41"/></svg> Settings
-        </button>
-        <div id="settingsBody" class="sectionBody collapsed">
-          <div class="settingsGrid">
-            <div class="settingsGroup">
-              <span class="settingsLabel">Profiles</span>
-              <div id="profileSelect" class="profilePills" role="group" aria-label="Active MFE profiles"></div>
-            </div>
-            <div class="settingsGroup">
-              <span class="settingsLabel">Display</span>
-              <div class="settingsToggles">
-                <label class="switch"><input id="density" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Compact</span></label>
-                <label class="switch"><input id="themeToggle" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Light theme</span></label>
-              </div>
-            </div>
-            <div class="settingsGroup">
-              <span class="settingsLabel">Audit config</span>
-              <div class="settingsToggles">
-                <label class="switch"><input id="alsoConsole" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Log to console</span></label>
-                <label class="switch"><input id="pinFrame" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Pin frame</span></label>
-              </div>
-            </div>
-            <div class="settingsGroup">
-              <span class="settingsLabel">WCAG Level</span>
-              <label class="sr-only" for="wcagLevel">WCAG compliance level</label>
-              <select id="wcagLevel" aria-label="WCAG compliance level">
-                <option value="2.1-AA">WCAG 2.1 AA</option>
-                <option value="2.1-AAA">WCAG 2.1 AAA</option>
-                <option value="2.2-AA">WCAG 2.2 AA</option>
-                <option value="2.2-AAA">WCAG 2.2 AAA</option>
-              </select>
-            </div>
-          </div>
-        </div>
+      <section class="sessionBanner" id="sessionBanner" role="status" aria-live="polite" hidden>
+        <span class="sessionDot" aria-hidden="true"></span>
+        <span class="sessionLabel mono">Session</span>
+        <span class="sessionMeta mono truncate" id="sessionMeta">0 steps · 0:00</span>
+        <span class="sessionStatus ok" id="sessionStatus">OK</span>
+        <span class="sessionBannerSpacer"></span>
+        <button class="btn xs secondary" id="sessionMark" title="Capture current step" disabled hidden>Mark step</button>
+        <button class="btn xs" id="sessionEnd" title="End active session" disabled hidden>End</button>
       </section>
 
-      <div class="progress" id="progressWrap" hidden aria-label="Audit progress">
-        <div class="progressBar" id="progressBar"></div>
-        <span class="progressLabel" id="progressLabel"></span>
+      <div class="progress" id="progressWrap" hidden role="status" aria-live="polite" aria-atomic="true" aria-label="Audit progress">
+        <div class="pMeta">
+          <span class="pLabel" id="progressLabel">Scanning…</span>
+          <span class="pTime mono" id="progressTime">0.0s</span>
+        </div>
+        <div class="pTrack" aria-hidden="true">
+          <div class="pFill" id="progressBar" role="progressbar" aria-label="Audit progress completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="0%" aria-describedby="progressLabel progressStatus"></div>
+        </div>
+        <span class="sr-only" id="progressStatus">Audit idle</span>
       </div>
 
       <section class="viewbar" aria-label="Results navigation">
@@ -135,11 +137,12 @@
           <select id="viewSelect" aria-label="Previous results">
             <option value="">No results yet</option>
           </select>
-          <button class="btn" id="clearHistory" type="button" title="Clear stored results">Clear</button>
+          <button class="btn xs" id="clearHistory" type="button" title="Clear stored results">Clear</button>
         </div>
         <div class="viewbarRight" aria-label="Mode controls">
           <span class="mutedLabel">Mode</span>
           <span id="currentModeText" class="mono">run</span>
+          <button class="btn xs" id="rerunCurrent" type="button" title="Run the selected mode again">Re-run</button>
         </div>
       </section>
 
@@ -160,38 +163,54 @@
         </div>
       </section>
 
-      <section class="card" id="resultsCard">
-        <button class="sectionToggle" type="button" aria-expanded="true" data-collapse="resultsBody">
+      <section class="emptyState" id="emptyState" aria-live="polite">
+        <div class="emptyIcon" aria-hidden="true">◎</div>
+        <div class="emptyTitle">Ready to audit</div>
+        <div class="emptyDesc">
+          Pick a mode and hit <kbd>Run Audit</kbd>, or use a Quick Start preset.<br />
+          Keyboard: <kbd>R</kbd> <kbd>O</kbd> <kbd>W</kbd> <kbd>T</kbd> <kbd>C</kbd>
+        </div>
+      </section>
+
+      <div class="resultsZone" id="resultsZone">
+      <section class="findingsCard" id="resultsCard">
+        <button class="sectionToggle" id="resultsToggleBtn" type="button" aria-expanded="true" aria-controls="resultsBody" data-collapse="resultsBody">
           <span class="outToggleIcon">&#x25B6;</span> <svg class="si" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 11V8m4 3V5m4 6V3"/></svg> Results
         </button>
-        <div id="resultsBody" class="sectionBody">
+        <div id="resultsBody" class="sectionBody" role="region" aria-labelledby="resultsToggleBtn">
           <div id="runSummary" class="kvs">(no results yet)</div>
           <div id="sevBadges" class="badges"></div>
         </div>
       </section>
 
-      <section class="tableWrap" id="findingsSection">
-        <button class="sectionToggle" type="button" aria-expanded="true" data-collapse="topTableInner">
-          <span class="outToggleIcon">&#x25B6;</span> <svg class="si" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2L1.5 13h13L8 2z"/><path d="M8 6.5v3m0 2v.5"/></svg> Top issues
+      <div class="statsRow" id="statsRow" hidden></div>
+
+      <section class="findingsCard" id="findingsSection">
+        <button class="sectionToggle" id="topIssuesToggleBtn" type="button" aria-expanded="true" aria-controls="topTableInner" data-collapse="topTableInner">
+          <span class="outToggleIcon">&#x25B6;</span> <svg class="si" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2L1.5 13h13L8 2z"/><path d="M8 6.5v3m0 2v.5"/></svg> Top issues <span class="toggleCount" id="topCount">0</span>
         </button>
-        <div id="topTableInner" class="sectionBody">
-          <table class="tbl" id="topTable">
-            <caption class="sr-only">Top issues</caption>
-            <thead>
-              <tr>
-                <th scope="col">sev</th><th scope="col">product</th><th scope="col">type</th><th scope="col">wcag</th><th scope="col">name</th><th scope="col">role</th><th scope="col">testId</th><th scope="col">note</th><th scope="col">fix</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+        <div id="topTableInner" class="sectionBody" role="region" aria-labelledby="topIssuesToggleBtn">
+          <div class="blockAlert" id="topBlockingAlert" hidden></div>
+          <div class="filterChips" id="topFilterChips" role="group" aria-label="Filter top issues by severity"></div>
+          <div class="tableWrap vscroll">
+            <table class="tbl" id="topTable">
+              <caption class="sr-only">Top issues</caption>
+              <thead>
+                <tr>
+                  <th scope="col">sev</th><th scope="col">product</th><th scope="col">type</th><th scope="col">wcag</th><th scope="col">name</th><th scope="col">role</th><th scope="col">testId</th><th scope="col">note</th><th scope="col">fix</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </section>
 
-      <section class="card" id="explorerSection">
-        <button class="sectionToggle" type="button" aria-expanded="true" data-collapse="explorerBody">
-          <span class="outToggleIcon">&#x25B6;</span> <svg class="si" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="6.5" cy="6.5" r="4"/><path d="M10 10l4 4"/></svg> All findings
+      <section class="findingsCard" id="explorerSection">
+        <button class="sectionToggle" id="explorerToggleBtn" type="button" aria-expanded="true" aria-controls="explorerBody" data-collapse="explorerBody">
+          <span class="outToggleIcon">&#x25B6;</span> <svg class="si" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="6.5" cy="6.5" r="4"/><path d="M10 10l4 4"/></svg> All findings <span class="toggleCount" id="allCount">0</span>
         </button>
-        <div id="explorerBody" class="sectionBody">
+        <div id="explorerBody" class="sectionBody" role="region" aria-labelledby="explorerToggleBtn">
           <div class="filters">
             <label class="sr-only" for="q">Filter findings</label>
             <input id="q" type="text" aria-label="Filter findings" placeholder="Filter findings..." />
@@ -209,7 +228,7 @@
             <select id="type" aria-label="Filter by type"><option value="">All types</option></select>
             <label class="chk"><input id="unique" type="checkbox" checked /> Unique</label>
           </div>
-          <div class="tableWrap vscroll" style="margin-top:10px;">
+          <div class="tableWrap vscroll">
             <table class="tbl" id="allTable">
               <caption class="sr-only">All findings</caption>
               <thead>
@@ -225,42 +244,47 @@
 
       <section class="out">
         <div class="outHeader">
-          <button class="outToggle" id="jsonToggle" type="button" aria-expanded="false">
+          <button class="outToggle" id="jsonToggle" type="button" aria-expanded="false" aria-controls="json">
             <span class="outToggleIcon">&#x25B6;</span> <svg class="si" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4L1 8l4 4m6-8l4 4-4 4"/></svg> Raw JSON
           </button>
           <button class="btn xs" id="copyJsonRaw" type="button" aria-label="Copy raw JSON">Copy</button>
         </div>
-        <pre id="json" class="collapsed">(no results yet)</pre>
+        <pre id="json" class="collapsed" role="region" aria-label="Raw JSON output" hidden>(no results yet)</pre>
       </section>
-      <section class="tableWrap vscroll" id="contrastSection" hidden>
+      <section class="findingsCard" id="contrastSection" role="region" aria-label="Contrast results" hidden>
         <div class="tableTitle"><svg class="si" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5A5.5 5.5 0 0 1 8 13.5z" fill="currentColor" stroke="none"/></svg> <span id="contrastTitle">Color audit — Contrast failures</span><label class="switch switchSm"><input id="contrastShowAll" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Show all</span></label></div>
-        <table class="tbl" id="contrastTable">
-          <caption class="sr-only">Contrast failures</caption>
-          <thead>
-            <tr>
-              <th scope="col">ratio</th><th scope="col">req</th><th scope="col">large</th><th scope="col">text</th><th scope="col">tag</th><th scope="col">testId</th><th scope="col">path</th><th scope="col">note</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="tableWrap vscroll">
+          <table class="tbl" id="contrastTable">
+            <caption class="sr-only">Contrast failures</caption>
+            <thead>
+              <tr>
+                <th scope="col">ratio</th><th scope="col">req</th><th scope="col">large</th><th scope="col">text</th><th scope="col">tag</th><th scope="col">testId</th><th scope="col">path</th><th scope="col">note</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
 
-      <section class="tableWrap vscroll" id="tabWalkSection" hidden>
+      <section class="findingsCard" id="tabWalkSection" role="region" aria-label="Tab order results" hidden>
         <div class="tableTitle"><svg class="si" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="14" height="10" rx="2"/><path d="M4 7h1m2 0h1m2 0h1M5 10h6"/></svg> Keystrokes — TabWalk events</div>
-        <table class="tbl" id="tabTable">
-          <caption class="sr-only">TabWalk events</caption>
-          <thead>
-            <tr>
-              <th scope="col">i</th><th scope="col">type</th><th scope="col">tabIndex</th><th scope="col">name</th><th scope="col">path</th><th scope="col">note</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="tableWrap vscroll">
+          <table class="tbl" id="tabTable">
+            <caption class="sr-only">TabWalk events</caption>
+            <thead>
+              <tr>
+                <th scope="col">i</th><th scope="col">type</th><th scope="col">tabIndex</th><th scope="col">name</th><th scope="col">path</th><th scope="col">note</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
+      </div>
 
 
       <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
-    </div>
+    </main>
 
     <script src="panel.js"></script>
   </body>
