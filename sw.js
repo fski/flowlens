@@ -14,42 +14,92 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         target: { tabId, frameIds: [frameId] },
         world: "MAIN",
         func: (finding) => {
-          const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+          const OVERLAY_ATTR = "data-a11yflow-highlight";
+          const STYLE_ID = "a11yflow-highlight-style";
+
+          // Cleanup previous highlights
+          document.querySelectorAll(`[${OVERLAY_ATTR}]`).forEach(el => el.remove());
+
+          // Inject keyframe style once
+          if (!document.getElementById(STYLE_ID)) {
+            const style = document.createElement("style");
+            style.id = STYLE_ID;
+            style.textContent = `
+              @keyframes a11yflow-pulse {
+                0%, 100% { box-shadow: 0 0 0 3px rgba(255,121,198,0.9); }
+                50% { box-shadow: 0 0 0 6px rgba(255,121,198,0.4); }
+              }
+              [${OVERLAY_ATTR}] {
+                position: absolute;
+                pointer-events: none;
+                z-index: 2147483647;
+                border: 2px solid #ff79c6;
+                border-radius: 3px;
+                animation: a11yflow-pulse 1s ease-in-out 3;
+                transition: opacity 0.4s ease;
+              }
+            `;
+            document.head.appendChild(style);
+          }
+
           const pick = () => {
+            // 1st: testId
             try {
               if (finding?.testId) {
-                const el = document.querySelector(`[data-testid="${CSS.escape(finding.testId)}"]`) ||
-                  document.querySelector(`[data-testid="${CSS.escape(finding.testId)}"] *`);
+                const el = document.querySelector(`[data-testid="${CSS.escape(finding.testId)}"]`);
                 if (el) return el;
               }
             } catch {}
+            // 2nd: CSS path
             try {
               if (finding?.path) {
                 const el = document.querySelector(finding.path);
                 if (el) return el;
               }
             } catch {}
+            // 3rd: tag + role + text match
+            try {
+              if (finding?.tag && finding?.name) {
+                const tag = finding.tag.toLowerCase();
+                const candidates = document.querySelectorAll(tag);
+                const role = finding.role || null;
+                const nameNorm = (finding.name || "").trim().toLowerCase().slice(0, 80);
+                for (const c of candidates) {
+                  if (role && c.getAttribute("role") !== role) continue;
+                  const cText = (c.textContent || "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, 80);
+                  if (cText && nameNorm && cText.includes(nameNorm)) return c;
+                }
+              }
+            } catch {}
             return null;
           };
 
-          (async () => {
-            const el = pick();
-            if (!el) {
-              console.warn("[A11YFlowAudit] Could not find element to highlight.", finding);
-              return;
-            }
-            const prev = el.getAttribute("data-a11yflowaudit-outline");
-            el.setAttribute("data-a11yflowaudit-outline", "1");
-            const oldOutline = el.style.outline;
-            const oldOffset = el.style.outlineOffset;
-            el.style.outline = "3px solid #ff79c6";
-            el.style.outlineOffset = "3px";
-            try { el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" }); } catch {}
-            await sleep(1200);
-            el.style.outline = oldOutline;
-            el.style.outlineOffset = oldOffset;
-            if (!prev) el.removeAttribute("data-a11yflowaudit-outline");
-          })();
+          const el = pick();
+          if (!el) {
+            console.warn("[A11YFlowAudit] Could not find element to highlight.", finding);
+            return;
+          }
+
+          // Scroll into view
+          try { el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" }); } catch {}
+
+          // Position overlay after scroll settles (double-rAF)
+          requestAnimationFrame(() => { requestAnimationFrame(() => {
+            const rect = el.getBoundingClientRect();
+            const overlay = document.createElement("div");
+            overlay.setAttribute(OVERLAY_ATTR, "1");
+            overlay.style.cssText = `
+              top: ${rect.top + window.scrollY - 3}px;
+              left: ${rect.left + window.scrollX - 3}px;
+              width: ${rect.width + 6}px;
+              height: ${rect.height + 6}px;
+            `;
+            document.body.appendChild(overlay);
+
+            // Fade out after 3.5s, remove at 3.9s
+            setTimeout(() => { overlay.style.opacity = "0"; }, 3500);
+            setTimeout(() => { overlay.remove(); }, 3900);
+          }); });
         },
         args: [finding]
       });

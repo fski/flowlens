@@ -136,7 +136,12 @@
     CHAT_LOG_NO_ARIA_LIVE_SOFT: 'Add aria-live="polite" to the role="log" container so new messages are announced.',
     DISABLED_INPUT_NO_EXPLANATION: 'Add aria-describedby pointing to text explaining why the input is disabled, or add a title attribute.',
     LOADER_WITHOUT_ANNOUNCEMENT_HOOK: 'Add an aria-live="polite" region and update its text when loading starts/ends (e.g., "Loading…" / "Content loaded").',
-    DUPLICATE_ID: (f) => `Make id="${f.extra?.id}" unique across the page. In microfrontend contexts, add a scope prefix (e.g., "mfe1-${f.extra?.id}").`,
+    DUPLICATE_ID: (f) => {
+      const base = `Make id="${f.extra?.id}" unique across the page. In microfrontend contexts, add a scope prefix (e.g., "mfe1-${f.extra?.id}").`;
+      return f.extra?.ariaReferenced
+        ? `${base} This ID is referenced by ARIA attributes — duplicates will break accessible name/description resolution.`
+        : base;
+    },
     FOCUS_VISIBLE_SUPPRESSED: 'Add a visible :focus-visible style (e.g., outline: 2px solid #005fcc; outline-offset: 2px) or use box-shadow for the focus indicator.',
     NO_SKIP_NAV: 'Add a visually hidden skip link as the first focusable element: <a href="#main" class="skip-link">Skip to main content</a>.',
     MISSING_AUTOCOMPLETE: 'Add the appropriate autocomplete attribute (e.g., autocomplete="email") to help browsers autofill this field.',
@@ -166,6 +171,15 @@
     CONSISTENT_HELP_CHECK: 'Ensure help/contact links appear in the same relative order on every page.',
     FOCUS_MAY_BE_OBSCURED: 'Use scroll-padding-top/bottom or scroll-margin to offset focused elements past sticky headers/footers.',
     REDUNDANT_ENTRY: 'Add autocomplete attributes to repeated fields, or pre-fill values from prior entries.',
+    // Help center / chat / general
+    HC_TREE_ITEM_NO_NAME: 'Add aria-label or visible text content to each role="treeitem" so screen readers can announce the item.',
+    HC_TREE_NO_ARIA_EXPANDED: 'Add aria-expanded="true" or aria-expanded="false" to treeitem elements that own a child role="group".',
+    CHAT_MESSAGE_NO_ROLE: 'Add role="listitem", role="article", or a semantic element to direct children of role="log" so screen readers convey message boundaries.',
+    CHAT_INPUT_NO_LABEL: 'Add a visible <label> or aria-label to the chat input/textarea so screen readers announce its purpose.',
+    CHAT_TIMESTAMP_INACCESSIBLE: 'Remove aria-hidden from the timestamp, or provide the same information in an sr-only element or aria-label on the parent message.',
+    HC_ARTICLE_NO_HEADING: 'Add an <h2> or <h3> heading inside the article to give it a navigable structure for screen reader users.',
+    LIVE_REGION_HIDDEN: 'An aria-live region with display:none or visibility:hidden will never announce. Make it visible (use clip-rect for visual hiding) or remove aria-live.',
+    COMBOBOX_NO_LISTBOX: 'Add aria-owns or aria-controls pointing to a role="listbox" (or role="tree"/"grid") element that appears when the combobox is expanded.',
     // AAA
     TARGET_SIZE_AAA: 'Increase the target size to at least 44x44px to meet AAA requirements.',
   };
@@ -593,7 +607,146 @@
           });
         }
       });
+
+      // CHAT_MESSAGE_NO_ROLE: Direct children of role=log without semantic role
+      doc.querySelectorAll("[role='log']").forEach(log => {
+        if (isHidden(log)) return;
+        [...log.children].forEach(child => {
+          if (!isEl(child) || isHidden(child)) return;
+          const role = child.getAttribute("role");
+          const tag = child.tagName;
+          const isSemantic = role || ["LI","ARTICLE","SECTION","P"].includes(tag);
+          if (!isSemantic) {
+            add(findings, {
+              type: "CHAT_MESSAGE_NO_ROLE", el: child, severity: "low", wcag: "1.3.1",
+              product: "chat",
+              note: `Direct child of role="log" (${tag.toLowerCase()}) has no semantic role — screen readers may not convey message boundaries.`
+            });
+          }
+        });
+      });
+
+      // CHAT_INPUT_NO_LABEL: Textarea/input near role=log without label
+      doc.querySelectorAll("[role='log']").forEach(log => {
+        if (isHidden(log)) return;
+        const container = log.parentElement || doc.body;
+        container.querySelectorAll("textarea, input[type='text'], input:not([type])").forEach(inp => {
+          if (isHidden(inp)) return;
+          const name = getAccName(inp);
+          if (!name || name.startsWith("[placeholder]")) {
+            add(findings, {
+              type: "CHAT_INPUT_NO_LABEL", el: inp, severity: "medium", wcag: "1.3.1 / 4.1.2",
+              product: "chat",
+              note: "Chat input/textarea near role=\"log\" has no accessible label (placeholder alone is insufficient)."
+            });
+          }
+        });
+      });
+
+      // CHAT_TIMESTAMP_INACCESSIBLE: Timestamp elements in role=log that are aria-hidden with no alt
+      doc.querySelectorAll("[role='log']").forEach(log => {
+        if (isHidden(log)) return;
+        log.querySelectorAll("[aria-hidden='true']").forEach(hidden => {
+          const text = (hidden.textContent || "").trim();
+          if (!text) return;
+          if (!/\d/.test(text)) return; // likely not a timestamp
+          if (/(am|pm|:\d{2}|ago|yesterday|today|\d{1,2}\/\d{1,2})/i.test(text)) {
+            const parent = hidden.parentElement;
+            const parentHasAlt = parent && (parent.getAttribute("aria-label") || parent.getAttribute("title"));
+            if (!parentHasAlt) {
+              add(findings, {
+                type: "CHAT_TIMESTAMP_INACCESSIBLE", el: hidden, severity: "low", wcag: "1.3.1",
+                product: "chat",
+                note: `Timestamp "${txt(text, 40)}" is aria-hidden with no accessible alternative on parent.`
+              });
+            }
+          }
+        });
+      });
     }
+
+    // -------- Help center tree checks --------
+    if (mode === "helpcenter-tree" || mode === "auto") {
+      // HC_TREE_ITEM_NO_NAME: treeitem without accessible name
+      doc.querySelectorAll("[role='treeitem']").forEach(el => {
+        if (isHidden(el)) return;
+        const name = getAccName(el);
+        if (!name) {
+          add(findings, {
+            type: "HC_TREE_ITEM_NO_NAME", el, severity: "high", wcag: "4.1.2",
+            product: "helpcenter",
+            note: "role=\"treeitem\" has no accessible name — screen readers cannot announce this item."
+          });
+        }
+      });
+
+      // HC_TREE_NO_ARIA_EXPANDED: treeitem with child group but no aria-expanded
+      doc.querySelectorAll("[role='treeitem']").forEach(el => {
+        if (isHidden(el)) return;
+        const hasGroup = el.querySelector("[role='group']") || (el.nextElementSibling && el.nextElementSibling.getAttribute("role") === "group");
+        if (hasGroup && !el.hasAttribute("aria-expanded")) {
+          add(findings, {
+            type: "HC_TREE_NO_ARIA_EXPANDED", el, severity: "medium", wcag: "4.1.2",
+            product: "helpcenter",
+            note: "role=\"treeitem\" has a child role=\"group\" but no aria-expanded — screen readers cannot convey expand/collapse state."
+          });
+        }
+      });
+    }
+
+    // -------- Help center article check --------
+    if (mode === "helpcenter-bot" || mode === "helpcenter-tree" || mode === "auto") {
+      doc.querySelectorAll("article, [role='article']").forEach(el => {
+        if (isHidden(el)) return;
+        const textLen = (el.textContent || "").trim().length;
+        if (textLen < 100) return;
+        const hasHeading = !!el.querySelector("h1,h2,h3,h4,h5,h6,[role='heading']");
+        if (!hasHeading) {
+          add(findings, {
+            type: "HC_ARTICLE_NO_HEADING", el, severity: "medium", wcag: "1.3.1 / 2.4.6",
+            product: "helpcenter",
+            note: `Article with ${textLen} chars of text has no heading — screen reader users cannot navigate its structure.`
+          });
+        }
+      });
+    }
+
+    // -------- General checks (any mode) --------
+
+    // LIVE_REGION_HIDDEN: aria-live region with display:none or visibility:hidden
+    doc.querySelectorAll("[aria-live]").forEach(el => {
+      if (!el.getAttribute("aria-live")) return;
+      try {
+        const cs = w.getComputedStyle(el);
+        if (cs.display === "none" || cs.visibility === "hidden") {
+          add(findings, {
+            type: "LIVE_REGION_HIDDEN", el, severity: "medium", wcag: "4.1.3",
+            note: `aria-live="${el.getAttribute("aria-live")}" region is hidden (${cs.display === "none" ? "display:none" : "visibility:hidden"}) — announcements will never fire.`
+          });
+        }
+      } catch {}
+    });
+
+    // COMBOBOX_NO_LISTBOX: role=combobox without associated listbox/tree/grid
+    doc.querySelectorAll("[role='combobox']").forEach(el => {
+      if (isHidden(el)) return;
+      const owns = el.getAttribute("aria-owns") || el.getAttribute("aria-controls") || "";
+      const ownedIds = owns.split(/\s+/).filter(Boolean);
+      const hasPopup = ownedIds.some(id => {
+        const target = doc.getElementById(id);
+        if (!target) return false;
+        const r = target.getAttribute("role");
+        return r === "listbox" || r === "tree" || r === "grid";
+      });
+      // Also check for a listbox/tree/grid child
+      const hasChild = !!el.querySelector("[role='listbox'],[role='tree'],[role='grid']");
+      if (!hasPopup && !hasChild) {
+        add(findings, {
+          type: "COMBOBOX_NO_LISTBOX", el, severity: "medium", wcag: "4.1.2",
+          note: "role=\"combobox\" has no associated listbox/tree/grid via aria-owns/aria-controls or as a descendant."
+        });
+      }
+    });
 
     // -------- Loader/status smell (4.1.3) --------
     const loaders = [...doc.querySelectorAll("[aria-busy='true'],[role='progressbar'],[role='status'],div,section,main")]
@@ -613,16 +766,34 @@
     // -------- Additional checks --------
 
     // 4.1.1 Parsing: duplicate IDs (breaks ARIA references in microfrontends)
-    const idMap = new Map();
+    // Pass 1: collect all elements per ID
+    const idElements = new Map();
     doc.querySelectorAll("[id]").forEach(el => {
       const id = el.id;
       if (!id) return;
-      if (idMap.has(id)) {
-        add(findings, { type: "DUPLICATE_ID", el, severity: "medium", wcag: "4.1.1", note: `Duplicate id="${id}" — breaks aria-labelledby/describedby references.`, extra: { id } });
-      } else {
-        idMap.set(id, el);
-      }
+      if (!idElements.has(id)) idElements.set(id, []);
+      idElements.get(id).push(el);
     });
+    // Pass 1.5: build set of IDs referenced by ARIA attrs
+    const ariaReferencedIds = new Set();
+    ["aria-labelledby","aria-describedby","aria-controls","aria-owns","aria-activedescendant"].forEach(attr => {
+      doc.querySelectorAll(`[${attr}]`).forEach(el => {
+        (el.getAttribute(attr) || "").split(/\s+/).filter(Boolean).forEach(id => ariaReferencedIds.add(id));
+      });
+    });
+    // Pass 2: report every occurrence of duplicated IDs
+    for (const [id, elements] of idElements) {
+      if (elements.length < 2) continue;
+      const ariaReferenced = ariaReferencedIds.has(id);
+      const sev = ariaReferenced ? "high" : "medium";
+      elements.forEach((el, idx) => {
+        add(findings, {
+          type: "DUPLICATE_ID", el, severity: sev, wcag: "4.1.1",
+          note: `Duplicate id="${id}" (${idx + 1}/${elements.length})${ariaReferenced ? " — referenced by ARIA attributes" : ""}.`,
+          extra: { id, occurrence: idx + 1, total: elements.length, ariaReferenced }
+        });
+      });
+    }
 
     // 2.4.7 Focus Visible: interactive elements suppressing outline without replacement
     doc.querySelectorAll("a[href],button,[role='button'],[role='link'],[tabindex='0']").forEach(el => {
