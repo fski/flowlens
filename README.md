@@ -25,14 +25,14 @@ Presets combine modes: Quick (Run + Contrast), Release (Watch + Observe + Run), 
 
 ## Frame targeting
 
-FlowLens can target specific iframes. It has built-in heuristics for detecting Help Center iframes (URL patterns, DOM selectors, frame sizing). Four targeting modes:
+FlowLens uses explicit **Scope** targeting with deterministic behavior. It has built-in heuristics for detecting Help Center iframes (URL patterns, DOM selectors, frame sizing).
 
-- **Auto** — picks the best Help Center frame automatically
-- **Top** — runs in the top frame only
-- **All** — runs in all frames
-- **Manual** — lets you pick a specific frame from the dropdown
+- **Primary frame** (default) — scans exactly one automatically selected frame
+- **Host page only** — scans only the top-level document (`frameId=0`)
+- **Embedded frame only** — scans one embedded frame (pinned/selected if provided, otherwise the best detected iframe)
+- **All frames** — scans the host page and all embedded frames
 
-You can pin a frame per origin so it persists across reloads.
+You can pin a frame per origin so it persists across reloads and acts as a manual override when scope allows it.
 
 ## Keyboard shortcuts
 

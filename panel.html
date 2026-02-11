@@ -8,18 +8,18 @@
     <div class="wrap">
       <header class="top">
         <div>
-          <h1 class="h1">FlowLens <span class="versionBadge" id="versionBadge" data-version="2.15.0">v2.15.0</span> <a class="authorBadge" href="https://fski.app" target="_blank" rel="noopener">by fski</a></h1>
+          <h1 class="h1">FlowLens <span class="versionBadge" id="versionBadge" data-version="3.0.0">v3.0.0</span> <a class="authorBadge" href="https://fski.app" target="_blank" rel="noopener">by fski</a></h1>
         </div>
 
         
         <div class="controls" aria-label="Frame controls">
           <div class="controlsRow">
-            <label class="sr-only" for="target">Target frame selection</label>
-            <select id="target" aria-label="Target frame selection">
-              <option value="auto">Auto-detect frame</option>
-              <option value="top">Top frame only</option>
+            <label class="sr-only" for="target">Scope</label>
+            <select id="target" aria-label="Scope">
+              <option value="primary">Primary frame</option>
+              <option value="host">Host page only</option>
+              <option value="embedded">Embedded frame only</option>
               <option value="all">All frames</option>
-              <option value="manual">Manual selection</option>
             </select>
 
             <button class="btn" id="refreshFrames">Refresh frames</button>
@@ -36,43 +36,53 @@
 
       
       <section class="toolbar" aria-label="Audit controls">
-        <div class="row">
+        <div class="row toolbarRow spread" aria-label="Mode selection">
+          <span class="mutedLabel">MODE</span>
           <div class="group">
-            <button class="btn primary" data-action="run" title="Strict WCAG audit"><kbd>R</kbd> Audit</button>
-            <button class="btn" data-action="observe" title="Re-run checks every ~1s for 12s"><kbd>O</kbd> Observe</button>
-            <button class="btn" data-action="watch" title="Monitor loaders and focus for 40s"><kbd>W</kbd> Watch</button>
-            <button class="btn" data-action="tabWalk" title="Walk 80 focusable elements"><kbd>T</kbd> Tab order</button>
-            <button class="btn" data-action="contrast" title="Check contrast on up to 250 text nodes"><kbd>C</kbd> Contrast</button>
+            <button class="btn" data-action="run" aria-pressed="true" title="Strict WCAG audit"><kbd>R</kbd> Audit</button>
+            <button class="btn" data-action="observe" aria-pressed="false" title="Re-run checks every ~1s for 12s"><kbd>O</kbd> Observe</button>
+            <button class="btn" data-action="watch" aria-pressed="false" title="Monitor loaders and focus for 40s"><kbd>W</kbd> Watch</button>
+            <button class="btn" data-action="tabWalk" aria-pressed="false" title="Walk 80 focusable elements"><kbd>T</kbd> Tab order</button>
+            <button class="btn" data-action="contrast" aria-pressed="false" title="Check contrast on up to 250 text nodes"><kbd>C</kbd> Contrast</button>
+          </div>
+          <div class="presetDropdownGroup">
+            <div class="presetDropdown">
+              <button class="btn xs" id="presetToggle" type="button" aria-expanded="false" aria-haspopup="true" title="Run preset sequences">Preset &#x25BE;</button>
+              <div class="presetMenu" id="presetMenu" hidden>
+                <button class="presetOption" id="presetQuick" title="Run + Contrast">Quick</button>
+                <button class="presetOption" id="presetRelease" title="Watch + Observe + Run">Release</button>
+                <button class="presetOption" id="presetFocus" title="TabWalk + Run">Focus</button>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div class="row spread">
+        <div class="row toolbarRow" aria-label="Actions">
+          <span class="mutedLabel">ACTION</span>
+          <div class="group">
+            <button class="btn primary" id="runCurrentMode" title="Run the selected mode">Run Audit</button>
+            <button class="btn secondary" id="sessionStart" title="Start capture session">Start session</button>
+            <button class="btn secondary" id="sessionMark" title="Capture current step" disabled hidden>Mark step</button>
+            <button class="btn secondary" id="sessionEnd" title="End active session" disabled hidden>End session</button>
+          </div>
+        </div>
+
+        <div class="row toolbarRow" aria-label="Evidence and exports">
+          <span class="mutedLabel">EXPORT</span>
           <div class="group exportClusters">
             <div class="exportCluster">
-              <span class="mutedLabel">Single-run</span>
               <button class="btn secondary" id="copyJson" title="Copy latest single-run result as JSON">JSON</button>
               <button class="btn secondary" id="copyMd" title="Copy latest single-run result as Markdown">Markdown</button>
               <span class="inlineHint" id="copyMdHint" aria-live="polite"></span>
               <button class="btn secondary" id="downloadJson" title="Download latest single-run result as JSON file">Download</button>
             </div>
             <div class="exportCluster exportClusterSession">
-              <span class="mutedLabel">Session</span>
-              <button class="btn secondary" id="sessionStart" title="Start capture session">Start session</button>
-              <button class="btn secondary" id="sessionMark" title="Capture current step" disabled>Mark step</button>
-              <button class="btn secondary" id="sessionEnd" title="End active session" disabled>End session</button>
               <button class="btn secondary" id="sessionExportJson" title="Export active session as JSON" disabled>Session JSON</button>
               <button class="btn secondary" id="sessionExportMd" title="Export active session as Markdown" disabled>Session MD</button>
               <span class="inlineHint" id="sessionMdHint" aria-live="polite"></span>
-              <div class="sessionHud mono truncate" id="sessionHudLine" aria-live="polite">Session • none</div>
             </div>
           </div>
-
-          <div class="group presetsGroup">
-            <span class="mutedLabel">Presets</span>
-            <button class="btn secondary" id="presetQuick" title="Run + Contrast">Quick</button>
-            <button class="btn secondary" id="presetRelease" title="Watch + Observe + Run — full pre-release check">Release</button>
-            <button class="btn secondary" id="presetFocus" title="TabWalk + Run — keyboard focus check">Focus</button>
-          </div>
+          <div class="sessionHud mono truncate" id="sessionHudLine" aria-live="polite">Session • none</div>
         </div>
       </section>
 
@@ -130,7 +140,6 @@
         <div class="viewbarRight" aria-label="Mode controls">
           <span class="mutedLabel">Mode</span>
           <span id="currentModeText" class="mono">run</span>
-          <button class="seg" id="rerunCurrent" type="button" aria-label="Re-run currently selected mode">Re-run current mode</button>
         </div>
       </section>
 
