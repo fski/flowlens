@@ -58,7 +58,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     }
 
     if (msg.type === "RUN_AUDIT") {
-      const { tabId, action, target, match, alsoConsole } = msg;
+      const { tabId, action, target, match, alsoConsole, wcagLevel } = msg;
 
       const frames = await chrome.webNavigation.getAllFrames({ tabId });
       const frameUrlById = new Map((frames || []).map(f => [f.frameId, f.url || ""]));
@@ -94,16 +94,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           const r = await chrome.scripting.executeScript({
             target: { tabId, frameIds: [frameId] },
             world: "MAIN",
-            func: async (action, alsoConsole) => {
+            func: async (action, alsoConsole, wcagLevel) => {
               const api = window.A11YFlowAudit;
               if (!api) return { ok: false, reason: "NO_API" };
 
               const res = await (async () => {
-                if (action === "run") return api.run?.({ strict: true });
-                if (action === "observe") return api.observe?.({ seconds: 12 });
+                if (action === "run") return api.run?.({ strict: true, wcagLevel });
+                if (action === "observe") return api.observe?.({ seconds: 12, runConfig: { strict: true, wcagLevel } });
                 if (action === "watch") return api.watch?.({ seconds: 40 });
                 if (action === "tabWalk") return api.tabWalk?.({ steps: 80 });
-                if (action === "contrast") return api.contrastScan?.({ limit: 250 });
+                if (action === "contrast") return api.contrastScan?.({ limit: 250, wcagLevel });
                 return null;
               })();
 
@@ -115,7 +115,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
               return { ok: true, result: res };
             },
-            args: [action, !!alsoConsole]
+            args: [action, !!alsoConsole, wcagLevel || "2.1-AA"]
           });
 
           // chrome.scripting.executeScript returns an array (even for single frame)

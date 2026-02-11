@@ -8,7 +8,7 @@
     <div class="wrap">
       <header class="top">
         <div>
-          <div class="h1">FlowLens <span class="versionBadge" id="versionBadge" data-version="2.13.0">v2.13.0</span> <a class="authorBadge" href="https://fski.app" target="_blank" rel="noopener">by fski</a></div>
+          <div class="h1">FlowLens <span class="versionBadge" id="versionBadge" data-version="2.14.0">v2.14.0</span> <a class="authorBadge" href="https://fski.app" target="_blank" rel="noopener">by fski</a></div>
         </div>
 
         
@@ -70,6 +70,19 @@
             <label class="switch"><input id="density" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Compact density</span></label>
           </div>
         </div>
+
+        <div class="row">
+          <div class="group">
+            <span class="mutedLabel">WCAG Level</span>
+            <label class="sr-only" for="wcagLevel">WCAG compliance level</label>
+            <select id="wcagLevel" aria-label="WCAG compliance level">
+              <option value="2.1-AA">WCAG 2.1 AA</option>
+              <option value="2.1-AAA">WCAG 2.1 AAA</option>
+              <option value="2.2-AA">WCAG 2.2 AA</option>
+              <option value="2.2-AAA">WCAG 2.2 AAA</option>
+            </select>
+          </div>
+        </div>
       </section>
 
       <div class="progress" id="progressWrap" hidden aria-label="Audit progress">
@@ -129,7 +142,7 @@
           <caption class="sr-only">Top findings</caption>
           <thead>
             <tr>
-              <th scope="col">sev</th><th scope="col">product</th><th scope="col">type</th><th scope="col">wcag</th><th scope="col">name</th><th scope="col">role</th><th scope="col">testId</th><th scope="col">note</th>
+              <th scope="col">sev</th><th scope="col">product</th><th scope="col">type</th><th scope="col">wcag</th><th scope="col">name</th><th scope="col">role</th><th scope="col">testId</th><th scope="col">note</th><th scope="col">fix</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -160,7 +173,7 @@
             <caption class="sr-only">All findings</caption>
             <thead>
               <tr>
-                <th scope="col">sev</th><th scope="col">product</th><th scope="col">type</th><th scope="col">wcag</th><th scope="col">name</th><th scope="col">testId</th><th scope="col">path</th><th scope="col">note</th>
+                <th scope="col">sev</th><th scope="col">product</th><th scope="col">type</th><th scope="col">wcag</th><th scope="col">name</th><th scope="col">testId</th><th scope="col">path</th><th scope="col">note</th><th scope="col">fix</th>
               </tr>
             </thead>
             <tbody></tbody>
