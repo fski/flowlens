@@ -84,6 +84,22 @@
     return parts.join(" > ");
   };
 
+  const commonAncestorDepth = (a, b) => {
+    if (!isEl(a) || !isEl(b)) return Infinity;
+    const pathA = [];
+    let n = a;
+    while (n) { pathA.push(n); n = n.parentElement; }
+    const setA = new Set(pathA);
+    let depth = 0;
+    n = b;
+    while (n) {
+      if (setA.has(n)) return depth;
+      depth++;
+      n = n.parentElement;
+    }
+    return Infinity;
+  };
+
   const isHidden = (el) => {
     if (!isEl(el)) return true;
     if (el.hidden) return true;
@@ -102,6 +118,56 @@
       seen.add(key);
       return true;
     });
+  };
+
+  const FIX_SUGGESTIONS = {
+    IMG_MISSING_ALT: 'Add alt="description of image" to the <img> tag. Use alt="" only if purely decorative.',
+    IMG_EMPTY_ALT: 'If decorative, alt="" is correct. If meaningful, add a descriptive alt text.',
+    NO_ACCESSIBLE_NAME: (f) => `Add aria-label="descriptive label" or visible text content to this ${f.role || f.tag?.toLowerCase() || 'element'}.`,
+    FORM_CONTROL_NO_LABEL: 'Add a visible <label for="id"> associated with the input, or use aria-label if a visible label is not possible.',
+    HEADING_LEVEL_SKIP: (f) => `Insert an h${(f.extra?.from || 1) + 1} heading before this h${f.extra?.to || '?'} to maintain heading hierarchy.`,
+    NO_H1: 'Add an <h1> element describing the primary content of the page.',
+    MULTIPLE_H1: 'Use only one <h1> per page. Demote extra H1s to <h2> or lower.',
+    NO_MAIN_LANDMARK: 'Wrap the primary page content in a <main> element.',
+    REGION_NO_NAME: 'Add aria-label="Section name" or aria-labelledby pointing to a visible heading.',
+    BROKEN_ARIA_REFERENCE: (f) => `Ensure an element with id="${f.extra?.id}" exists in the DOM, or remove the ${f.extra?.attr} attribute.`,
+    ARIA_LABELLEDBY_POINTS_TO_ARIA_HIDDEN: 'Remove aria-hidden="true" from the referenced label element, or use a different labelling strategy.',
+    POSITIVE_TABINDEX: 'Remove the positive tabindex value. Use tabindex="0" for natural order, or restructure the DOM order instead.',
+    CHAT_LOG_NO_ARIA_LIVE_SOFT: 'Add aria-live="polite" to the role="log" container so new messages are announced.',
+    DISABLED_INPUT_NO_EXPLANATION: 'Add aria-describedby pointing to text explaining why the input is disabled, or add a title attribute.',
+    LOADER_WITHOUT_ANNOUNCEMENT_HOOK: 'Add an aria-live="polite" region and update its text when loading starts/ends (e.g., "Loading…" / "Content loaded").',
+    DUPLICATE_ID: (f) => `Make id="${f.extra?.id}" unique across the page. In microfrontend contexts, add a scope prefix (e.g., "mfe1-${f.extra?.id}").`,
+    FOCUS_VISIBLE_SUPPRESSED: 'Add a visible :focus-visible style (e.g., outline: 2px solid #005fcc; outline-offset: 2px) or use box-shadow for the focus indicator.',
+    NO_SKIP_NAV: 'Add a visually hidden skip link as the first focusable element: <a href="#main" class="skip-link">Skip to main content</a>.',
+    MISSING_AUTOCOMPLETE: 'Add the appropriate autocomplete attribute (e.g., autocomplete="email") to help browsers autofill this field.',
+    CLICK_WITHOUT_KEYBOARD: (f) => `Add tabindex="0" and a keydown handler for Enter/Space to this ${f.tag?.toLowerCase() || 'element'}, or replace with a <button>.`,
+    ARIA_HIDDEN_FOCUSABLE: 'Add tabindex="-1" to focusable elements inside aria-hidden="true", or remove aria-hidden from the container.',
+    ARIA_REQUIRED_ATTR_MISSING: (f) => `Add ${f.extra?.attr}="..." to this role="${f.extra?.role}" element as required by the ARIA spec.`,
+    TOUCH_TARGET_TOO_SMALL: 'Increase the clickable area to at least 24x24px using padding, min-width/min-height, or a larger hit area.',
+    TABLE_NO_HEADERS: 'Add <th scope="col"> for column headers and <th scope="row"> for row headers.',
+    LABEL_NOT_IN_NAME: 'Ensure the aria-label includes the visible text. E.g., if button says "Search", use aria-label="Search products" not "Find items".',
+    MISSING_LANG: 'Add lang="en" (or the appropriate language code) to the <html> element.',
+    VIEWPORT_ZOOM_DISABLED: 'Remove user-scalable=no and maximum-scale=1 from the viewport meta tag to allow pinch-to-zoom.',
+    SHELL_OR_MINIMAL_UI: null,
+    SHADOW_DOM_DETECTED: 'Inspect shadow DOM content manually using DevTools element inspector.',
+    // Microfrontend checks
+    COMPETING_ASSERTIVE_LIVE: 'Consolidate aria-live="assertive" regions into one shared announcer. Use aria-live="polite" where possible.',
+    DUPLICATE_MAIN_LANDMARK: 'Coordinate between microfrontends so only one <main> element exists. Others should use <section> or role="region".',
+    DUPLICATE_NAV_NO_LABEL: 'Add unique aria-label to each <nav> (e.g., aria-label="Primary navigation", aria-label="Footer navigation").',
+    DUPLICATE_BANNER: 'Coordinate MFEs so only one top-level <header> exists, or scope additional headers inside <article> or <section>.',
+    DUPLICATE_CONTENTINFO: 'Coordinate MFEs so only one top-level <footer> exists, or scope additional footers inside <article> or <section>.',
+    HEADING_HIERARCHY_FRAGMENTED: 'Establish a shared heading hierarchy across MFEs. The host page should provide H1, MFEs start at H2 or deeper.',
+    COMPETING_SKIP_NAV: 'Use a single skip link from the host page. Remove skip links from individual MFEs.',
+    SHADOW_DOM_FOCUS_ISSUE: 'Add delegatesFocus: true to the shadow root, or set explicit tabindex on focusable shadow DOM elements.',
+    IFRAME_MISSING_TITLE: 'Add title="Description of embedded content" to the <iframe> element.',
+    IFRAME_CROSS_ORIGIN: 'Check the parent page to verify this iframe has a title attribute.',
+    // WCAG 2.2
+    DRAGGABLE_NO_ALTERNATIVE: 'Provide a button-based alternative (e.g., move up/down buttons) alongside the drag interaction.',
+    CONSISTENT_HELP_CHECK: 'Ensure help/contact links appear in the same relative order on every page.',
+    FOCUS_MAY_BE_OBSCURED: 'Use scroll-padding-top/bottom or scroll-margin to offset focused elements past sticky headers/footers.',
+    REDUNDANT_ENTRY: 'Add autocomplete attributes to repeated fields, or pre-fill values from prior entries.',
+    // AAA
+    TARGET_SIZE_AAA: 'Increase the target size to at least 44x44px to meet AAA requirements.',
   };
 
   const getAccName = (el) => {
@@ -133,21 +199,23 @@
     return txt(el.textContent, 160) || "";
   };
 
-  const add = (findings, { type, el, severity = "low", wcag = null, product = null, note = null, extra = null }) => {
-    findings.push({
-      type,
-      severity,
-      wcag,
-      product,
+  const add = (findings, params) => {
+    const { type, el, severity = "low", wcag = null, wcagVersion = null, product = null, note = null, extra = null, fix = null } = params;
+    const entry = {
+      type, severity, wcag, wcagVersion, product,
       name: el ? getAccName(el) : null,
       role: el?.getAttribute?.("role") || null,
       tag: el?.tagName || null,
       testId: el ? testId(el) : null,
       path: el ? cssPath(el) : null,
       html: el ? html(el) : null,
-      note,
-      extra
-    });
+      note, extra, fix: fix ?? null
+    };
+    if (!entry.fix && FIX_SUGGESTIONS[type]) {
+      const s = FIX_SUGGESTIONS[type];
+      entry.fix = typeof s === "function" ? s(entry) : s;
+    }
+    findings.push(entry);
   };
 
   const hasAnnouncementHook = () =>
@@ -347,8 +415,14 @@
     const config = {
       strict: cfg.strict ?? true,
       mode: cfg.mode ?? detectMode(),
-      maxRows: cfg.maxRows ?? 140
+      maxRows: cfg.maxRows ?? 140,
+      wcagLevel: cfg.wcagLevel ?? "2.1-AA"
     };
+
+    const [wcagVersionStr, wcagConformance] = config.wcagLevel.split("-");
+    const wcagVersion = parseFloat(wcagVersionStr) || 2.1;
+    const isAAA = wcagConformance === "AAA";
+    const is22 = wcagVersion >= 2.2;
 
     const s = sanity();
     const findings = [];
@@ -654,6 +728,177 @@
       }
     }
 
+    // -------- Microfrontend / Cross-MFE checks --------
+
+    // 4.1.3: Competing assertive live regions (announcement storms)
+    const assertiveLive = doc.querySelectorAll("[aria-live='assertive']");
+    if (assertiveLive.length > 3) {
+      add(findings, { type: "COMPETING_ASSERTIVE_LIVE", severity: "medium", wcag: "4.1.3", el: assertiveLive[0],
+        note: `${assertiveLive.length} aria-live="assertive" regions detected. Risk of announcement storms — consolidate to fewer regions.`,
+        extra: { count: assertiveLive.length } });
+    }
+
+    // 1.3.1: Duplicate main landmarks
+    const mains = doc.querySelectorAll("main,[role='main']");
+    if (mains.length > 1) {
+      add(findings, { type: "DUPLICATE_MAIN_LANDMARK", severity: "medium", wcag: "1.3.1", el: mains[1],
+        note: `${mains.length} <main> landmarks found. Each page should have exactly one.`, extra: { count: mains.length } });
+    }
+
+    // 1.3.1 / 4.1.2: Duplicate navs without labels
+    const navs = [...doc.querySelectorAll("nav,[role='navigation']")].filter(n => !isHidden(n));
+    const unnamedNavs = navs.filter(n => !getAccName(n));
+    if (navs.length > 1 && unnamedNavs.length > 0) {
+      add(findings, { type: "DUPLICATE_NAV_NO_LABEL", severity: "medium", wcag: "1.3.1 / 4.1.2", el: unnamedNavs[0],
+        note: `${navs.length} <nav> landmarks, ${unnamedNavs.length} without labels. Distinguish with aria-label.`,
+        extra: { totalNavs: navs.length, unnamed: unnamedNavs.length } });
+    }
+
+    // 1.3.1: Duplicate top-level banners
+    const banners = [...doc.querySelectorAll("[role='banner'],header:not([role])")].filter(el => !isHidden(el));
+    const toplevelBanners = banners.filter(el => !el.closest("article,aside,main,nav,section,[role='article'],[role='complementary'],[role='main'],[role='navigation'],[role='region']"));
+    if (toplevelBanners.length > 1) {
+      add(findings, { type: "DUPLICATE_BANNER", severity: "low", wcag: "1.3.1", el: toplevelBanners[1],
+        note: `${toplevelBanners.length} top-level banner landmarks. MFEs may each be defining their own header.`, extra: { count: toplevelBanners.length } });
+    }
+
+    // 1.3.1: Duplicate top-level contentinfo
+    const contentinfos = [...doc.querySelectorAll("[role='contentinfo'],footer:not([role])")].filter(el => !isHidden(el));
+    const toplevelContentinfos = contentinfos.filter(el => !el.closest("article,aside,main,nav,section,[role='article'],[role='complementary'],[role='main'],[role='navigation'],[role='region']"));
+    if (toplevelContentinfos.length > 1) {
+      add(findings, { type: "DUPLICATE_CONTENTINFO", severity: "low", wcag: "1.3.1", el: toplevelContentinfos[1],
+        note: `${toplevelContentinfos.length} top-level contentinfo landmarks. MFEs may each be defining their own footer.`, extra: { count: toplevelContentinfos.length } });
+    }
+
+    // 1.3.1: Heading hierarchy fragmentation (MFE heading trees restarting)
+    if (levels.length > 2) {
+      let restarts = 0;
+      for (let i = 1; i < levels.length; i++) {
+        if (levels[i] === 1 && i > 0) restarts++;
+      }
+      if (restarts >= 2) {
+        add(findings, { type: "HEADING_HIERARCHY_FRAGMENTED", severity: "medium", wcag: "1.3.1", el: headingEls[levels.indexOf(1, 1)] || doc.body,
+          note: `Heading hierarchy restarts ${restarts} times (H1 reappears). Likely separate MFE heading trees — coordinate heading structure.`,
+          extra: { restarts } });
+      }
+    }
+
+    // 2.4.1: Competing skip navigation links
+    const skipNavSelector2 = "a[href='#main'],a[href='#content'],a[href='#maincontent'],[class*='skip-nav'],[class*='skipnav'],[class*='skip-link'],a[class*='skip']";
+    const skipLinks2 = doc.querySelectorAll(skipNavSelector2);
+    if (skipLinks2.length > 1) {
+      add(findings, { type: "COMPETING_SKIP_NAV", severity: "low", wcag: "2.4.1", el: skipLinks2[1],
+        note: `${skipLinks2.length} skip-navigation links detected. Multiple MFEs may each have their own skip link.`, extra: { count: skipLinks2.length } });
+    }
+
+    // 2.1.1 / 4.1.2: Shadow DOM focus management
+    if (s.shadowRoots > 0) {
+      let shadowFocusIssues = 0;
+      for (const el of doc.querySelectorAll("*")) {
+        if (!el.shadowRoot) continue;
+        const shadowFocusables = el.shadowRoot.querySelectorAll(focusableSelector);
+        for (const sf of shadowFocusables) {
+          if (isHidden(sf)) continue;
+          const ti = sf.getAttribute("tabindex");
+          if (ti === null) shadowFocusIssues++;
+        }
+        if (shadowFocusIssues >= 20) break;
+      }
+      if (shadowFocusIssues > 0) {
+        add(findings, { type: "SHADOW_DOM_FOCUS_ISSUE", severity: "medium", wcag: "2.1.1 / 4.1.2", el: doc.body,
+          note: `${shadowFocusIssues} focusable element(s) inside shadow roots without explicit tabindex. May not integrate with document tab order correctly.`,
+          extra: { count: shadowFocusIssues } });
+      }
+    }
+
+    // 4.1.2: Iframes missing title
+    doc.querySelectorAll("iframe").forEach(iframe => {
+      if (isHidden(iframe)) return;
+      if (!iframe.getAttribute("title")) {
+        add(findings, { type: "IFRAME_MISSING_TITLE", severity: "medium", wcag: "4.1.2", el: iframe,
+          note: "Iframe has no title attribute. Screen readers need iframe titles." });
+      }
+    });
+
+    // Cross-origin iframe self-check
+    if (s.inIframe) {
+      try {
+        const parentIframes = w.parent.document.querySelectorAll("iframe");
+        for (const iframe of parentIframes) {
+          try {
+            if (iframe.contentWindow === w && !iframe.getAttribute("title")) {
+              add(findings, { type: "IFRAME_MISSING_TITLE", severity: "medium", wcag: "4.1.2", el: doc.body,
+                note: "This MFE's host iframe has no title attribute. Screen readers need iframe titles to identify embedded content." });
+              break;
+            }
+          } catch { /* cross-origin */ }
+        }
+      } catch {
+        add(findings, { type: "IFRAME_CROSS_ORIGIN", severity: "info", el: doc.body,
+          note: "Running in cross-origin iframe — cannot verify iframe title/role attributes. Check manually." });
+      }
+    }
+
+    // -------- WCAG 2.2 specific checks --------
+    if (is22) {
+      // 2.5.8 Dragging Movements
+      doc.querySelectorAll("[draggable='true']").forEach(el => {
+        if (isHidden(el)) return;
+        add(findings, { type: "DRAGGABLE_NO_ALTERNATIVE", severity: "medium", wcag: "2.5.8", wcagVersion: "2.2", el,
+          note: "draggable=\"true\" detected. WCAG 2.5.8 requires a non-dragging alternative input method." });
+      });
+
+      // 3.2.6 Consistent Help
+      const helpLinks = doc.querySelectorAll("a[href*='help'],a[href*='contact'],a[href*='support'],[data-testid*='help'],[data-testid*='contact']");
+      if (helpLinks.length > 0) {
+        add(findings, { type: "CONSISTENT_HELP_CHECK", severity: "info", wcag: "3.2.6", wcagVersion: "2.2", el: helpLinks[0],
+          note: `${helpLinks.length} help/contact link(s) found. WCAG 3.2.6 requires these appear in a consistent location across pages.`,
+          extra: { count: helpLinks.length } });
+      }
+
+      // 2.4.11 Focus Not Obscured
+      const stickyEls = [...doc.querySelectorAll("header,footer,nav,[role='banner'],[role='contentinfo'],[role='navigation'],div,section")].filter(el => {
+        if (isHidden(el)) return false;
+        try { const pos = w.getComputedStyle(el).position; return pos === "fixed" || pos === "sticky"; } catch { return false; }
+      }).slice(0, 20);
+      if (stickyEls.length > 0) {
+        add(findings, { type: "FOCUS_MAY_BE_OBSCURED", severity: "low", wcag: "2.4.11", wcagVersion: "2.2", el: stickyEls[0],
+          note: `${stickyEls.length} fixed/sticky element(s) detected. These may obscure focused elements behind sticky headers/footers.`,
+          extra: { count: stickyEls.length } });
+      }
+
+      // 3.3.7 Redundant Entry
+      const formInputs = [...doc.querySelectorAll("input:not([type='hidden']),textarea,select")].filter(el => !isHidden(el));
+      const nameGroups = new Map();
+      for (const inp of formInputs) {
+        const name = (inp.getAttribute("name") || "").toLowerCase();
+        if (!name) continue;
+        if (!nameGroups.has(name)) nameGroups.set(name, []);
+        nameGroups.get(name).push(inp);
+      }
+      for (const [name, group] of nameGroups) {
+        if (group.length > 1 && !group.every(el => el.getAttribute("autocomplete"))) {
+          add(findings, { type: "REDUNDANT_ENTRY", severity: "low", wcag: "3.3.7", wcagVersion: "2.2", el: group[1],
+            note: `Field "${name}" appears ${group.length} times without autocomplete. WCAG 3.3.7 requires avoiding redundant entry.`,
+            extra: { fieldName: name, count: group.length } });
+        }
+      }
+    }
+
+    // -------- AAA-specific checks --------
+    if (isAAA) {
+      // 2.5.5 Target Size AAA: 44x44px minimum (only for elements ≥24px to avoid duplicating AA check)
+      doc.querySelectorAll("button,a[href],[role='button'],[role='link'],input:not([type='hidden']),select,textarea").forEach(el => {
+        if (isHidden(el)) return;
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0 && (r.width < 44 || r.height < 44) && r.width >= 24 && r.height >= 24) {
+          add(findings, { type: "TARGET_SIZE_AAA", severity: "low", wcag: "2.5.5", wcagVersion: "AAA", el,
+            note: `Size ${Math.round(r.width)}x${Math.round(r.height)}px — AAA requires 44x44px minimum.`,
+            extra: { width: Math.round(r.width), height: Math.round(r.height) } });
+        }
+      });
+    }
+
     // -------- Output --------
     const dedup = uniqBy(findings, x => `${x.type}|${x.severity}|${x.product||""}|${x.path||""}|${JSON.stringify(x.extra||{})}`);
     const order = { high: 3, medium: 2, low: 1, info: 0 };
@@ -738,6 +983,7 @@
         maxSilentMs: 2500,
         maxTotalLoadingMs: 7000,
         maxFocusLossEvents: 1,
+        maxFocusJumps: 3,
         ...budget
       };
 
@@ -746,9 +992,12 @@
       let silentMs = 0;
       let bursts = 0;
       let focusLoss = 0;
+      let focusJumps = 0;
       let lastLoader = false;
       let bodyFocusSince = null;
       let bodyFocusCounted = false;
+      let prevActiveElement = doc.activeElement;
+      let focusChangeTimestamps = [];
 
       const events = [];
 
@@ -777,6 +1026,26 @@
           bodyFocusCounted = false;
         }
 
+        // Focus jump detection: focus moves across unrelated subtrees
+        const curActive = doc.activeElement;
+        if (curActive && curActive !== doc.body && prevActiveElement && prevActiveElement !== doc.body && curActive !== prevActiveElement) {
+          const ancestorDepth = commonAncestorDepth(curActive, prevActiveElement);
+          if (ancestorDepth > 2) {
+            focusJumps++;
+            events.push({ t, type: "focus_jump", note: `Focus jumped across subtrees (depth=${ancestorDepth}): ${cssPath(prevActiveElement)} → ${cssPath(curActive)}` });
+          }
+          focusChangeTimestamps.push(performance.now());
+        }
+        prevActiveElement = curActive;
+
+        // Focus thrashing detection: rapid focus changes from loader mount/unmount
+        const now = performance.now();
+        focusChangeTimestamps = focusChangeTimestamps.filter(ts => now - ts < 600);
+        if (focusChangeTimestamps.length >= 3) {
+          events.push({ t, type: "focus_thrashing", note: `${focusChangeTimestamps.length} focus changes in <600ms — likely loader mount/unmount churn.` });
+          focusChangeTimestamps = [];
+        }
+
         if (t >= seconds * 1000) {
           clearInterval(timer);
           const verdicts = [];
@@ -784,8 +1053,9 @@
           if (silentMs > B.maxSilentMs) verdicts.push({ metric: "silentMs", value: silentMs, budget: B.maxSilentMs });
           if (totalLoadingMs > B.maxTotalLoadingMs) verdicts.push({ metric: "totalLoadingMs", value: totalLoadingMs, budget: B.maxTotalLoadingMs });
           if (focusLoss > B.maxFocusLossEvents) verdicts.push({ metric: "focusLossEvents", value: focusLoss, budget: B.maxFocusLossEvents });
+          if (focusJumps > B.maxFocusJumps) verdicts.push({ metric: "focusJumps", value: focusJumps, budget: B.maxFocusJumps });
 
-          const result = { timestamp: nowIso(), seconds, bursts, totalLoadingMs, silentMs, focusLossCount: focusLoss, budget: B, verdicts, events, href: w.location.href };
+          const result = { timestamp: nowIso(), seconds, bursts, totalLoadingMs, silentMs, focusLossCount: focusLoss, focusJumps, budget: B, verdicts, events, href: w.location.href };
           api.lastWatch = result;
 
           console.groupCollapsed(`⏱️ A11YFlowAudit.watch — ${seconds}s — bursts=${bursts} loading=${totalLoadingMs}ms silent=${silentMs}ms focusLoss=${focusLoss}`);
@@ -874,6 +1144,53 @@
       }
     });
 
+    // Roach motel detection: non-dialog container capturing most tab stops
+    const parentCounts = new Map();
+    for (let i = 0; i < max; i++) {
+      const parent = filtered[i].parentElement;
+      if (!parent || parent === doc.body || parent === doc.documentElement) continue;
+      const pp = cssPath(parent);
+      if (!parentCounts.has(pp)) parentCounts.set(pp, { count: 0, el: parent });
+      parentCounts.get(pp).count++;
+    }
+    for (const [pp, { count, el }] of parentCounts) {
+      if (count >= max * 0.7 && max >= 5) {
+        const role = el.getAttribute("role");
+        if (role !== "dialog" && role !== "alertdialog" && el.tagName !== "DIALOG") {
+          events.push({ i: -1, type: "roach_motel", path: pp, name: getAccName(el), tabIndex: 0,
+            note: `${count}/${max} tab stops are inside a non-dialog container (${el.tagName.toLowerCase()}). Focus may be trapped.` });
+        }
+      }
+    }
+
+    // Non-dialog focus trap: container with consecutive tab stops forming a tight cycle
+    const containerGroups = new Map();
+    for (let i = 0; i < max; i++) {
+      let ancestor = filtered[i].parentElement;
+      while (ancestor && ancestor !== doc.body) {
+        const role = ancestor.getAttribute("role");
+        if (role && role !== "dialog" && role !== "alertdialog" && role !== "main" && role !== "navigation" && role !== "banner" && role !== "contentinfo" && role !== "complementary" && role !== "region" && ancestor.tagName !== "DIALOG") {
+          const cp = cssPath(ancestor);
+          if (!containerGroups.has(cp)) containerGroups.set(cp, { el: ancestor, indices: [] });
+          containerGroups.get(cp).indices.push(i);
+          break;
+        }
+        ancestor = ancestor.parentElement;
+      }
+    }
+    for (const [cp, { el, indices }] of containerGroups) {
+      if (indices.length >= 3 && indices.length < order.length / 3) {
+        let consecutive = true;
+        for (let j = 1; j < indices.length; j++) {
+          if (indices[j] - indices[j - 1] !== 1) { consecutive = false; break; }
+        }
+        if (consecutive && indices[indices.length - 1] - indices[0] < 5) {
+          events.push({ i: indices[0], type: "non_dialog_focus_trap", path: cp, name: getAccName(el), tabIndex: 0,
+            note: `Non-dialog container trapping ${indices.length} consecutive tab stops. Consider if focus containment is intentional.` });
+        }
+      }
+    }
+
     if (original && original !== doc.body) {
       try { original.focus({ preventScroll: true }); } catch (_) {}
     }
@@ -896,7 +1213,8 @@
   };
 
   // ---------------- contrastScan (approx) ----------------
-  const contrastScan = ({ limit = 200, minTextLen = 2 } = {}) => {
+  const contrastScan = ({ limit = 200, minTextLen = 2, wcagLevel = "2.1-AA" } = {}) => {
+    const isAAAContrast = wcagLevel.endsWith("-AAA");
     const nodes = [...doc.querySelectorAll("p,span,a,button,label,li,td,th,h1,h2,h3,h4,h5,h6")]
       .filter(isEl)
       .filter(el => !isHidden(el))
@@ -931,7 +1249,7 @@
       const ratio = contrastRatio(effectiveFg, bg);
 
       const large = isLargeText(el);
-      const req = large ? 3.0 : 4.5;
+      const req = isAAAContrast ? (large ? 4.5 : 7.0) : (large ? 3.0 : 4.5);
 
       const item = {
         ratio: +ratio.toFixed(2),

@@ -15,6 +15,7 @@ const els = {
   alsoConsole: document.getElementById("alsoConsole"),
   pinFrame: document.getElementById("pinFrame"),
   density: document.getElementById("density"),
+  wcagLevel: document.getElementById("wcagLevel"),
 
   copyJson: document.getElementById("copyJson"),
   downloadJson: document.getElementById("downloadJson"),
@@ -74,11 +75,11 @@ const sortState = {
 const SORT_KEYS = {
   top: [
     f => ORDER[f.severity] ?? -1, f => f.product ?? '', f => f.type ?? '',
-    f => f.wcag ?? '', f => f.name ?? '', f => f.role ?? '', f => f.testId ?? '', f => f.note ?? '',
+    f => f.wcag ?? '', f => f.name ?? '', f => f.role ?? '', f => f.testId ?? '', f => f.note ?? '', f => f.fix ?? '',
   ],
   explorer: [
     f => ORDER[f.severity] ?? -1, f => f.product ?? '', f => f.type ?? '',
-    f => f.wcag ?? '', f => f.name ?? '', f => f.testId ?? '', f => f.path ?? '', f => f.note ?? '',
+    f => f.wcag ?? '', f => f.name ?? '', f => f.testId ?? '', f => f.path ?? '', f => f.note ?? '', f => f.fix ?? '',
   ],
   contrast: [
     f => f.ratio ?? 0, f => f.required ?? 0, f => f.largeText ? 1 : 0,
@@ -588,7 +589,7 @@ function buildMarkdown({ inspectedUrl, best, perFrame, usedFrameIds, envTag }) {
 
   lines.push("Top findings:");
   for (const f of top) {
-    lines.push(`- [${f.severity}] ${f.product ? f.product + " • " : ""}${f.type || ""}${f.wcag ? ` (${f.wcag})` : ""} — ${txt(f.note || f.name || "", 120)}${f.testId ? ` • testId=${f.testId}` : ""}`);
+    lines.push(`- [${f.severity}] ${f.product ? f.product + " • " : ""}${f.type || ""}${f.wcag ? ` (${f.wcag})` : ""} — ${txt(f.note || f.name || "", 120)}${f.testId ? ` • testId=${f.testId}` : ""}${f.fix ? "\n  Fix: " + txt(f.fix, 120) : ""}`);
   }
   lines.push("");
   lines.push(`Panel summary: ${summarizeFrames(perFrame || [])}`);
@@ -666,7 +667,7 @@ function renderRunSummary(r) {
   const topRaw = topFindings(findings, 30);
   const top = applySortState(topRaw, 'top');
   if (!top.length) {
-    els.topTableBody.innerHTML = '<tr><td colspan="8"><div class="successState">&#x2714; No accessibility issues found</div></td></tr>';
+    els.topTableBody.innerHTML = '<tr><td colspan="9"><div class="successState">&#x2714; No accessibility issues found</div></td></tr>';
     state.top = top;
     return;
   }
@@ -680,6 +681,7 @@ function renderRunSummary(r) {
       <td>${escapeHtml(f.role ?? "")}</td>
       <td>${escapeHtml(f.testId ?? "")}</td>
       <td>${cellHtml(f.note, 60)}</td>
+      <td class="fixCol">${cellHtml(f.fix, 60)}</td>
     </tr>
   `).join("");
   state.top = top;
@@ -975,6 +977,7 @@ async function runAction(action, opts = {}) {
     target,
     match,
     alsoConsole: !!els.alsoConsole.checked,
+    wcagLevel: els.wcagLevel?.value || "2.1-AA",
     ...opts,
   });
 
@@ -1119,6 +1122,7 @@ async function loadUiPrefs() {
   const compact = !!uiPrefs.compact;
   if (els.density) els.density.checked = compact;
   applyDensity(compact);
+  if (els.wcagLevel && uiPrefs.wcagLevel) els.wcagLevel.value = uiPrefs.wcagLevel;
 }
 
 // --- wire up ---
@@ -1324,6 +1328,14 @@ if (els.density) {
   });
 }
 
+if (els.wcagLevel) {
+  els.wcagLevel.addEventListener("change", async () => {
+    const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
+    uiPrefs.wcagLevel = els.wcagLevel.value;
+    await storageSet({ uiPrefs });
+  });
+}
+
 
 // Explorer reactive filters (debounced)
 let __explorerT = null;
@@ -1352,8 +1364,8 @@ window.addEventListener("keydown", (e) => {
 
 // --- Column visibility ---
 const TABLE_COLS = {
-  topTable: ['sev', 'product', 'type', 'wcag', 'name', 'role', 'testId', 'note'],
-  allTable: ['sev', 'product', 'type', 'wcag', 'name', 'testId', 'path', 'note'],
+  topTable: ['sev', 'product', 'type', 'wcag', 'name', 'role', 'testId', 'note', 'fix'],
+  allTable: ['sev', 'product', 'type', 'wcag', 'name', 'testId', 'path', 'note', 'fix'],
   contrastTable: ['ratio', 'req', 'large', 'text', 'tag', 'testId', 'path', 'note'],
   tabTable: ['i', 'type', 'tabIndex', 'name', 'path', 'note'],
 };
@@ -1486,6 +1498,7 @@ function initSortableHeaders() {
             <td>${escapeHtml(f.role ?? "")}</td>
             <td>${escapeHtml(f.testId ?? "")}</td>
             <td>${cellHtml(f.note, 60)}</td>
+            <td class="fixCol">${cellHtml(f.fix, 60)}</td>
           </tr>
         `).join("");
         state.top = top;
@@ -1543,7 +1556,7 @@ function initVirtualTables() {
     VT.all = new VirtualTable({
       wrapEl: allWrap,
       tbodyEl: els.allTableBody,
-      colCount: 8,
+      colCount: 9,
       rowRenderer: (f, idx) => `
         <tr class="trow" tabindex="0" data-i="${idx}">
           <td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span></td>
@@ -1554,6 +1567,7 @@ function initVirtualTables() {
           <td>${escapeHtml(f.testId ?? "")}</td>
           <td>${cellHtml(f.path, 60)}</td>
           <td>${cellHtml(f.note, 50)}</td>
+          <td class="fixCol">${cellHtml(f.fix, 50)}</td>
         </tr>
       `,
       estimateRowHeight: 33,

@@ -928,6 +928,18 @@ input[type="text"]::placeholder {
   background: var(--clr-bg-surface);
 }
 
+/* Fix suggestion column */
+.fixCol {
+  color: var(--clr-green);
+  font-size: var(--text-xs);
+  max-width: 240px;
+}
+
+#wcagLevel {
+  min-width: 140px;
+  max-width: 200px;
+}
+
 .tbl tbody tr:hover td:first-child {
   background-color: var(--clr-bg-raised);
 }
