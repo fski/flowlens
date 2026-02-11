@@ -627,10 +627,13 @@
       });
 
       // CHAT_INPUT_NO_LABEL: Textarea/input near role=log without label
+      const seenChatInputs = new Set();
       doc.querySelectorAll("[role='log']").forEach(log => {
         if (isHidden(log)) return;
         const container = log.parentElement || doc.body;
         container.querySelectorAll("textarea, input[type='text'], input:not([type])").forEach(inp => {
+          if (seenChatInputs.has(inp)) return;
+          seenChatInputs.add(inp);
           if (isHidden(inp)) return;
           const name = getAccName(inp);
           if (!name || name.startsWith("[placeholder]")) {

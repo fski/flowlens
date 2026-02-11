@@ -892,13 +892,17 @@ function renderExplorer(findings) {
 }
 
 
-function refreshInspectedUrl() {
+function refreshInspectedUrl(retries = 3) {
   return new Promise(resolve => {
   chrome.devtools.inspectedWindow.eval("location.href", async (res, err) => {
+    if (err && retries > 0) {
+      setTimeout(() => refreshInspectedUrl(retries - 1).then(resolve), 300);
+      return;
+    }
     const url = err ? "" : String(res);
-    els.inspectedUrl.textContent = err ? "(eval error)" : truncateMiddle(url, 120);
-    els.inspectedUrl.title = err ? "(eval error)" : url;
-    els.inspectedUrl.dataset.full = err ? "" : url;
+    els.inspectedUrl.textContent = url ? truncateMiddle(url, 120) : "—";
+    els.inspectedUrl.title = url || "—";
+    els.inspectedUrl.dataset.full = url;
     const env = detectEnv(url);
     const origin = originFrom(url);
     const detected = `${origin || "—"} • env=${env}`;
@@ -1517,7 +1521,7 @@ function toggleColVisibility(tableId, colIdx) {
   storageSet({ colPrefs: colVisibility });
 }
 
-function createColToggle(tableId, parentEl) {
+function createColToggle(tableId, parentEl, afterEl) {
   const cols = TABLE_COLS[tableId];
   if (!cols || !parentEl) return;
 
@@ -1565,7 +1569,11 @@ function createColToggle(tableId, parentEl) {
 
   wrapper.appendChild(btn);
   wrapper.appendChild(dropdown);
-  parentEl.appendChild(wrapper);
+  if (afterEl) {
+    afterEl.insertAdjacentElement('afterend', wrapper);
+  } else {
+    parentEl.appendChild(wrapper);
+  }
 }
 
 // Close column dropdowns on outside click
@@ -1581,15 +1589,20 @@ function initColToggles() {
     applyColStyles();
 
     const placements = [
-      { tableId: 'topTable', selector: '#findingsSection .sectionToggle' },
-      { tableId: 'allTable', selector: '#explorerSection .sectionToggle' },
+      { tableId: 'topTable', selector: '#findingsSection .sectionToggle', sibling: true },
+      { tableId: 'allTable', selector: '#explorerSection .sectionToggle', sibling: true },
       { tableId: 'contrastTable', selector: '#contrastSection .tableTitle' },
       { tableId: 'tabTable', selector: '#tabWalkSection .tableTitle' },
     ];
 
     for (const p of placements) {
       const el = document.querySelector(p.selector);
-      if (el) createColToggle(p.tableId, el);
+      if (!el) continue;
+      if (p.sibling) {
+        createColToggle(p.tableId, el.parentElement, el);
+      } else {
+        createColToggle(p.tableId, el);
+      }
     }
   });
 }

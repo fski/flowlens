@@ -89,8 +89,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
             const overlay = document.createElement("div");
             overlay.setAttribute(OVERLAY_ATTR, "1");
             overlay.style.cssText = `
-              top: ${rect.top + window.scrollY - 3}px;
-              left: ${rect.left + window.scrollX - 3}px;
+              position: fixed;
+              pointer-events: none;
+              z-index: 2147483647;
+              border: 2px solid #ff79c6;
+              border-radius: 3px;
+              box-shadow: 0 0 0 3px rgba(255,121,198,0.9);
+              animation: a11yflow-pulse 1s ease-in-out 3;
+              transition: opacity 0.4s ease;
+              top: ${rect.top - 3}px;
+              left: ${rect.left - 3}px;
               width: ${rect.width + 6}px;
               height: ${rect.height + 6}px;
             `;
