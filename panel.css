@@ -203,7 +203,7 @@ body {
 
 .top {
   display: grid;
-  gap: var(--sp-4);
+  gap: var(--sp-3);
 }
 
 .top::before {
@@ -773,12 +773,8 @@ input[type="text"]::placeholder {
   gap: var(--sp-2);
 }
 
-.tableTitle::before {
-  content: '';
-  width: 3px;
-  height: 14px;
-  background: linear-gradient(180deg, var(--clr-cyan), var(--clr-blue));
-  border-radius: var(--radius-full);
+.tableTitle .switch {
+  margin-left: auto;
 }
 
 .tbl {
@@ -1222,6 +1218,21 @@ input[type="text"]::placeholder {
   display: none;
 }
 
+.outHeader {
+  display: flex;
+  align-items: center;
+}
+
+.outHeader .outToggle {
+  flex: 1;
+  width: auto;
+}
+
+.outHeader .btn {
+  flex-shrink: 0;
+  margin-right: var(--sp-3);
+}
+
 /* === Collapsible section toggles === */
 .sectionToggle {
   display: flex;
@@ -1241,13 +1252,6 @@ input[type="text"]::placeholder {
   transition: color var(--trans-base);
 }
 
-.sectionToggle::before {
-  content: '';
-  width: 3px;
-  height: 14px;
-  background: linear-gradient(180deg, var(--clr-primary), var(--clr-yellow));
-  border-radius: var(--radius-full);
-}
 
 .sectionToggle:hover {
   color: var(--clr-text-primary);
@@ -1261,12 +1265,95 @@ input[type="text"]::placeholder {
   display: none;
 }
 
+/* === Section icons === */
+.si {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
 .toggleCount {
   margin-left: auto;
   font-size: var(--text-xs);
   color: var(--clr-text-disabled);
   font-weight: var(--weight-medium);
   font-family: var(--font-mono);
+}
+
+/* === Settings section === */
+.settingsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--sp-5);
+  padding: var(--sp-4) var(--sp-4) var(--sp-3);
+}
+
+.settingsGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.settingsLabel {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  color: var(--clr-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.settingsToggles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.settingsGroup select {
+  max-width: 200px;
+}
+
+body.compact .settingsGrid {
+  padding: var(--sp-3);
+  gap: var(--sp-3);
+}
+
+/* === Keyboard shortcut hints in buttons === */
+.btn kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-xs);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: var(--weight-bold);
+  line-height: 1;
+  margin-right: 2px;
+  opacity: 0.6;
+  transition: opacity var(--trans-fast);
+}
+
+.btn:hover kbd {
+  opacity: 0.9;
+}
+
+.btn.primary kbd {
+  background: rgba(0, 0, 0, 0.15);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .btn kbd {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .btn.primary kbd {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
 /* === Compact run stats === */
@@ -1433,6 +1520,11 @@ body.compact .cardTitle {
 
   .cellWrap {
     max-width: 160px;
+  }
+
+  .settingsGrid {
+    grid-template-columns: 1fr;
+    gap: var(--sp-3);
   }
 }
 
@@ -1699,6 +1791,30 @@ body.compact .cardTitle {
   }
 }
 
+
+/* === Contrast pass/fail row === */
+.contrastPass td:first-child {
+  color: var(--clr-success);
+}
+
+/* === Small switch variant (for tight spaces like table titles) === */
+.switchSm .slider {
+  width: 32px;
+  height: 18px;
+}
+
+.switchSm .slider::before {
+  width: 12px;
+  height: 12px;
+}
+
+.switchSm input:checked + .slider::before {
+  transform: translateX(14px);
+}
+
+.switchSm .switchText {
+  font-size: var(--text-xs);
+}
 
 /* === Focus states === */
 *:focus-visible {
