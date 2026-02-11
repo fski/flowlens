@@ -60,7 +60,7 @@ Diff output per mode and consolidated:
 - `blockingFixed`
 - `countsDelta`
 
-Each mode snapshot also stores targeting metadata (`targetMode`, `pinned`, `helpCenterMatchEnabled`, `selectionReason`, `frameKeyVersion`, `usedFrameIds`) to explain best-frame selection in exports.
+Each mode snapshot also stores targeting metadata (`scope`, `targetMode`, `pinned`, `helpCenterMatchEnabled`, `selectionReason`, `frameKeyVersion`, `usedFrameIds`) to explain best-frame selection in exports.
 
 ## Reliability and Caps
 - No new scan modes.

@@ -33,6 +33,9 @@ const els = {
   presetQuick: document.getElementById("presetQuick"),
   presetRelease: document.getElementById("presetRelease"),
   presetFocus: document.getElementById("presetFocus"),
+  presetToggle: document.getElementById("presetToggle"),
+  presetMenu: document.getElementById("presetMenu"),
+  runCurrentMode: document.getElementById("runCurrentMode"),
 
   json: document.getElementById("json"),
   inspectedUrl: document.getElementById("inspectedUrl"),
@@ -75,7 +78,7 @@ const els = {
 
 const ORDER = { high: 3, medium: 2, low: 1, info: 0 };
 
-const state = { top: [], explorer: [], records: [], byId: {}, currentId: null, currentFindings: [], lastResult: null, bestFrameId: 0, _toastTimer: null, running: false, _progressInterval: null, contrastData: [], contrastSamples: [], tabData: [], activeMode: "run" };
+const state = { top: [], explorer: [], records: [], byId: {}, currentId: null, currentFindings: [], lastResult: null, bestFrameId: 0, _toastTimer: null, running: false, _progressInterval: null, contrastData: [], contrastSamples: [], tabData: [], activeMode: "run", pinnedFrameId: null };
 
 /**
  * @typedef {"strict"|"heuristic"|"advisory"} Confidence
@@ -107,12 +110,28 @@ const MODE_LABELS = {
   observe: "Observe",
 };
 
+const SCOPE_LABELS = {
+  primary: "Primary frame",
+  host: "Host page only",
+  embedded: "Embedded frame only",
+  all: "All frames",
+};
+
+const SCOPE_TOOLTIPS = {
+  primary: "Scan only the most relevant frame detected on this page.",
+  host: "Scan the top-level page and ignore embedded frames.",
+  embedded: "Scan a detected or selected embedded frame and ignore the host page.",
+  all: "Scan the host page and all embedded frames.",
+};
+
 const MARK_REASON_DETAILS = {
   "-": "baseline recorded",
   "baseline:parse": "baseline payload was not parseable",
   "baseline:ok:false": "baseline run failed",
+  "baseline:no_scope_match": "baseline failed: selected scope did not match any frame",
   "baseline:transport": "baseline capture transport failed",
   "active:ok:false": "baseline recorded, active mode failed",
+  "active:no_scope_match": "baseline recorded, active mode scope did not match any frame",
   "active:parse": "baseline recorded, active mode payload was not parseable",
   "active:transport": "baseline recorded, active mode transport failed",
   "persist:quota": "captured in-memory, storage quota reached",
@@ -447,8 +466,10 @@ async function _lockedPreset(actions) {
   const toolbar = document.querySelector('.toolbar');
   let lastSuccessAction = null;
   if (toolbar) toolbar.classList.add('isRunning');
+  if (els.runCurrentMode) els.runCurrentMode.classList.add('running');
   try {
     for (const a of actions) {
+      setPressed(a);
       const ok = await _runSingle(a);
       if (!ok) break;
       lastSuccessAction = a;
@@ -457,6 +478,7 @@ async function _lockedPreset(actions) {
   } finally {
     state.running = false;
     if (toolbar) toolbar.classList.remove('isRunning');
+    if (els.runCurrentMode) els.runCurrentMode.classList.remove('running');
   }
 }
 
@@ -557,6 +579,12 @@ function setPressed(action) {
   Object.entries(map).forEach(([k,btn]) => { if (btn) btn.setAttribute("aria-pressed", String(k===action)); });
   if (action) state.activeMode = action;
   if (els.currentModeText) els.currentModeText.textContent = modeLabel(state.activeMode || "run");
+  // Update mode selector buttons aria-pressed
+  document.querySelectorAll("button[data-action]").forEach(btn => {
+    btn.setAttribute("aria-pressed", String(btn.dataset.action === (state.activeMode || "run")));
+  });
+  // Update run button label
+  if (els.runCurrentMode) els.runCurrentMode.textContent = "Run " + modeLabel(state.activeMode || "run");
 }
 
 function showMode(mode) {
@@ -1145,14 +1173,27 @@ function renderSessionHud() {
 function updateSessionButtons() {
   const hasSession = !!sessionState.current;
   const inFlight = !!sessionState.inFlight;
-  if (els.sessionStart) els.sessionStart.disabled = hasSession || inFlight;
+  // Action row: toggle visibility based on session state
+  if (els.sessionStart) {
+    els.sessionStart.disabled = hasSession || inFlight;
+    els.sessionStart.hidden = hasSession;
+  }
   if (els.sessionMark) {
     els.sessionMark.disabled = !hasSession || inFlight;
-    els.sessionMark.classList.toggle("primary", hasSession);
-    els.sessionMark.classList.toggle("secondary", !hasSession);
+    els.sessionMark.hidden = !hasSession;
+    els.sessionMark.classList.toggle("primary", hasSession && !inFlight);
+    els.sessionMark.classList.toggle("secondary", !hasSession || inFlight);
     els.sessionMark.textContent = inFlight ? "Capturing…" : "Mark step";
   }
-  if (els.sessionEnd) els.sessionEnd.disabled = !hasSession || inFlight;
+  if (els.sessionEnd) {
+    els.sessionEnd.disabled = !hasSession || inFlight;
+    els.sessionEnd.hidden = !hasSession;
+  }
+  // Run button: demote to secondary when session active (Mark step becomes primary action)
+  if (els.runCurrentMode) {
+    els.runCurrentMode.classList.toggle("primary", !hasSession || inFlight);
+    els.runCurrentMode.classList.toggle("secondary", hasSession && !inFlight);
+  }
   if (els.sessionExportJson) els.sessionExportJson.disabled = !hasSession;
   if (els.sessionExportMd) els.sessionExportMd.disabled = !hasSession;
   renderSessionHud();
@@ -1212,13 +1253,12 @@ async function loadActiveSessionForScope(origin, env) {
 }
 
 function buildSessionSettings() {
-  const mode = els.pinFrame.checked
-    ? "pinned"
-    : (els.target.value === "manual" ? "manual" : "auto");
+  const scope = getScopeValue();
   return {
     captureBaselineRun: true,
     captureActiveMode: true,
-    targetModeAtCapture: mode,
+    targetModeAtCapture: scope, // legacy key retained for backward compatibility
+    scopeAtCapture: scope,
     helpCenterMatchEnabled: !!buildMatch(),
   };
 }
@@ -1360,7 +1400,6 @@ function registerSnapshotRawAppendix(session, snapshot, stepIndex) {
   if (snapshot.best.normalized && typeof snapshot.best.normalized === "object") {
     delete snapshot.best.normalized.raw;
   }
-  pruneSessionRawAppendix(session);
   return { stored: true, reason: "ok" };
 }
 
@@ -1697,11 +1736,12 @@ function shortUrlForMarkdown(url) {
 function formatTargetingShort(targeting) {
   if (!targeting || typeof targeting !== "object") return "—";
   const profiles = Array.isArray(targeting.profileIds) ? targeting.profileIds.join(",") : "";
+  const scope = targeting.scope || targeting.targetMode || "primary";
   return [
-    `mode=${targeting.targetMode || "auto"}`,
+    `scope=${scope}`,
     `pinned=${targeting.pinned ? "y" : "n"}`,
     `hc=${targeting.helpCenterMatchEnabled ? "y" : "n"}`,
-    `why=${targeting.selectionReason || "auto-best"}`,
+    `why=${targeting.selectionReason || "scope_primary_scored_best"}`,
     profiles ? `profiles=${profiles}` : null,
   ].filter(Boolean).join(" • ");
 }
@@ -1787,7 +1827,7 @@ function buildSessionMarkdown(session) {
   lines.push(`Started: ${session.startedAt} • Ended: ${session.endedAt || "in-progress"}`);
   lines.push(`Steps: ${steps.length} • Frames: ${frameKeys.length}`);
   lines.push(`Versions: schema=v${asNumber(session.schemaVersion, 1)} signature=v${asNumber(session.signatureVersion, 1)} frameKey=v${asNumber(session.frameKeyVersion, 1)}`);
-  lines.push(`Settings: baselineRun=${session.settings?.captureBaselineRun ? "yes" : "no"}, activeMode=${session.settings?.captureActiveMode ? "yes" : "no"}, target=${session.settings?.targetModeAtCapture || "auto"}, hcMatch=${session.settings?.helpCenterMatchEnabled ? "yes" : "no"}`);
+  lines.push(`Settings: baselineRun=${session.settings?.captureBaselineRun ? "yes" : "no"}, activeMode=${session.settings?.captureActiveMode ? "yes" : "no"}, scope=${session.settings?.scopeAtCapture || session.settings?.targetModeAtCapture || "primary"}, hcMatch=${session.settings?.helpCenterMatchEnabled ? "yes" : "no"}`);
   lines.push("");
 
   const flowMap = new Map();
@@ -2188,20 +2228,48 @@ function refreshInspectedUrl(retries = 3) {
       const pin = pinnedFrames[origin];
       if (pin?.frameId != null) {
         els.pinFrame.checked = true;
-        // switch to manual for pinned
-        els.target.value = "manual";
+        state.pinnedFrameId = Number(pin.frameId);
+        if (!Object.prototype.hasOwnProperty.call(SCOPE_LABELS, String(els.target.value || ""))) {
+          els.target.value = "embedded";
+        }
       } else {
         els.pinFrame.checked = false;
+        state.pinnedFrameId = null;
       }
+    } else {
+      els.pinFrame.checked = false;
+      state.pinnedFrameId = null;
     }
+    if (Number.isFinite(state.pinnedFrameId) && els.frameSelect?.options?.length) {
+      const wanted = String(state.pinnedFrameId);
+      const found = [...els.frameSelect.options].some(opt => opt.value === wanted);
+      if (found) els.frameSelect.value = wanted;
+    }
+    updateScopeUi();
     resolve();
   });
   });
 }
 
+function getScopeValue() {
+  const value = String(els.target?.value || "primary");
+  if (Object.prototype.hasOwnProperty.call(SCOPE_LABELS, value)) return value;
+  return "primary";
+}
+
+function updateScopeUi() {
+  const scope = getScopeValue();
+  if (els.target) {
+    els.target.value = scope;
+    els.target.title = SCOPE_TOOLTIPS[scope] || "";
+  }
+  if (els.frameSelect) els.frameSelect.disabled = !els.pinFrame?.checked;
+}
+
 async function refreshFrames() {
   const r = await send({ type: "LIST_FRAMES" });
   const frames = r?.frames || [];
+  let stalePinned = false;
 
   els.frameSelect.innerHTML = "";
   for (const f of frames) {
@@ -2213,21 +2281,40 @@ async function refreshFrames() {
     opt.dataset.fullUrl = fullUrl;
     els.frameSelect.appendChild(opt);
   }
-  els.frameSelect.disabled = els.target.value !== "manual";
+  if (Number.isFinite(state.pinnedFrameId)) {
+    const targetValue = String(state.pinnedFrameId);
+    const found = [...els.frameSelect.options].some(opt => opt.value === targetValue);
+    if (found) {
+      els.frameSelect.value = targetValue;
+    } else {
+      // The previously pinned frame no longer exists after navigation/reload.
+      state.pinnedFrameId = null;
+      els.pinFrame.checked = false;
+      stalePinned = true;
+    }
+  }
+  updateScopeUi();
+  if (stalePinned) await setPinnedFrameIfNeeded();
 }
 
 function getTargetSpec() {
-  // pinned frame overrides everything
-  if (els.pinFrame.checked && els.target.value !== "manual") {
-    els.target.value = "manual";
-  }
+  const scope = getScopeValue();
+  const target = { scope };
+  // Keep legacy mode field for best-effort compatibility with older runtimes.
+  if (scope === "host") target.mode = "top";
+  else if (scope === "all") target.mode = "all";
+  else target.mode = "auto";
 
-  const mode = els.target.value;
-  if (mode === "manual") {
-    const frameId = Number(els.frameSelect.value);
-    return { mode, frameIds: Number.isFinite(frameId) ? [frameId] : [] };
+  if (els.pinFrame.checked) {
+    const frameId = els.frameSelect.value === "" ? NaN : Number(els.frameSelect.value);
+    if (Number.isFinite(frameId)) {
+      target.frameIds = [frameId];
+      target.manual = true;
+      target.pinned = true;
+      target.mode = "manual";
+    }
   }
-  return { mode };
+  return target;
 }
 
 function buildMatch() {
@@ -2272,9 +2359,13 @@ async function setPinnedFrameIfNeeded() {
 
   const { pinnedFrames = {} } = await storageGet(["pinnedFrames"]);
   if (els.pinFrame.checked) {
-    pinnedFrames[origin] = { frameId: Number(els.frameSelect.value) };
+    const selected = els.frameSelect.value === "" ? NaN : Number(els.frameSelect.value);
+    if (!Number.isFinite(selected)) return;
+    pinnedFrames[origin] = { frameId: selected };
+    state.pinnedFrameId = Number.isFinite(selected) ? selected : null;
   } else {
     delete pinnedFrames[origin];
+    state.pinnedFrameId = null;
   }
   await storageSet({ pinnedFrames });
 }
@@ -2358,10 +2449,11 @@ async function runAction(action, opts = {}) {
   state.lastResult = r;
   els.json.textContent = pretty(r);
   if (!r?.ok) {
+    const noScope = r?.reason === "NO_SCOPE_MATCH" || r?.error === "NO_SCOPE_MATCH";
     els.usedFrames.textContent = "—";
-    els.diff.textContent = "(run failed)";
+    els.diff.textContent = noScope ? "(no frame matches selected scope)" : "(run failed)";
     console.error("RUN_AUDIT backend failure", r);
-    toast(`${action} failed`);
+    toast(noScope ? "No frame matches selected scope" : `${action} failed`);
     return false;
   }
 
@@ -2454,8 +2546,16 @@ async function endSession() {
     toast("No active session");
     return false;
   }
+  const previousEndedAt = sessionState.current.endedAt || null;
   sessionState.current.endedAt = nowIso();
-  await archiveSessionBestEffort(compactSessionForExport(sessionState.current));
+  const archived = await archiveSessionBestEffort(compactSessionForExport(sessionState.current));
+  if (!archived) {
+    // Keep active in-memory session so user can retry archive/export without data loss.
+    sessionState.current.endedAt = previousEndedAt;
+    updateSessionButtons();
+    toast("Archive failed — session kept active");
+    return false;
+  }
   sessionState.current = null;
   sessionState.lastMarkStep = null;
   updateSessionButtons();
@@ -2492,8 +2592,9 @@ async function captureStepOptionC(label = null) {
     const target = getTargetSpec();
     const match = buildMatch();
     const baseTargeting = {
-      targetMode: target?.mode || "auto",
-      manual: target?.mode === "manual",
+      targetMode: target?.scope || "primary", // legacy key retained for export compatibility
+      scope: target?.scope || "primary",
+      manual: !!target?.manual,
       manualFrameIds: Array.isArray(target?.frameIds) ? [...target.frameIds] : [],
       pinned: !!els.pinFrame.checked,
       helpCenterMatchEnabled: !!match,
@@ -2523,22 +2624,25 @@ async function captureStepOptionC(label = null) {
 
     if (!r?.ok || !r?.run?.ok) {
       console.error("CAPTURE_STEP failure", r);
-      setLastMarkStatus("FAILED", "baseline:ok:false");
+      const noScope = r?.run?.error === "NO_SCOPE_MATCH" || r?.run?.reason === "NO_SCOPE_MATCH";
+      setLastMarkStatus("FAILED", noScope ? "baseline:no_scope_match" : "baseline:ok:false");
       updateSessionButtons();
-      toast("Step capture failed");
+      toast(noScope ? "Step capture failed: no frame matches selected scope" : "Step capture failed");
       return false;
     }
 
     const capturedAt = nowIso();
     const runSnapshot = toModeSnapshot(r.run, "run", capturedAt, {
       ...baseTargeting,
-      selectionReason: r?.run?.selectionReason || "auto-best",
+      scope: r?.run?.scope || baseTargeting.scope,
+      selectionReason: r?.run?.selectionReason || "scope_primary_scored_best",
       usedFrameIds: Array.isArray(r?.run?.usedFrameIds) ? [...r.run.usedFrameIds] : [],
       frameKeyVersion: asNumber(r?.run?.frameKeyVersion, 1),
     });
     const activeSnapshot = activeMode !== "run" ? toModeSnapshot(r.active, activeMode, capturedAt, {
       ...baseTargeting,
-      selectionReason: r?.active?.selectionReason || "auto-best",
+      scope: r?.active?.scope || baseTargeting.scope,
+      selectionReason: r?.active?.selectionReason || "scope_primary_scored_best",
       usedFrameIds: Array.isArray(r?.active?.usedFrameIds) ? [...r.active.usedFrameIds] : [],
       frameKeyVersion: asNumber(r?.active?.frameKeyVersion, asNumber(r?.run?.frameKeyVersion, 1)),
     }) : null;
@@ -2590,6 +2694,8 @@ async function captureStepOptionC(label = null) {
     sessionState.current.frameKeyVersion = asNumber(r?.run?.frameKeyVersion, sessionState.current.frameKeyVersion || 1);
     step.diffs = buildStepDiffs(step, prevStep, sessionState.current.rawAppendix || {});
     sessionState.current.steps.push(step);
+    // Prune only after the new step is attached, so newly written raw refs are discoverable.
+    pruneSessionRawAppendix(sessionState.current);
     updateSessionFramesIndex(sessionState.current, step);
 
     const compacted = compactSessionForExport(sessionState.current);
@@ -2604,7 +2710,7 @@ async function captureStepOptionC(label = null) {
       durationMs: Math.round(performance.now() - t0),
       usedFrames: usedFrameIds.length,
       bestFrameKey: runSnapshot?.best?.frameKey || null,
-      selectionReason: runSnapshot?.targeting?.selectionReason || "auto-best",
+      selectionReason: runSnapshot?.targeting?.selectionReason || "scope_primary_scored_best",
       persisted,
       estimatedBytes,
     });
@@ -2614,7 +2720,11 @@ async function captureStepOptionC(label = null) {
     const activeFailed = activeMode !== "run" && (!r?.active?.ok || !activeSnapshot?.best);
     const activeReasonCode = activeMode === "run"
       ? "-"
-      : (!r?.active ? "active:transport" : (r.active.ok === false ? "active:ok:false" : (!activeSnapshot?.best ? "active:parse" : "-")));
+      : (!r?.active ? "active:transport" : (
+        r.active.ok === false
+          ? ((r.active.error === "NO_SCOPE_MATCH" || r.active.reason === "NO_SCOPE_MATCH") ? "active:no_scope_match" : "active:ok:false")
+          : (!activeSnapshot?.best ? "active:parse" : "-")
+      ));
     const persistWarn = !persisted;
     const rawWarn = runRawStored.reason === "raw_capped" || activeRawStored.reason === "raw_capped";
     if (activeFailed) setLastMarkStatus("PARTIAL", activeReasonCode);
@@ -2794,14 +2904,43 @@ async function loadUiPrefs() {
 }
 
 // --- wire up ---
+// Mode buttons: select mode only (do not run)
 document.querySelectorAll("button[data-action]").forEach(btn => {
-  btn.addEventListener("click", () => _lockedPreset([btn.dataset.action]));
+  btn.addEventListener("click", () => {
+    setPressed(btn.dataset.action);
+    showMode(btn.dataset.action);
+  });
 });
+
+// Run button: execute currently selected mode
+if (els.runCurrentMode) {
+  els.runCurrentMode.addEventListener("click", () => _lockedPreset([state.activeMode || "run"]));
+}
+
+// Preset dropdown toggle
+if (els.presetToggle && els.presetMenu) {
+  els.presetToggle.addEventListener("click", () => {
+    const open = els.presetMenu.hidden;
+    els.presetMenu.hidden = !open;
+    els.presetToggle.setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", (e) => {
+    if (!els.presetToggle.contains(e.target) && !els.presetMenu.contains(e.target)) {
+      els.presetMenu.hidden = true;
+      els.presetToggle.setAttribute("aria-expanded", "false");
+    }
+  });
+}
 
 els.refreshFrames.addEventListener("click", refreshFrames);
 els.target.addEventListener("change", () => {
-  els.frameSelect.disabled = els.target.value !== "manual";
+  updateScopeUi();
 });
+if (els.pinFrame) {
+  els.pinFrame.addEventListener("change", () => {
+    updateScopeUi();
+  });
+}
 
 
 
@@ -2982,9 +3121,9 @@ if (els.allTableBody && !els.allTableBody.__bound) {
   });
 }
 
-els.presetQuick.addEventListener("click", presetQuick);
-els.presetRelease.addEventListener("click", presetRelease);
-els.presetFocus.addEventListener("click", presetFocus);
+if (els.presetQuick) els.presetQuick.addEventListener("click", () => { if (els.presetMenu) { els.presetMenu.hidden = true; els.presetToggle.setAttribute("aria-expanded", "false"); } presetQuick(); });
+if (els.presetRelease) els.presetRelease.addEventListener("click", () => { if (els.presetMenu) { els.presetMenu.hidden = true; els.presetToggle.setAttribute("aria-expanded", "false"); } presetRelease(); });
+if (els.presetFocus) els.presetFocus.addEventListener("click", () => { if (els.presetMenu) { els.presetMenu.hidden = true; els.presetToggle.setAttribute("aria-expanded", "false"); } presetFocus(); });
 
 // Clickable severity badges → filter explorer
 els.sevBadges.addEventListener("click", (e) => {
@@ -3332,9 +3471,9 @@ function initVirtualTables() {
 
 
 // auto refresh on navigation
-chrome.devtools.network.onNavigated.addListener(() => {
-  refreshInspectedUrl();
-  refreshFrames();
+chrome.devtools.network.onNavigated.addListener(async () => {
+  await refreshInspectedUrl();
+  await refreshFrames();
   toast("Navigated — refreshed frames");
 });
 
@@ -3362,12 +3501,16 @@ document.querySelectorAll('.sectionToggle[data-collapse]').forEach(btn => {
 initVirtualTables();
 initSortableHeaders();
 initColToggles();
-refreshInspectedUrl();
-refreshFrames();
+updateScopeUi();
 setVersionBadge();
 loadUiPrefs();
 updateSessionButtons();
 setPressed(state.activeMode || "run");
+
+(async () => {
+  await refreshInspectedUrl();
+  await refreshFrames();
+})();
 
 if (!hasRuntime()) {
   toast("Runtime API missing — try reopening DevTools after reloading extension");

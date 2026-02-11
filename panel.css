@@ -385,6 +385,22 @@ input[type="text"]::placeholder {
   flex-wrap: wrap;
 }
 
+.toolbarRow {
+  align-items: center;
+}
+
+.toolbarRow > .mutedLabel {
+  flex-shrink: 0;
+  min-width: 52px;
+}
+
+/* Mode buttons: pressed state for selection */
+.btn[data-action][aria-pressed="true"] {
+  background: var(--clr-info-surface);
+  border-color: var(--clr-info-border);
+  color: var(--clr-info);
+}
+
 .exportClusters {
   gap: var(--sp-3);
   align-items: flex-start;
@@ -403,11 +419,12 @@ input[type="text"]::placeholder {
 }
 
 .sessionHud {
-  margin-left: var(--sp-1);
+  margin-left: auto;
   display: grid;
-  min-width: 280px;
+  min-width: 220px;
   color: var(--clr-text-secondary);
   font-size: var(--text-xs);
+  text-align: right;
 }
 
 .inlineHint {
@@ -421,8 +438,53 @@ input[type="text"]::placeholder {
   visibility: visible;
 }
 
-.presetsGroup {
-  opacity: 0.92;
+/* Preset dropdown */
+.presetDropdownGroup {
+  margin-left: auto;
+}
+
+.presetDropdown {
+  position: relative;
+}
+
+.presetMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: var(--z-dropdown);
+  background: var(--clr-bg-overlay);
+  border: 1px solid var(--clr-border-strong);
+  border-radius: var(--radius-md);
+  padding: var(--sp-1);
+  box-shadow: var(--shadow-md);
+  min-width: 120px;
+}
+
+.presetOption {
+  display: block;
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  background: none;
+  border: none;
+  border-radius: var(--radius-xs);
+  color: var(--clr-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  transition: background var(--trans-fast), color var(--trans-fast);
+}
+
+.presetOption:hover {
+  background: var(--clr-bg-emphasis);
+  color: var(--clr-text-primary);
+}
+
+.presetOption:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .mutedLabel {
@@ -1197,12 +1259,17 @@ input[type="text"]::placeholder {
 }
 
 /* Running state */
-.toolbar.isRunning .btn[data-action] {
+.toolbar.isRunning .btn[data-action],
+.toolbar.isRunning #sessionStart,
+.toolbar.isRunning #sessionMark,
+.toolbar.isRunning #sessionEnd,
+.toolbar.isRunning .presetDropdownGroup {
   opacity: 0.5;
   pointer-events: none;
 }
 
-.toolbar.isRunning .btn[data-action].running {
+.toolbar.isRunning .btn[data-action].running,
+.toolbar.isRunning #runCurrentMode.running {
   opacity: 1;
   pointer-events: none;
 }
