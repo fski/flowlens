@@ -47,18 +47,31 @@
         </div>
 
         <div class="row spread">
-          <div class="group">
-            <span class="mutedLabel">Export</span>
-            <button class="btn secondary" id="copyJson" title="Copy results as JSON">JSON</button>
-            <button class="btn secondary" id="downloadJson" title="Download results as JSON file">Download</button>
-            <button class="btn secondary" id="copyMd" title="Copy results as Markdown">Markdown</button>
+          <div class="group exportClusters">
+            <div class="exportCluster">
+              <span class="mutedLabel">Single-run</span>
+              <button class="btn secondary" id="copyJson" title="Copy latest single-run result as JSON">JSON</button>
+              <button class="btn secondary" id="copyMd" title="Copy latest single-run result as Markdown">Markdown</button>
+              <span class="inlineHint" id="copyMdHint" aria-live="polite"></span>
+              <button class="btn secondary" id="downloadJson" title="Download latest single-run result as JSON file">Download</button>
+            </div>
+            <div class="exportCluster exportClusterSession">
+              <span class="mutedLabel">Session</span>
+              <button class="btn secondary" id="sessionStart" title="Start capture session">Start session</button>
+              <button class="btn secondary" id="sessionMark" title="Capture current step" disabled>Mark step</button>
+              <button class="btn secondary" id="sessionEnd" title="End active session" disabled>End session</button>
+              <button class="btn secondary" id="sessionExportJson" title="Export active session as JSON" disabled>Session JSON</button>
+              <button class="btn secondary" id="sessionExportMd" title="Export active session as Markdown" disabled>Session MD</button>
+              <span class="inlineHint" id="sessionMdHint" aria-live="polite"></span>
+              <div class="sessionHud mono truncate" id="sessionHudLine" aria-live="polite">Session • none</div>
+            </div>
           </div>
 
-          <div class="group">
+          <div class="group presetsGroup">
             <span class="mutedLabel">Presets</span>
-            <button class="btn" id="presetQuick" title="Run + Contrast">Quick</button>
-            <button class="btn" id="presetRelease" title="Watch + Observe + Run — full pre-release check">Release</button>
-            <button class="btn" id="presetFocus" title="TabWalk + Run — keyboard focus check">Focus</button>
+            <button class="btn secondary" id="presetQuick" title="Run + Contrast">Quick</button>
+            <button class="btn secondary" id="presetRelease" title="Watch + Observe + Run — full pre-release check">Release</button>
+            <button class="btn secondary" id="presetFocus" title="TabWalk + Run — keyboard focus check">Focus</button>
           </div>
         </div>
       </section>
@@ -114,12 +127,10 @@
           </select>
           <button class="btn" id="clearHistory" type="button" title="Clear stored results">Clear</button>
         </div>
-        <div class="viewbarRight" aria-label="Quick views">
-          <button class="seg" id="viewRun" type="button" aria-pressed="false">Run</button>
-          <button class="seg" id="viewContrast" type="button" aria-pressed="false">Contrast</button>
-          <button class="seg" id="viewTab" type="button" aria-pressed="false">TabWalk</button>
-          <button class="seg" id="viewWatch" type="button" aria-pressed="false">Watch</button>
-          <button class="seg" id="viewObserve" type="button" aria-pressed="false">Observe</button>
+        <div class="viewbarRight" aria-label="Mode controls">
+          <span class="mutedLabel">Mode</span>
+          <span id="currentModeText" class="mono">run</span>
+          <button class="seg" id="rerunCurrent" type="button" aria-label="Re-run currently selected mode">Re-run current mode</button>
         </div>
       </section>
 

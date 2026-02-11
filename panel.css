@@ -385,6 +385,46 @@ input[type="text"]::placeholder {
   flex-wrap: wrap;
 }
 
+.exportClusters {
+  gap: var(--sp-3);
+  align-items: flex-start;
+}
+
+.exportCluster {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.exportClusterSession {
+  padding-left: var(--sp-3);
+  border-left: 1px solid var(--clr-border-subtle);
+}
+
+.sessionHud {
+  margin-left: var(--sp-1);
+  display: grid;
+  min-width: 280px;
+  color: var(--clr-text-secondary);
+  font-size: var(--text-xs);
+}
+
+.inlineHint {
+  min-width: 72px;
+  visibility: hidden;
+  color: var(--clr-text-secondary);
+  font-size: var(--text-xs);
+}
+
+.inlineHint.show {
+  visibility: visible;
+}
+
+.presetsGroup {
+  opacity: 0.92;
+}
+
 .mutedLabel {
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);

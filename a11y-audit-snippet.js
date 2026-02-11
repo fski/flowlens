@@ -110,6 +110,43 @@
     return false;
   };
 
+  const createPassCache = () => ({
+    styles: new WeakMap(),
+    rects: new WeakMap(),
+    hidden: new WeakMap(),
+  });
+
+  const getStyleCached = (el, cache) => {
+    if (!cache) return w.getComputedStyle(el);
+    if (cache.styles.has(el)) return cache.styles.get(el);
+    const style = w.getComputedStyle(el);
+    cache.styles.set(el, style);
+    return style;
+  };
+
+  const getRectCached = (el, cache) => {
+    if (!cache) return el.getBoundingClientRect();
+    if (cache.rects.has(el)) return cache.rects.get(el);
+    const rect = el.getBoundingClientRect();
+    cache.rects.set(el, rect);
+    return rect;
+  };
+
+  const isHiddenCached = (el, cache) => {
+    if (!cache) return isHidden(el);
+    if (cache.hidden.has(el)) return cache.hidden.get(el);
+    let hidden = true;
+    if (isEl(el) && !el.hidden) {
+      const s = getStyleCached(el, cache);
+      if (!(s.display === "none" || s.visibility === "hidden")) {
+        const r = getRectCached(el, cache);
+        hidden = r.width === 0 || r.height === 0;
+      }
+    }
+    cache.hidden.set(el, hidden);
+    return hidden;
+  };
+
   const uniqBy = (arr, k) => {
     const seen = new Set();
     return arr.filter(x => {
@@ -148,7 +185,7 @@
     CLICK_WITHOUT_KEYBOARD: (f) => `Add tabindex="0" and a keydown handler for Enter/Space to this ${f.tag?.toLowerCase() || 'element'}, or replace with a <button>.`,
     ARIA_HIDDEN_FOCUSABLE: 'Add tabindex="-1" to focusable elements inside aria-hidden="true", or remove aria-hidden from the container.',
     ARIA_REQUIRED_ATTR_MISSING: (f) => `Add ${f.extra?.attr}="..." to this role="${f.extra?.role}" element as required by the ARIA spec.`,
-    TOUCH_TARGET_TOO_SMALL: 'Increase the clickable area to at least 24x24px using padding, min-width/min-height, or a larger hit area.',
+    TOUCH_TARGET_TOO_SMALL: 'Increase the clickable area to at least 24x24px (WCAG 2.2 AA 2.5.8) using padding, min-width/min-height, or a larger hit area.',
     TABLE_NO_HEADERS: 'Add <th scope="col"> for column headers and <th scope="row"> for row headers.',
     LABEL_NOT_IN_NAME: 'Ensure the aria-label includes the visible text. E.g., if button says "Search", use aria-label="Search products" not "Find items".',
     MISSING_LANG: 'Add lang="en" (or the appropriate language code) to the <html> element.',
@@ -184,6 +221,52 @@
     TARGET_SIZE_AAA: 'Increase the target size to at least 44x44px to meet AAA requirements.',
   };
 
+  const RULE_REGISTRY = {
+    FOCUS_VISIBLE_SUPPRESSED: {
+      id: "FOCUS_VISIBLE_SUPPRESSED",
+      wcag: "2.4.7",
+      level: "AA",
+      confidence: "heuristic",
+      run: null,
+    },
+    LOADER_WITHOUT_ANNOUNCEMENT_HOOK: {
+      id: "LOADER_WITHOUT_ANNOUNCEMENT_HOOK",
+      wcag: "4.1.3",
+      level: "AA",
+      confidence: "heuristic",
+      run: null,
+    },
+    TOUCH_TARGET_TOO_SMALL: {
+      id: "TOUCH_TARGET_TOO_SMALL",
+      wcag: "2.5.8",
+      wcagVersion: "2.2",
+      level: "AA",
+      confidence: "strict",
+      run: null,
+    },
+    CLICK_WITHOUT_KEYBOARD: {
+      id: "CLICK_WITHOUT_KEYBOARD",
+      wcag: "2.1.1",
+      level: "A",
+      confidence: "heuristic",
+      run: null,
+    },
+    FOCUS_MAY_BE_OBSCURED: {
+      id: "FOCUS_MAY_BE_OBSCURED",
+      wcag: "2.4.11",
+      level: "AA",
+      confidence: "advisory",
+      run: null,
+    },
+    CONSISTENT_HELP_CHECK: {
+      id: "CONSISTENT_HELP_CHECK",
+      wcag: "3.2.6",
+      level: "A",
+      confidence: "advisory",
+      run: null,
+    },
+  };
+
   const getAccName = (el) => {
     if (!isEl(el)) return "";
     const aria = el.getAttribute("aria-label");
@@ -214,9 +297,15 @@
   };
 
   const add = (findings, params) => {
-    const { type, el, severity = "low", wcag = null, wcagVersion = null, product = null, note = null, extra = null, fix = null } = params;
+    const { type, el, severity = "low", wcag = null, wcagVersion = null, level = null, confidence = null, product = null, note = null, extra = null, fix = null } = params;
+    const ruleMeta = RULE_REGISTRY[type] || null;
     const entry = {
-      type, severity, wcag, wcagVersion, product,
+      type, severity,
+      wcag: wcag ?? ruleMeta?.wcag ?? null,
+      wcagVersion: wcagVersion ?? ruleMeta?.wcagVersion ?? null,
+      level: level ?? ruleMeta?.level ?? null,
+      confidence: confidence ?? ruleMeta?.confidence ?? null,
+      product,
       name: el ? getAccName(el) : null,
       role: el?.getAttribute?.("role") || null,
       tag: el?.tagName || null,
@@ -230,6 +319,43 @@
       entry.fix = typeof s === "function" ? s(entry) : s;
     }
     findings.push(entry);
+  };
+
+  RULE_REGISTRY.FOCUS_VISIBLE_SUPPRESSED.run = ({ findings }) => {
+    doc.querySelectorAll("a[href],button,[role='button'],[role='link'],[tabindex='0']").forEach(el => {
+      if (isHidden(el)) return;
+      try {
+        const cs = w.getComputedStyle(el);
+        const outlineStyle = cs.outlineStyle;
+        const outlineWidth = parseFloat(cs.outlineWidth) || 0;
+        const hasOutline = outlineStyle !== "none" && outlineWidth > 0;
+        if (!hasOutline) {
+          const boxShadow = cs.boxShadow;
+          const hasBoxShadowFocus = boxShadow && boxShadow !== "none";
+          if (!hasBoxShadowFocus) {
+            add(findings, {
+              type: "FOCUS_VISIBLE_SUPPRESSED",
+              el,
+              severity: "low",
+              note: "outline:none without visible box-shadow replacement. Verify :focus-visible styles exist."
+            });
+          }
+        }
+      } catch {}
+    });
+  };
+
+  RULE_REGISTRY.LOADER_WITHOUT_ANNOUNCEMENT_HOOK.run = ({ findings }) => {
+    const cache = createPassCache();
+    const loaders = collectLoaderCandidates(doc, 120).filter(el => looksLikeLoader(el, cache)).slice(0, 40);
+    if (loaders.length && !hasAnnouncementHook()) {
+      add(findings, {
+        type: "LOADER_WITHOUT_ANNOUNCEMENT_HOOK",
+        el: loaders[0],
+        severity: "medium",
+        note: "Loaders detected, but no aria-live/status/alert hook found in DOM."
+      });
+    }
   };
 
   const hasAnnouncementHook = () =>
@@ -296,8 +422,40 @@
     return "auto";
   };
 
-  const looksLikeLoader = (el) => {
-    if (!isEl(el) || isHidden(el)) return false;
+  const LOADER_CANDIDATE_SELECTOR = [
+    "[aria-busy='true']",
+    "[role='progressbar']",
+    "[role='status']",
+    "[class*='loader' i]",
+    "[class*='loading' i]",
+    "[class*='spinner' i]",
+    "[class*='skeleton' i]",
+    "[class*='shimmer' i]",
+    "[id*='loader' i]",
+    "[id*='loading' i]",
+    "[data-testid*='load' i]",
+    "[data-testid*='spinner' i]",
+    "[data-testid*='skeleton' i]",
+  ].join(",");
+
+  const collectLoaderCandidates = (root = doc, limit = 120) => {
+    const out = [];
+    const seen = new Set();
+    let list = [];
+    try { list = root.querySelectorAll ? root.querySelectorAll(LOADER_CANDIDATE_SELECTOR) : []; } catch { list = []; }
+    for (const el of list) {
+      if (!isEl(el)) continue;
+      const key = cssPath(el);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(el);
+      if (out.length >= limit) break;
+    }
+    return out;
+  };
+
+  const looksLikeLoader = (el, cache = null) => {
+    if (!isEl(el) || isHiddenCached(el, cache)) return false;
     const role = el.getAttribute("role");
     if (role === "progressbar" || role === "status") return true;
     if (el.getAttribute("aria-busy") === "true") return true;
@@ -307,7 +465,7 @@
     if (/(loading|please wait|connecting|fetching)/.test(t)) return true;
     // CSS animation/transition detection (spinner/skeleton patterns)
     try {
-      const cs = w.getComputedStyle(el);
+      const cs = getStyleCached(el, cache);
       const anim = (cs.animationName || "").toLowerCase();
       if (anim !== "none" && /(spin|rotate|pulse|shimmer|skeleton|loading|bounce)/.test(anim)) return true;
       const tp = (cs.transitionProperty || "").toLowerCase();
@@ -318,10 +476,10 @@
     } catch {}
     // Empty container with fixed dimensions and background (skeleton pattern)
     if (!el.textContent?.trim() && el.children.length === 0) {
-      const r = el.getBoundingClientRect();
+      const r = getRectCached(el, cache);
       if (r.width > 40 && r.height > 10 && r.height < 200) {
         try {
-          const cs = w.getComputedStyle(el);
+          const cs = getStyleCached(el, cache);
           if (cs.backgroundColor !== "rgba(0, 0, 0, 0)" && cs.backgroundColor !== "transparent") return true;
         } catch {}
       }
@@ -435,6 +593,9 @@
     const bold = fw >= 700;
     return fs >= 24 || (bold && fs >= 18.66);
   };
+
+  let observeInFlight = null;
+  let watchInFlight = null;
 
   // ---------------- main checks ----------------
   const run = (cfg = {}) => {
@@ -751,20 +912,8 @@
       }
     });
 
-    // -------- Loader/status smell (4.1.3) --------
-    const loaders = [...doc.querySelectorAll("[aria-busy='true'],[role='progressbar'],[role='status'],div,section,main")]
-      .filter(looksLikeLoader)
-      .slice(0, 40);
-
-    if (loaders.length && !hasAnnouncementHook()) {
-      add(findings, {
-        type: "LOADER_WITHOUT_ANNOUNCEMENT_HOOK",
-        el: loaders[0],
-        severity: "medium",
-        wcag: "4.1.3",
-        note: "Loaders detected, but no aria-live/status/alert hook found in DOM."
-      });
-    }
+    // -------- Loader/status smell --------
+    RULE_REGISTRY.LOADER_WITHOUT_ANNOUNCEMENT_HOOK.run({ findings });
 
     // -------- Additional checks --------
 
@@ -799,22 +948,7 @@
     }
 
     // 2.4.7 Focus Visible: interactive elements suppressing outline without replacement
-    doc.querySelectorAll("a[href],button,[role='button'],[role='link'],[tabindex='0']").forEach(el => {
-      if (isHidden(el)) return;
-      try {
-        const cs = w.getComputedStyle(el);
-        const outlineStyle = cs.outlineStyle;
-        const outlineWidth = parseFloat(cs.outlineWidth) || 0;
-        const hasOutline = outlineStyle !== "none" && outlineWidth > 0;
-        if (!hasOutline) {
-          const boxShadow = cs.boxShadow;
-          const hasBoxShadowFocus = boxShadow && boxShadow !== "none";
-          if (!hasBoxShadowFocus) {
-            add(findings, { type: "FOCUS_VISIBLE_SUPPRESSED", el, severity: "low", wcag: "2.4.7", note: "outline:none without visible box-shadow replacement. Verify :focus-visible styles exist." });
-          }
-        }
-      } catch {}
-    });
+    RULE_REGISTRY.FOCUS_VISIBLE_SUPPRESSED.run({ findings });
 
     // 2.4.1 Bypass Blocks: skip navigation link
     const skipLink = doc.querySelector("a[href='#main'],a[href='#content'],a[href='#maincontent'],[class*='skip-nav'],[class*='skipnav'],[class*='skip-link'],a[class*='skip']");
@@ -874,12 +1008,12 @@
       });
     });
 
-    // 2.5.5 Target Size: interactive elements smaller than 24x24px
+    // 2.5.8 Target Size (Minimum): interactive elements smaller than 24x24px
     doc.querySelectorAll("button,a[href],[role='button'],[role='link'],input:not([type='hidden']),select,textarea").forEach(el => {
       if (isHidden(el)) return;
       const r = el.getBoundingClientRect();
       if (r.width > 0 && r.height > 0 && (r.width < 24 || r.height < 24)) {
-        add(findings, { type: "TOUCH_TARGET_TOO_SMALL", el, severity: "low", wcag: "2.5.5", note: `Size ${Math.round(r.width)}x${Math.round(r.height)}px — min 24x24px (AA).`, extra: { width: Math.round(r.width), height: Math.round(r.height) } });
+        add(findings, { type: "TOUCH_TARGET_TOO_SMALL", el, severity: "low", note: `Size ${Math.round(r.width)}x${Math.round(r.height)}px — min 24x24px (WCAG 2.2 AA).`, extra: { width: Math.round(r.width), height: Math.round(r.height) } });
       }
     });
 
@@ -1134,10 +1268,36 @@
 
   // ---------------- observe (periodic run) ----------------
   const observe = ({ seconds = 10, intervalMs = 900, runConfig = { strict: true } } = {}) => {
-    return new Promise((resolve) => {
+    if (observeInFlight?.promise) {
+      console.info("🧠 A11YFlowAudit.observe already running; returning active session.");
+      return observeInFlight.promise;
+    }
+
+    const promise = new Promise((resolve) => {
       const startedAt = performance.now();
       const snapshots = [];
       const merged = [];
+      let settled = false;
+      let timer = null;
+      let timeout = null;
+
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearInterval(timer);
+        if (timeout) clearTimeout(timeout);
+        const unique = uniqBy(merged, x => `${x.type}|${x.severity}|${x.product||""}|${x.path||""}|${JSON.stringify(x.extra||{})}`);
+        const result = { timestamp: nowIso(), seconds, intervalMs, snapshots, findings: unique, href: w.location.href };
+        api.lastObserved = result;
+        observeInFlight = null;
+
+        console.groupCollapsed(`🧠 A11YFlowAudit.observe — ${seconds}s — totalUniqueFindings=${unique.length}`);
+        console.table(snapshots);
+        console.log("Unique findings:", unique);
+        console.groupEnd();
+
+        resolve(result);
+      };
 
       const tick = () => {
         const r = run(runConfig);
@@ -1146,29 +1306,23 @@
       };
 
       tick();
-      const timer = setInterval(tick, intervalMs);
-
-      setTimeout(() => {
-        clearInterval(timer);
-        const unique = uniqBy(merged, x => `${x.type}|${x.severity}|${x.product||""}|${x.path||""}|${JSON.stringify(x.extra||{})}`);
-        const result = { timestamp: nowIso(), seconds, intervalMs, snapshots, findings: unique, href: w.location.href };
-        api.lastObserved = result;
-
-        console.groupCollapsed(`🧠 A11YFlowAudit.observe — ${seconds}s — totalUniqueFindings=${unique.length}`);
-        console.table(snapshots);
-        console.log("Unique findings:", unique);
-        console.groupEnd();
-
-        resolve(result);
-      }, seconds * 1000);
+      timer = setInterval(tick, intervalMs);
+      timeout = setTimeout(finish, seconds * 1000);
 
       console.info(`🧠 A11YFlowAudit.observe started (${seconds}s). Trigger loader/remount flow now.`);
     });
+    observeInFlight = { promise };
+    return promise;
   };
 
   // ---------------- watch (loader chain + focus loss + silent loading) ----------------
   const watch = ({ seconds = 20, tickMs = 200, budget = {} } = {}) => {
-    return new Promise((resolve) => {
+    if (watchInFlight?.promise) {
+      console.info("👀 A11YFlowAudit.watch already running; returning active session.");
+      return watchInFlight.promise;
+    }
+
+    const promise = new Promise((resolve) => {
       const B = {
         maxBursts: 3,
         maxSilentMs: 2500,
@@ -1191,16 +1345,121 @@
       let focusChangeTimestamps = [];
 
       const events = [];
+      const loaderCandidates = new Set();
+      const MAX_LOADER_CANDIDATES = 280;
+      let settled = false;
+      let loaderNow = false;
+      let announcementHookNow = hasAnnouncementHook();
+      let pendingLoaderRecalc = null;
+      let lastLoaderRecalcAt = 0;
+      let timer = null;
 
-      const timer = setInterval(() => {
+      const isLikelyLoaderCandidate = (el) => {
+        if (!isEl(el)) return false;
+        if (el.getAttribute("aria-busy") === "true") return true;
+        const role = (el.getAttribute("role") || "").toLowerCase();
+        if (role === "progressbar" || role === "status") return true;
+        const attrs = `${(el.className || "").toString()} ${el.id || ""} ${testId(el) || ""}`.toLowerCase();
+        return /(loader|loading|spinner|skeleton|progress|shimmer)/.test(attrs);
+      };
+
+      const addLoaderCandidate = (el) => {
+        if (!isLikelyLoaderCandidate(el)) return;
+        if (loaderCandidates.size >= MAX_LOADER_CANDIDATES) return;
+        loaderCandidates.add(el);
+      };
+
+      const addSubtreeCandidates = (root) => {
+        if (!isEl(root)) return;
+        addLoaderCandidate(root);
+        const list = collectLoaderCandidates(root, 40);
+        for (const el of list) addLoaderCandidate(el);
+      };
+
+      const recalcLoaderState = () => {
+        pendingLoaderRecalc = null;
+        lastLoaderRecalcAt = performance.now();
+        announcementHookNow = hasAnnouncementHook();
+        const cache = createPassCache();
+        let hasLoader = false;
+        for (const el of loaderCandidates) {
+          if (!isEl(el) || !el.isConnected) {
+            loaderCandidates.delete(el);
+            continue;
+          }
+          if (looksLikeLoader(el, cache)) {
+            hasLoader = true;
+            break;
+          }
+        }
+        loaderNow = hasLoader;
+      };
+
+      const scheduleLoaderRecalc = (force = false) => {
+        if (pendingLoaderRecalc) return;
+        const elapsed = performance.now() - lastLoaderRecalcAt;
+        const delay = force ? 0 : Math.max(0, 300 - elapsed); // max once per 300ms
+        pendingLoaderRecalc = setTimeout(recalcLoaderState, delay);
+      };
+
+      collectLoaderCandidates(doc, 160).forEach(addLoaderCandidate);
+      scheduleLoaderRecalc(true);
+
+      const observer = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          if (m.type === "attributes") addLoaderCandidate(m.target);
+          if (m.type === "childList") {
+            addSubtreeCandidates(m.target);
+            m.addedNodes.forEach(addSubtreeCandidates);
+          }
+        }
+        scheduleLoaderRecalc();
+      });
+
+      try {
+        observer.observe(doc.documentElement || doc.body, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          attributeFilter: ["aria-busy", "role", "class", "id", "style", "hidden", "data-testid"],
+        });
+      } catch {
+        // Keep watch deterministic even if observe() fails.
+      }
+
+      const finalize = () => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearInterval(timer);
+        if (pendingLoaderRecalc) clearTimeout(pendingLoaderRecalc);
+        try { observer.disconnect(); } catch {}
+        watchInFlight = null;
+
+        const verdicts = [];
+        if (bursts > B.maxBursts) verdicts.push({ metric: "bursts", value: bursts, budget: B.maxBursts });
+        if (silentMs > B.maxSilentMs) verdicts.push({ metric: "silentMs", value: silentMs, budget: B.maxSilentMs });
+        if (totalLoadingMs > B.maxTotalLoadingMs) verdicts.push({ metric: "totalLoadingMs", value: totalLoadingMs, budget: B.maxTotalLoadingMs });
+        if (focusLoss > B.maxFocusLossEvents) verdicts.push({ metric: "focusLossEvents", value: focusLoss, budget: B.maxFocusLossEvents });
+        if (focusJumps > B.maxFocusJumps) verdicts.push({ metric: "focusJumps", value: focusJumps, budget: B.maxFocusJumps });
+
+        const result = { timestamp: nowIso(), seconds, bursts, totalLoadingMs, silentMs, focusLossCount: focusLoss, focusJumps, budget: B, verdicts, events, href: w.location.href };
+        api.lastWatch = result;
+
+        console.groupCollapsed(`⏱️ A11YFlowAudit.watch — ${seconds}s — bursts=${bursts} loading=${totalLoadingMs}ms silent=${silentMs}ms focusLoss=${focusLoss}`);
+        if (verdicts.length) console.warn("OVER budget:", verdicts);
+        else console.info("Budgets OK ✅");
+        console.table(events.slice(0, 120));
+        console.log("Raw:", api.lastWatch);
+        console.groupEnd();
+
+        resolve(result);
+      };
+
+      timer = setInterval(() => {
         const t = +(performance.now() - start).toFixed(0);
 
-        const loaderNow = !![...doc.querySelectorAll("[aria-busy='true'],[role='progressbar'],[role='status'],div,section,main")]
-          .slice(0, 250)
-          .find(looksLikeLoader);
-
         if (loaderNow) totalLoadingMs += tickMs;
-        if (loaderNow && !hasAnnouncementHook()) silentMs += tickMs;
+        if (loaderNow && !announcementHookNow) silentMs += tickMs;
 
         if (loaderNow && !lastLoader) bursts += 1;
         lastLoader = loaderNow;
@@ -1238,30 +1497,14 @@
         }
 
         if (t >= seconds * 1000) {
-          clearInterval(timer);
-          const verdicts = [];
-          if (bursts > B.maxBursts) verdicts.push({ metric: "bursts", value: bursts, budget: B.maxBursts });
-          if (silentMs > B.maxSilentMs) verdicts.push({ metric: "silentMs", value: silentMs, budget: B.maxSilentMs });
-          if (totalLoadingMs > B.maxTotalLoadingMs) verdicts.push({ metric: "totalLoadingMs", value: totalLoadingMs, budget: B.maxTotalLoadingMs });
-          if (focusLoss > B.maxFocusLossEvents) verdicts.push({ metric: "focusLossEvents", value: focusLoss, budget: B.maxFocusLossEvents });
-          if (focusJumps > B.maxFocusJumps) verdicts.push({ metric: "focusJumps", value: focusJumps, budget: B.maxFocusJumps });
-
-          const result = { timestamp: nowIso(), seconds, bursts, totalLoadingMs, silentMs, focusLossCount: focusLoss, focusJumps, budget: B, verdicts, events, href: w.location.href };
-          api.lastWatch = result;
-
-          console.groupCollapsed(`⏱️ A11YFlowAudit.watch — ${seconds}s — bursts=${bursts} loading=${totalLoadingMs}ms silent=${silentMs}ms focusLoss=${focusLoss}`);
-          if (verdicts.length) console.warn("OVER budget:", verdicts);
-          else console.info("Budgets OK ✅");
-          console.table(events.slice(0, 120));
-          console.log("Raw:", api.lastWatch);
-          console.groupEnd();
-
-          resolve(result);
+          finalize();
         }
       }, tickMs);
 
       console.info(`👀 A11YFlowAudit.watch started (${seconds}s). Trigger the loader-heavy flow now.`);
     });
+    watchInFlight = { promise };
+    return promise;
   };
 
   // ---------------- tabWalk (heuristic keyboard order) ----------------
