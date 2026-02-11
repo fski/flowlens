@@ -8,7 +8,7 @@
     <div class="wrap">
       <header class="top">
         <div>
-          <h1 class="h1">FlowLens <span class="versionBadge" id="versionBadge" data-version="2.14.0">v2.14.0</span> <a class="authorBadge" href="https://fski.app" target="_blank" rel="noopener">by fski</a></h1>
+          <h1 class="h1">FlowLens <span class="versionBadge" id="versionBadge" data-version="2.15.0">v2.15.0</span> <a class="authorBadge" href="https://fski.app" target="_blank" rel="noopener">by fski</a></h1>
         </div>
 
         
@@ -16,10 +16,10 @@
           <div class="controlsRow">
             <label class="sr-only" for="target">Target frame selection</label>
             <select id="target" aria-label="Target frame selection">
-              <option value="auto">Auto (HC frame)</option>
-              <option value="top">Top frame (staging/direct)</option>
-              <option value="all">All frames (fallback)</option>
-              <option value="manual">Manual (pick frame)</option>
+              <option value="auto">Auto-detect frame</option>
+              <option value="top">Top frame only</option>
+              <option value="all">All frames</option>
+              <option value="manual">Manual selection</option>
             </select>
 
             <button class="btn" id="refreshFrames">Refresh frames</button>
@@ -38,19 +38,19 @@
       <section class="toolbar" aria-label="Audit controls">
         <div class="row">
           <div class="group">
-            <button class="btn primary" data-action="run" title="R — Full strict WCAG audit">Run (strict)</button>
-            <button class="btn" data-action="observe" title="O — Watch DOM for 12s, catch dynamic a11y issues">Observe 12s</button>
-            <button class="btn" data-action="watch" title="W — Monitor loading/focus/mutations for 40s">Watch 40s</button>
-            <button class="btn" data-action="tabWalk" title="T — Tab through 80 focusable elements, detect traps">TabWalk 80</button>
-            <button class="btn" data-action="contrast" title="C — Color contrast audit on up to 250 text nodes">Contrast 250</button>
+            <button class="btn primary" data-action="run" title="R — Strict WCAG audit">Audit</button>
+            <button class="btn" data-action="observe" title="O — Re-run checks every ~1s for 12s">Observe</button>
+            <button class="btn" data-action="watch" title="W — Monitor loaders and focus for 40s">Watch</button>
+            <button class="btn" data-action="tabWalk" title="T — Walk 80 focusable elements">Tab order</button>
+            <button class="btn" data-action="contrast" title="C — Check contrast on up to 250 text nodes">Contrast</button>
           </div>
         </div>
 
         <div class="row spread">
           <div class="group">
-            <button class="btn secondary" id="copyJson">Copy JSON</button>
-            <button class="btn secondary" id="downloadJson">Download JSON</button>
-            <button class="btn secondary" id="copyMd">Copy Markdown</button>
+            <button class="btn secondary" id="copyJson" title="Copy results as JSON">JSON</button>
+            <button class="btn secondary" id="downloadJson" title="Download results as JSON file">Download</button>
+            <button class="btn secondary" id="copyMd" title="Copy results as Markdown">Markdown</button>
           </div>
 
           <div class="group">
@@ -64,12 +64,12 @@
         <div class="row">
           <div class="group toggles" role="group" aria-label="Options">
             <span class="mutedLabel">MFE Profiles</span>
-            <select id="profileSelect" aria-label="Active MFE profiles" multiple></select>
-            <label class="switch"><input id="alsoConsole" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Also log to Console</span></label>
-            <label class="switch"><input id="pinFrame" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Pin selected frame for this origin</span></label>
-          
-            <label class="switch"><input id="density" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Compact density</span></label>
-            <label class="switch"><input id="themeToggle" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Light mode</span></label>
+            <div id="profileSelect" class="profilePills" role="group" aria-label="Active MFE profiles"></div>
+            <label class="switch"><input id="alsoConsole" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Log to console</span></label>
+            <label class="switch"><input id="pinFrame" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Pin frame</span></label>
+
+            <label class="switch"><input id="density" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Compact</span></label>
+            <label class="switch"><input id="themeToggle" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Light theme</span></label>
           </div>
         </div>
 
@@ -95,8 +95,8 @@
       <section class="viewbar" aria-label="Results navigation">
         <div class="viewbarLeft">
           <label class="sr-only" for="viewSelect">Select stored result</label>
-          <select id="viewSelect" aria-label="Select stored result">
-            <option value="">(no stored results yet)</option>
+          <select id="viewSelect" aria-label="Previous results">
+            <option value="">No results yet</option>
           </select>
           <button class="btn" id="clearHistory" type="button" title="Clear stored results">Clear</button>
         </div>
@@ -109,77 +109,83 @@
         </div>
       </section>
 
-      <section class="status"
- aria-label="Run status">
+      <section class="status" aria-label="Run status">
         <div class="statusRow">
-          <b>Inspected URL:</b>
+          <b>URL</b>
           <span id="inspectedUrl" class="truncate mono" title="—">—</span>
           <button class="btn xs" id="copyInspectedUrl" type="button" aria-label="Copy inspected URL">Copy</button>
         </div>
         <div class="statusRow">
-          <b>Detected:</b>
+          <b>Environment</b>
           <span id="brandEnv" class="truncate mono" title="—">—</span>
-          <button class="btn xs" id="copyDetected" type="button" aria-label="Copy detected origin and environment">Copy</button>
+          <button class="btn xs" id="copyDetected" type="button" aria-label="Copy environment info">Copy</button>
         </div>
-        <div class="statusRow"><b>Used frameIds:</b> <span id="usedFrames" class="mono">—</span></div>
-        <div class="statusRow"><b>Summary:</b> <span id="summary">—</span></div>
-        <div class="statusRow"><b>Diff vs last:</b> <span id="diff">—</span></div>
+        <div class="statusCompact">
+          <div class="statusRow"><b>Frames</b> <span id="usedFrames" class="mono">—</span></div>
+          <div class="statusRow"><b>Changes</b> <span id="diff">—</span></div>
+        </div>
       </section>
 
-      <section class="cards">
-        <div class="card">
-          <div class="cardTitle">Run summary</div>
-          <div class="kvs" id="runSummary">(no run yet)</div>
-        </div>
-
-        <div class="card">
-          <div class="cardTitle">Findings by severity</div>
-          <div class="badges" id="sevBadges"></div>
+      <section class="card" id="resultsCard">
+        <button class="sectionToggle" type="button" aria-expanded="true" data-collapse="resultsBody">
+          <span class="outToggleIcon">&#x25B6;</span> Results
+        </button>
+        <div id="resultsBody" class="sectionBody">
+          <div id="runSummary" class="kvs">(no results yet)</div>
+          <div id="sevBadges" class="badges"></div>
         </div>
       </section>
 
       <section class="tableWrap" id="findingsSection">
-        <div class="tableTitle">Top findings</div>
-        <table class="tbl" id="topTable">
-          <caption class="sr-only">Top findings</caption>
-          <thead>
-            <tr>
-              <th scope="col">sev</th><th scope="col">product</th><th scope="col">type</th><th scope="col">wcag</th><th scope="col">name</th><th scope="col">role</th><th scope="col">testId</th><th scope="col">note</th><th scope="col">fix</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </section>
-
-      <section class="card" id="explorerSection">
-        <div class="cardTitle">Findings explorer</div>
-        <div class="filters">
-          <label class="sr-only" for="q">Search findings</label>
-          <input id="q" type="text" aria-label="Search findings" placeholder="Search (type/name/testId/wcag/path)…" />
-          <label class="sr-only" for="sev">Filter by severity</label>
-          <select id="sev" aria-label="Filter by severity">
-            <option value="">All severities</option>
-            <option value="high">high</option>
-            <option value="medium">medium</option>
-            <option value="low">low</option>
-            <option value="info">info</option>
-          </select>
-          <label class="sr-only" for="prod">Filter by product</label>
-          <select id="prod" aria-label="Filter by product"><option value="">All products</option></select>
-          <label class="sr-only" for="type">Filter by type</label>
-          <select id="type" aria-label="Filter by type"><option value="">All types</option></select>
-          <label class="chk"><input id="unique" type="checkbox" checked /> Unique</label>
-        </div>
-        <div class="tableWrap vscroll" style="margin-top:10px;">
-          <table class="tbl" id="allTable">
-            <caption class="sr-only">All findings</caption>
+        <button class="sectionToggle" type="button" aria-expanded="true" data-collapse="topTableInner">
+          <span class="outToggleIcon">&#x25B6;</span> Top issues
+        </button>
+        <div id="topTableInner" class="sectionBody">
+          <table class="tbl" id="topTable">
+            <caption class="sr-only">Top issues</caption>
             <thead>
               <tr>
-                <th scope="col">sev</th><th scope="col">product</th><th scope="col">type</th><th scope="col">wcag</th><th scope="col">name</th><th scope="col">testId</th><th scope="col">path</th><th scope="col">note</th><th scope="col">fix</th>
+                <th scope="col">sev</th><th scope="col">product</th><th scope="col">type</th><th scope="col">wcag</th><th scope="col">name</th><th scope="col">role</th><th scope="col">testId</th><th scope="col">note</th><th scope="col">fix</th>
               </tr>
             </thead>
             <tbody></tbody>
           </table>
+        </div>
+      </section>
+
+      <section class="card" id="explorerSection">
+        <button class="sectionToggle" type="button" aria-expanded="true" data-collapse="explorerBody">
+          <span class="outToggleIcon">&#x25B6;</span> All findings
+        </button>
+        <div id="explorerBody" class="sectionBody">
+          <div class="filters">
+            <label class="sr-only" for="q">Filter findings</label>
+            <input id="q" type="text" aria-label="Filter findings" placeholder="Filter findings..." />
+            <label class="sr-only" for="sev">Filter by severity</label>
+            <select id="sev" aria-label="Filter by severity">
+              <option value="">All severities</option>
+              <option value="high">high</option>
+              <option value="medium">medium</option>
+              <option value="low">low</option>
+              <option value="info">info</option>
+            </select>
+            <label class="sr-only" for="prod">Filter by product</label>
+            <select id="prod" aria-label="Filter by product"><option value="">All products</option></select>
+            <label class="sr-only" for="type">Filter by type</label>
+            <select id="type" aria-label="Filter by type"><option value="">All types</option></select>
+            <label class="chk"><input id="unique" type="checkbox" checked /> Unique</label>
+          </div>
+          <div class="tableWrap vscroll" style="margin-top:10px;">
+            <table class="tbl" id="allTable">
+              <caption class="sr-only">All findings</caption>
+              <thead>
+                <tr>
+                  <th scope="col">sev</th><th scope="col">product</th><th scope="col">type</th><th scope="col">wcag</th><th scope="col">name</th><th scope="col">testId</th><th scope="col">path</th><th scope="col">note</th><th scope="col">fix</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </section>
 

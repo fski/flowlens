@@ -32,7 +32,6 @@ const els = {
   brandEnv: document.getElementById("brandEnv"),
   copyDetected: document.getElementById("copyDetected"),
   usedFrames: document.getElementById("usedFrames"),
-  summary: document.getElementById("summary"),
   diff: document.getElementById("diff"),
 
   runSummary: document.getElementById("runSummary"),
@@ -71,6 +70,7 @@ const state = { top: [], explorer: [], records: [], byId: {}, currentId: null, c
 const BUILTIN_PROFILES = {
   helpcenter: {
     label: "Help Center",
+    description: "Targets Help Center iframes — adds tree, article and bot-specific WCAG checks",
     frame: {
       urlIncludes: ["helpcenter-webclient", "usehurrier.com", "helpcenter"],
       domSelectors: [
@@ -96,6 +96,7 @@ const BUILTIN_PROFILES = {
   },
   chat: {
     label: "Chat",
+    description: "Targets chat widgets — adds role=log, message boundary and input label checks",
     frame: {
       urlIncludes: [],
       domSelectors: ["[data-testid^='GST_CHAT__']", "#GST_CHAT__FEED", "[role='log']"],
@@ -478,7 +479,7 @@ function updateViewSelect() {
   if (!state.records.length) {
     const o = document.createElement("option");
     o.value = "";
-    o.textContent = "(no stored results yet)";
+    o.textContent = "No results yet";
     els.viewSelect.appendChild(o);
     return;
   }
@@ -546,42 +547,48 @@ function renderRecord(rec) {
     buildOptionsFromFindings(findings, els.type, "type");
     renderExplorer(findings);
   } else if (mode === "contrast") {
-    const scanned = escapeHtml(String(bestResult?.scanned ?? "—"));
-    const failures = escapeHtml(String(bestResult?.failuresCount ?? bestResult?.failures?.length ?? "—"));
-    els.runSummary.innerHTML =
-      `<div class="kv"><b>action</b><span>contrast</span></div>` +
-      `<div class="kv"><b>scanned</b><span>${scanned}</span></div>` +
-      `<div class="kv"><b>failures</b><span>${failures}</span></div>` +
-      `<div class="kv"><b>timestamp</b><span>${escapeHtml(bestResult?.timestamp || rec.at || "—")}</span></div>`;
-    els.sevBadges.innerHTML = `<span class="badge info">failures: ${failures}</span><span class="badge low">scanned: ${scanned}</span>`;
+    const scanned = bestResult?.scanned ?? "—";
+    const failures = bestResult?.failuresCount ?? bestResult?.failures?.length ?? "—";
+    const ts = bestResult?.timestamp ? new Date(bestResult.timestamp).toLocaleTimeString() : "";
+    els.runSummary.innerHTML = `
+      <div class="runStats">
+        <span class="runStat"><b>${escapeHtml(String(failures))}</b> failures</span>
+        <span class="runStat"><b>${escapeHtml(String(scanned))}</b> scanned</span>
+        ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
+      </div>`;
+    els.sevBadges.innerHTML = `<span class="badge info">failures: ${escapeHtml(String(failures))}</span><span class="badge low">scanned: ${escapeHtml(String(scanned))}</span>`;
     renderContrast(bestResult);
   } else if (mode === "tabWalk") {
-    const walked = escapeHtml(String(bestResult?.walked ?? "—"));
-    const totalFoc = escapeHtml(String(bestResult?.totalFocusables ?? "—"));
-    const evtCount = escapeHtml(String(bestResult?.events?.length ?? "—"));
-    els.runSummary.innerHTML =
-      `<div class="kv"><b>action</b><span>tabWalk</span></div>` +
-      `<div class="kv"><b>walked</b><span>${walked}/${totalFoc}</span></div>` +
-      `<div class="kv"><b>events</b><span>${evtCount}</span></div>` +
-      `<div class="kv"><b>timestamp</b><span>${escapeHtml(bestResult?.timestamp || rec.at || "—")}</span></div>`;
-    els.sevBadges.innerHTML = `<span class="badge info">events: ${evtCount}</span><span class="badge low">walked: ${walked}/${totalFoc}</span>`;
+    const walked = bestResult?.walked ?? "—";
+    const totalFoc = bestResult?.totalFocusables ?? "—";
+    const evtCount = bestResult?.events?.length ?? "—";
+    const ts = bestResult?.timestamp ? new Date(bestResult.timestamp).toLocaleTimeString() : "";
+    els.runSummary.innerHTML = `
+      <div class="runStats">
+        <span class="runStat"><b>${escapeHtml(String(evtCount))}</b> events</span>
+        <span class="runStat">walked <b>${escapeHtml(String(walked))}</b>/<b>${escapeHtml(String(totalFoc))}</b></span>
+        ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
+      </div>`;
+    els.sevBadges.innerHTML = `<span class="badge info">events: ${escapeHtml(String(evtCount))}</span><span class="badge low">walked: ${escapeHtml(String(walked))}/${escapeHtml(String(totalFoc))}</span>`;
     renderTabWalk(bestResult);
   } else if (mode === "observe" && bestResult) {
     const snapshots = Array.isArray(bestResult.snapshots) ? bestResult.snapshots : [];
     const oFindings = Array.isArray(bestResult.findings) ? bestResult.findings : [];
-    els.runSummary.innerHTML =
-      `<div class="kv"><b>action</b><span>observe</span></div>` +
-      `<div class="kv"><b>duration</b><span>${escapeHtml(String(bestResult.seconds ?? "—"))}s (${escapeHtml(String(bestResult.intervalMs ?? 900))}ms interval)</span></div>` +
-      `<div class="kv"><b>snapshots</b><span>${snapshots.length}</span></div>` +
-      `<div class="kv"><b>unique findings</b><span>${oFindings.length}</span></div>` +
-      `<div class="kv"><b>timestamp</b><span>${escapeHtml(bestResult.timestamp || rec.at || "—")}</span></div>`;
+    const ts = bestResult.timestamp ? new Date(bestResult.timestamp).toLocaleTimeString() : "";
+    els.runSummary.innerHTML = `
+      <div class="runStats">
+        <span class="runStat"><b>${oFindings.length}</b> findings</span>
+        <span class="runStat"><b>${snapshots.length}</b> snapshots</span>
+        <span class="runStat"><b>${escapeHtml(String(bestResult.seconds ?? "—"))}</b>s duration</span>
+        ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
+      </div>`;
     if (oFindings.length) {
       const c = countBySeverity(oFindings);
       els.sevBadges.innerHTML =
-        `<span class="badge high" data-sev="high" tabindex="0" role="button" title="Filter explorer by severity">high: ${c.high}</span>` +
-        `<span class="badge medium" data-sev="medium" tabindex="0" role="button" title="Filter explorer by severity">medium: ${c.medium}</span>` +
-        `<span class="badge low" data-sev="low" tabindex="0" role="button" title="Filter explorer by severity">low: ${c.low}</span>` +
-        `<span class="badge info" data-sev="info" tabindex="0" role="button" title="Filter explorer by severity">info: ${c.info}</span>`;
+        `<span class="badge high" data-sev="high" tabindex="0" role="button" title="Filter by high severity">high: ${c.high}</span>` +
+        `<span class="badge medium" data-sev="medium" tabindex="0" role="button" title="Filter by medium severity">medium: ${c.medium}</span>` +
+        `<span class="badge low" data-sev="low" tabindex="0" role="button" title="Filter by low severity">low: ${c.low}</span>` +
+        `<span class="badge info" data-sev="info" tabindex="0" role="button" title="Filter by info severity">info: ${c.info}</span>`;
       state.currentFindings = oFindings;
       showMode("run");
       buildOptionsFromFindings(oFindings, els.prod, "product");
@@ -592,23 +599,27 @@ function renderRecord(rec) {
     const verdicts = Array.isArray(bestResult.verdicts) ? bestResult.verdicts : [];
     const wEvents = Array.isArray(bestResult.events) ? bestResult.events : [];
     const overBudget = verdicts.length > 0;
-    els.runSummary.innerHTML =
-      `<div class="kv"><b>action</b><span>watch</span></div>` +
-      `<div class="kv"><b>duration</b><span>${escapeHtml(String(bestResult.seconds ?? "—"))}s</span></div>` +
-      `<div class="kv"><b>loader bursts</b><span>${escapeHtml(String(bestResult.bursts ?? "—"))}</span></div>` +
-      `<div class="kv"><b>total loading</b><span>${escapeHtml(String(bestResult.totalLoadingMs ?? "—"))}ms</span></div>` +
-      `<div class="kv"><b>silent loading</b><span>${escapeHtml(String(bestResult.silentMs ?? "—"))}ms</span></div>` +
-      `<div class="kv"><b>focus loss</b><span>${escapeHtml(String(bestResult.focusLossCount ?? "—"))}</span></div>` +
-      `<div class="kv"><b>events</b><span>${wEvents.length}</span></div>` +
-      `<div class="kv"><b>budget</b><span>${overBudget ? "OVER (" + verdicts.map(v => escapeHtml(String(v.metric))).join(", ") + ")" : "OK"}</span></div>` +
-      `<div class="kv"><b>timestamp</b><span>${escapeHtml(bestResult.timestamp || rec.at || "—")}</span></div>`;
+    const ts = bestResult.timestamp ? new Date(bestResult.timestamp).toLocaleTimeString() : "";
+    els.runSummary.innerHTML = `
+      <div class="runStats">
+        <span class="runStat"><b>${escapeHtml(String(bestResult.bursts ?? "—"))}</b> bursts</span>
+        <span class="runStat"><b>${escapeHtml(String(bestResult.totalLoadingMs ?? "—"))}</b>ms loading</span>
+        <span class="runStat"><b>${escapeHtml(String(bestResult.silentMs ?? "—"))}</b>ms silent</span>
+        <span class="runStat"><b>${escapeHtml(String(bestResult.focusLossCount ?? "—"))}</b> focus loss</span>
+        <span class="runStat"><b>${wEvents.length}</b> events</span>
+        ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
+      </div>`;
     els.sevBadges.innerHTML = overBudget
-      ? `<span class="badge high">OVER BUDGET</span>`
+      ? `<span class="badge high">Over budget: ${verdicts.map(v => escapeHtml(String(v.metric))).join(", ")}</span>`
       : `<span class="badge info">Budgets OK</span>`;
   } else {
-    els.runSummary.innerHTML = `<div class="kv"><b>action</b><span>${escapeHtml(mode)}</span></div>` +
-      `<div class="kv"><b>frameId</b><span>${escapeHtml(String(rec?.best?.frameId ?? "—"))}</span></div>` +
-      `<div class="kv"><b>timestamp</b><span>${escapeHtml(bestResult?.timestamp || bestResult?.endedAt || rec.at || "—")}</span></div>`;
+    const ts = (bestResult?.timestamp || bestResult?.endedAt || rec.at) ? new Date(bestResult?.timestamp || bestResult?.endedAt || rec.at).toLocaleTimeString() : "";
+    els.runSummary.innerHTML = `
+      <div class="runStats">
+        <span class="runStat">${escapeHtml(mode)}</span>
+        <span class="runStat">frame <b>${escapeHtml(String(rec?.best?.frameId ?? "—"))}</b></span>
+        ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
+      </div>`;
   }
 }
 
@@ -698,46 +709,32 @@ function actionIsWatch(resultObj) {
 
 function renderRunSummary(r) {
   if (!r) {
-    els.runSummary.innerHTML = '<div class="emptyGuide">Press <kbd>R</kbd> to run a strict audit, or try:<br><kbd>O</kbd> Observe \u00b7 <kbd>W</kbd> Watch \u00b7 <kbd>T</kbd> TabWalk \u00b7 <kbd>C</kbd> Contrast</div>';
+    els.runSummary.innerHTML = '<div class="emptyGuide">Press <kbd>R</kbd> to run an audit, or use a preset above.</div>';
     els.sevBadges.innerHTML = "";
     els.topTableBody.innerHTML = "";
     return;
   }
 
-  const href = r?.env?.href ?? r?.href ?? "";
-  const inIframe = r?.env?.inIframe ?? null;
   const mode = r?.mode ?? "";
   const findings = Array.isArray(r?.findings) ? r.findings : [];
-  const lists = r?.lists || null;
   const headingsCount = Array.isArray(r?.headings) ? r.headings.length : null;
+  const ts = r.timestamp ? new Date(r.timestamp).toLocaleTimeString() : "";
 
   els.runSummary.innerHTML = `
-    <div class="kv"><b>timestamp</b><span>${escapeHtml(r.timestamp || "—")}</span></div>
-    <div class="kv"><b>findings</b><span>${findings.length}</span></div>
-    <div class="kv"><b>mode</b><span>${escapeHtml(mode || "—")}</span></div>
-    <div class="kv"><b>inIframe</b><span>${inIframe === null ? "—" : String(inIframe)}</span></div>
-    <div class="kv"><b>href</b><span class="truncate mono" title="${escapeHtml(href)}">${escapeHtml(truncateMiddle(href, 120))}</span><button class="btn xs" type="button" data-copy-href="1" aria-label="Copy href">Copy</button></div>
-    ${lists ? `<div class="kv"><b>lists</b><span>ul=${lists.ul} ol=${lists.ol} dl=${lists.dl}</span></div>` : ""}
-    ${headingsCount !== null ? `<div class="kv"><b>headings</b><span>${headingsCount}</span></div>` : ""}
+    <div class="runStats">
+      <span class="runStat"><b>${findings.length}</b> findings</span>
+      <span class="runStat">mode: <b>${escapeHtml(mode || "auto")}</b></span>
+      ${headingsCount !== null ? `<span class="runStat"><b>${headingsCount}</b> headings</span>` : ""}
+      ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
+    </div>
   `;
-
-  // copy full href (URLs are truncated in UI)
-  const hrefBtn = els.runSummary.querySelector('[data-copy-href="1"]');
-  if (hrefBtn) {
-    hrefBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      copyText(href);
-      toast("Copied href");
-    });
-  }
 
   const c = countBySeverity(findings);
   els.sevBadges.innerHTML = `
-    <span class="badge high" data-sev="high" tabindex="0" role="button" title="Filter explorer by severity">high: ${c.high}</span>
-    <span class="badge medium" data-sev="medium" tabindex="0" role="button" title="Filter explorer by severity">medium: ${c.medium}</span>
-    <span class="badge low" data-sev="low" tabindex="0" role="button" title="Filter explorer by severity">low: ${c.low}</span>
-    <span class="badge info" data-sev="info" tabindex="0" role="button" title="Filter explorer by severity">info: ${c.info}</span>
+    <span class="badge high" data-sev="high" tabindex="0" role="button" title="Filter by high severity">high: ${c.high}</span>
+    <span class="badge medium" data-sev="medium" tabindex="0" role="button" title="Filter by medium severity">medium: ${c.medium}</span>
+    <span class="badge low" data-sev="low" tabindex="0" role="button" title="Filter by low severity">low: ${c.low}</span>
+    <span class="badge info" data-sev="info" tabindex="0" role="button" title="Filter by info severity">info: ${c.info}</span>
   `;
 
   const topRaw = topFindings(findings, 30);
@@ -879,7 +876,19 @@ function renderExplorer(findings) {
     `).join("");
   }
 
-  els.summary.textContent = `filtered=${filtered.length} / total=${(findings || []).length}`;
+  // Update explorer section toggle with count
+  const explorerToggle = document.querySelector('#explorerSection .sectionToggle');
+  if (explorerToggle) {
+    const countSpan = explorerToggle.querySelector('.toggleCount') || (() => {
+      const s = document.createElement('span');
+      s.className = 'toggleCount';
+      explorerToggle.appendChild(s);
+      return s;
+    })();
+    countSpan.textContent = filtered.length < (findings || []).length
+      ? `${filtered.length} / ${(findings || []).length}`
+      : `${filtered.length}`;
+  }
 }
 
 
@@ -1043,8 +1052,7 @@ function diffSnapshots(prev, next) {
 }
 
 async function runAction(action, opts = {}) {
-  els.summary.textContent = "Running…";
-  els.usedFrames.textContent = "—";
+  els.usedFrames.textContent = "Running…";
   els.diff.textContent = "—";
 
   const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
@@ -1089,7 +1097,6 @@ async function runAction(action, opts = {}) {
   renderRecord(rec);
 
   els.usedFrames.textContent = (r?.usedFrameIds || []).join(", ") || "—";
-  els.summary.textContent = r?.perFrame ? summarizeFrames(r.perFrame) : "—";
 
   const bestEntry = rec.best || null;
   state.bestFrameId = bestEntry?.frameId ?? 0;
@@ -1186,11 +1193,28 @@ function renderProfileSelect() {
   if (!els.profileSelect) return;
   els.profileSelect.innerHTML = "";
   for (const [id, p] of Object.entries(profileState.profiles)) {
-    const o = document.createElement("option");
-    o.value = id;
-    o.textContent = p.label || id;
-    o.selected = profileState.active.includes(id);
-    els.profileSelect.appendChild(o);
+    const isActive = profileState.active.includes(id);
+    const label = document.createElement("label");
+    label.className = `profilePill${isActive ? " active" : ""}`;
+    if (p.description) label.title = p.description;
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = id;
+    cb.checked = isActive;
+    cb.addEventListener("change", () => {
+      if (cb.checked) {
+        if (!profileState.active.includes(id)) profileState.active.push(id);
+      } else {
+        profileState.active = profileState.active.filter(x => x !== id);
+      }
+      label.classList.toggle("active", cb.checked);
+      saveActiveProfiles();
+    });
+    const span = document.createElement("span");
+    span.textContent = p.label || id;
+    label.appendChild(cb);
+    label.appendChild(span);
+    els.profileSelect.appendChild(label);
   }
 }
 
@@ -1216,12 +1240,6 @@ els.target.addEventListener("change", () => {
   els.frameSelect.disabled = els.target.value !== "manual";
 });
 
-if (els.profileSelect) {
-  els.profileSelect.addEventListener("change", () => {
-    profileState.active = [...els.profileSelect.selectedOptions].map(o => o.value);
-    saveActiveProfiles();
-  });
-}
 
 
 if (els.copyInspectedUrl) {
@@ -1563,8 +1581,8 @@ function initColToggles() {
     applyColStyles();
 
     const placements = [
-      { tableId: 'topTable', selector: '#findingsSection .tableTitle' },
-      { tableId: 'allTable', selector: '#explorerSection .cardTitle' },
+      { tableId: 'topTable', selector: '#findingsSection .sectionToggle' },
+      { tableId: 'allTable', selector: '#explorerSection .sectionToggle' },
       { tableId: 'contrastTable', selector: '#contrastSection .tableTitle' },
       { tableId: 'tabTable', selector: '#tabWalkSection .tableTitle' },
     ];
@@ -1737,6 +1755,16 @@ if (_jsonToggle) {
     els.json.classList.toggle('collapsed', expanded);
   });
 }
+
+// Section collapse toggles
+document.querySelectorAll('.sectionToggle[data-collapse]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const expanded = btn.getAttribute('aria-expanded') === 'true';
+    btn.setAttribute('aria-expanded', String(!expanded));
+    const target = document.getElementById(btn.dataset.collapse);
+    if (target) target.classList.toggle('collapsed', expanded);
+  });
+});
 
 // initial
 initVirtualTables();
