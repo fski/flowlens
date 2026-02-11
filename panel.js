@@ -21,6 +21,14 @@ const els = {
   copyJson: document.getElementById("copyJson"),
   downloadJson: document.getElementById("downloadJson"),
   copyMd: document.getElementById("copyMd"),
+  copyMdHint: document.getElementById("copyMdHint"),
+  sessionStart: document.getElementById("sessionStart"),
+  sessionMark: document.getElementById("sessionMark"),
+  sessionEnd: document.getElementById("sessionEnd"),
+  sessionExportJson: document.getElementById("sessionExportJson"),
+  sessionExportMd: document.getElementById("sessionExportMd"),
+  sessionMdHint: document.getElementById("sessionMdHint"),
+  sessionHudLine: document.getElementById("sessionHudLine"),
 
   presetQuick: document.getElementById("presetQuick"),
   presetRelease: document.getElementById("presetRelease"),
@@ -54,6 +62,8 @@ const els = {
   viewTab: document.getElementById("viewTab"),
   viewWatch: document.getElementById("viewWatch"),
   viewObserve: document.getElementById("viewObserve"),
+  rerunCurrent: document.getElementById("rerunCurrent"),
+  currentModeText: document.getElementById("currentModeText"),
   contrastSection: document.getElementById("contrastSection"),
   contrastTbody: document.querySelector("#contrastTable tbody"),
   tabWalkSection: document.getElementById("tabWalkSection"),
@@ -65,7 +75,66 @@ const els = {
 
 const ORDER = { high: 3, medium: 2, low: 1, info: 0 };
 
-const state = { top: [], explorer: [], records: [], byId: {}, currentId: null, currentFindings: [], lastResult: null, bestFrameId: 0, _toastTimer: null, running: false, _progressInterval: null, contrastData: [], contrastSamples: [], tabData: [] };
+const state = { top: [], explorer: [], records: [], byId: {}, currentId: null, currentFindings: [], lastResult: null, bestFrameId: 0, _toastTimer: null, running: false, _progressInterval: null, contrastData: [], contrastSamples: [], tabData: [], activeMode: "run" };
+
+/**
+ * @typedef {"strict"|"heuristic"|"advisory"} Confidence
+ * @typedef {"run"|"contrast"|"tabWalk"|"watch"|"observe"} Mode
+ * @typedef {string} FrameKey
+ */
+
+const TAB_BLOCKING_TYPES = new Set([
+  "possible_focus_trap",
+  "non_dialog_focus_trap",
+  "roach_motel",
+  "dialog_focus_not_trapped",
+  "focus_on_body",
+  "focus_failed",
+]);
+
+const DEBUG_SESSION = false;
+const MAX_STEPS = 100;
+const MAX_RAW_APPENDIX_ENTRIES = MAX_STEPS * 2;
+const RAW_SOFT_COMPACT_KEEP_RECENT = 30;
+const MAX_SESSION_BYTES_ESTIMATE = 4_500_000;
+const CAPTURE_SLOW_MS = 4000;
+
+const MODE_LABELS = {
+  run: "Audit",
+  contrast: "Contrast",
+  tabWalk: "Tab order",
+  watch: "Watch",
+  observe: "Observe",
+};
+
+const MARK_REASON_DETAILS = {
+  "-": "baseline recorded",
+  "baseline:parse": "baseline payload was not parseable",
+  "baseline:ok:false": "baseline run failed",
+  "baseline:transport": "baseline capture transport failed",
+  "active:ok:false": "baseline recorded, active mode failed",
+  "active:parse": "baseline recorded, active mode payload was not parseable",
+  "active:transport": "baseline recorded, active mode transport failed",
+  "persist:quota": "captured in-memory, storage quota reached",
+  "persist:error": "captured in-memory, storage write failed",
+  "raw:capped": "captured with normalized data only (raw capped)",
+  "session:limit": "mark-step blocked by session step limit",
+};
+
+const sessionState = {
+  current: null,
+  inFlight: false,
+  lastArchiveId: null,
+  lastMarkStep: null,
+  captureSlowTimer: null,
+  captureSlow: false,
+  lastPersistReasonCode: "-",
+};
+
+function debugSession(...args) {
+  if (!DEBUG_SESSION) return;
+  console.debug("[FlowLensSession]", ...args);
+}
 
 // --- MFE Profile Registry ---
 // Each profile defines detection heuristics for one microfrontend product.
@@ -155,8 +224,18 @@ function applySortState(arr, tableId) {
     if (va == null && vb == null) return 0;
     if (va == null) return 1;
     if (vb == null) return -1;
-    if (typeof va === 'number' && typeof vb === 'number') return va - vb;
-    return String(va).localeCompare(String(vb));
+    const primary = (typeof va === 'number' && typeof vb === 'number')
+      ? (va - vb)
+      : String(va).localeCompare(String(vb));
+    if (primary !== 0) return primary;
+    if (tableId === "top" || tableId === "explorer") {
+      const ah = hashFinding(a);
+      const bh = hashFinding(b);
+      if (ah !== bh) return ah.localeCompare(bh);
+      return String(a?.wcag || "").localeCompare(String(b?.wcag || ""))
+        || String(a?.name || "").localeCompare(String(b?.name || ""));
+    }
+    return 0;
   });
   return s.dir === 'desc' ? sorted.reverse() : sorted;
 }
@@ -355,7 +434,7 @@ async function _runSingle(action, opts) {
   if (btn) btn.classList.add('running');
   showProgress(DURATIONS[action] || 2);
   try {
-    await runAction(action, opts);
+    return await runAction(action, opts);
   } finally {
     if (btn) btn.classList.remove('running');
     hideProgress();
@@ -366,10 +445,15 @@ async function _lockedPreset(actions) {
   if (state.running) return;
   state.running = true;
   const toolbar = document.querySelector('.toolbar');
+  let lastSuccessAction = null;
   if (toolbar) toolbar.classList.add('isRunning');
   try {
-    for (const a of actions) await _runSingle(a);
-    scrollToResults(actions[actions.length - 1]);
+    for (const a of actions) {
+      const ok = await _runSingle(a);
+      if (!ok) break;
+      lastSuccessAction = a;
+    }
+    if (lastSuccessAction) scrollToResults(lastSuccessAction);
   } finally {
     state.running = false;
     if (toolbar) toolbar.classList.remove('isRunning');
@@ -437,6 +521,10 @@ function hashFinding(f) {
   return parts.map(x => String(x || "")).join("|");
 }
 
+function modeLabel(mode) {
+  return MODE_LABELS[mode] || String(mode || "run");
+}
+
 function countBySeverity(findings = []) {
   const out = { high: 0, medium: 0, low: 0, info: 0 };
   for (const f of findings) out[f.severity] = (out[f.severity] || 0) + 1;
@@ -445,7 +533,12 @@ function countBySeverity(findings = []) {
 
 function topFindings(findings = [], limit = 30) {
   return [...findings]
-    .sort((a, b) => (ORDER[b.severity] ?? 0) - (ORDER[a.severity] ?? 0))
+    .sort((a, b) =>
+      ((ORDER[b.severity] ?? 0) - (ORDER[a.severity] ?? 0))
+      || hashFinding(a).localeCompare(hashFinding(b))
+      || String(a?.wcag || "").localeCompare(String(b?.wcag || ""))
+      || String(a?.name || "").localeCompare(String(b?.name || ""))
+    )
     .slice(0, limit);
 }
 
@@ -462,6 +555,8 @@ function recordLabel(rec) {
 function setPressed(action) {
   const map = { run: els.viewRun, contrast: els.viewContrast, tabWalk: els.viewTab, watch: els.viewWatch, observe: els.viewObserve };
   Object.entries(map).forEach(([k,btn]) => { if (btn) btn.setAttribute("aria-pressed", String(k===action)); });
+  if (action) state.activeMode = action;
+  if (els.currentModeText) els.currentModeText.textContent = modeLabel(state.activeMode || "run");
 }
 
 function showMode(mode) {
@@ -496,17 +591,114 @@ function updateViewSelect() {
 }
 
 async function persistRecords(scopeKey) {
-  // keep last 20, cap findings per record to avoid filling chrome.storage (5MB limit)
-  state.records = state.records.slice(0, 20).map(rec => {
-    if (!rec?.best?.result) return rec;
-    const r = rec.best.result;
-    const trimmed = { ...r };
-    if (Array.isArray(r.findings) && r.findings.length > 200) trimmed.findings = r.findings.slice(0, 200);
-    if (Array.isArray(r.failures) && r.failures.length > 200) trimmed.failures = r.failures.slice(0, 200);
-    if (Array.isArray(r.events) && r.events.length > 200) trimmed.events = r.events.slice(0, 200);
-    return trimmed !== r ? { ...rec, best: { ...rec.best, result: trimmed } } : rec;
-  });
-  await storageSet({ [scopeKey]: state.records });
+  const PERSIST_LIMIT_STEPS = [
+    { records: 20, findings: 200, failures: 200, events: 200, samples: 30, snapshots: 120, verdicts: 60, maxString: 300 },
+    { records: 15, findings: 150, failures: 150, events: 150, samples: 20, snapshots: 90, verdicts: 45, maxString: 220 },
+    { records: 10, findings: 100, failures: 100, events: 100, samples: 12, snapshots: 70, verdicts: 30, maxString: 180 },
+    { records: 8, findings: 70, failures: 70, events: 70, samples: 8, snapshots: 50, verdicts: 24, maxString: 140 },
+    { records: 5, findings: 40, failures: 40, events: 40, samples: 5, snapshots: 35, verdicts: 16, maxString: 110 },
+  ];
+
+  const truncateString = (v, maxLen) => {
+    if (typeof v !== "string") return v;
+    if (!Number.isFinite(maxLen) || maxLen <= 0 || v.length <= maxLen) return v;
+    return `${v.slice(0, maxLen)}…`;
+  };
+
+  const compactObjectStrings = (obj, maxLen) => {
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return obj;
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) out[k] = typeof v === "string" ? truncateString(v, maxLen) : v;
+    return out;
+  };
+
+  const compactContrastRow = (row, maxLen) => {
+    if (!row || typeof row !== "object") return row;
+    return {
+      ratio: row.ratio,
+      required: row.required,
+      largeText: !!row.largeText,
+      text: truncateString(row.text ?? "", Math.min(maxLen, 120)),
+      tag: truncateString(row.tag ?? "", 24),
+      testId: truncateString(row.testId ?? "", Math.min(maxLen, 96)),
+      path: truncateString(row.path ?? "", Math.min(maxLen, 140)),
+      note: row.note ? truncateString(row.note, Math.min(maxLen, 140)) : null,
+      wcag: row.wcag ? truncateString(row.wcag, 24) : undefined,
+    };
+  };
+
+  const compactRows = (arr, limit, maxLen, mapper = compactObjectStrings) => {
+    if (!Array.isArray(arr)) return arr;
+    return arr.slice(0, Math.max(0, limit)).map(item => mapper(item, maxLen));
+  };
+
+  const compactResult = (result, limits) => {
+    if (!result || typeof result !== "object") return result;
+    const out = { ...result };
+    if (Array.isArray(result.findings)) out.findings = compactRows(result.findings, limits.findings, limits.maxString);
+    if (Array.isArray(result.failures)) out.failures = compactRows(result.failures, limits.failures, limits.maxString);
+    if (Array.isArray(result.events)) out.events = compactRows(result.events, limits.events, limits.maxString);
+    if (Array.isArray(result.samples)) out.samples = compactRows(result.samples, limits.samples, limits.maxString, compactContrastRow);
+    if (Array.isArray(result.snapshots)) out.snapshots = result.snapshots.slice(0, Math.max(0, limits.snapshots));
+    if (Array.isArray(result.verdicts)) out.verdicts = compactRows(result.verdicts, limits.verdicts, limits.maxString);
+    if (typeof out.href === "string") out.href = truncateString(out.href, limits.maxString * 2);
+    return out;
+  };
+
+  const compactRecord = (rec, limits) => {
+    if (!rec || typeof rec !== "object") return rec;
+    const out = { ...rec };
+    if (typeof out.envTag === "string") out.envTag = truncateString(out.envTag, limits.maxString);
+    if (Array.isArray(out.usedFrameIds)) out.usedFrameIds = out.usedFrameIds.slice(0, 20);
+    if (out.best && typeof out.best === "object") {
+      const best = { ...out.best };
+      if (best.normalized && typeof best.normalized === "object") {
+        const { raw: _raw, ...normalizedWithoutRaw } = best.normalized;
+        best.normalized = compactObjectStrings(normalizedWithoutRaw, limits.maxString);
+      }
+      if (best.result && typeof best.result === "object") best.result = compactResult(best.result, limits);
+      out.best = best;
+    }
+    return out;
+  };
+
+  const estimateBytes = (value) => {
+    try {
+      const json = JSON.stringify(value);
+      if (typeof TextEncoder !== "undefined") return new TextEncoder().encode(json).length;
+      return json.length;
+    } catch {
+      return -1;
+    }
+  };
+
+  // keep latest records in-memory; persistence uses progressively more compact payloads
+  if (state.records.length > 20) {
+    state.records = state.records.slice(0, 20);
+    state.byId = {};
+    for (const rec of state.records) state.byId[String(rec.id)] = rec;
+  }
+
+  let lastErr = null;
+  for (let i = 0; i < PERSIST_LIMIT_STEPS.length; i++) {
+    const limits = PERSIST_LIMIT_STEPS[i];
+    const compacted = state.records
+      .slice(0, limits.records)
+      .map(rec => compactRecord(rec, limits));
+    try {
+      await storageSet({ [scopeKey]: compacted });
+      if (i > 0) {
+        console.warn(`persistRecords recovered with compact level ${i + 1}/${PERSIST_LIMIT_STEPS.length}`, { bytes: estimateBytes(compacted) });
+      }
+      return true;
+    } catch (err) {
+      lastErr = err;
+      console.warn(`persistRecords attempt ${i + 1} failed`, { bytes: estimateBytes(compacted), err });
+    }
+  }
+
+  console.error("persistRecords failed", lastErr);
+  return false;
 }
 
 async function loadRecords(scopeKey) {
@@ -629,32 +821,1081 @@ function renderRecord(rec) {
 function summarizeFrames(perFrame = []) {
 
   const okFrames = perFrame.filter(x => x.ok);
-  const findingsCount = okFrames
-    .map(x => Array.isArray(x?.result?.findings) ? x.result.findings.length : null)
-    .filter(x => typeof x === "number");
+  const findingsCount = okFrames.map(x => {
+    if (Array.isArray(x?.result?.findings)) return x.result.findings.length;
+    const n = Number(x?.normalized?.primaryCounts?.findings);
+    return Number.isFinite(n) ? n : null;
+  }).filter(x => typeof x === "number");
   const max = findingsCount.length ? Math.max(...findingsCount) : 0;
   return `frames_ok=${okFrames.length}/${perFrame.length}, max_findings=${max}`;
+}
+
+function inferResultType(result) {
+  if (!result || typeof result !== "object") return "unknown";
+  if (Array.isArray(result.failures)) return "contrast";
+  if (Array.isArray(result.events) && ("walked" in result || "totalFocusables" in result)) return "tabWalk";
+  if ("focusLossCount" in result || "bursts" in result || "totalLoadingMs" in result) return "watch";
+  if (Array.isArray(result.snapshots)) return "observe";
+  if (Array.isArray(result.findings)) return "run";
+  return "unknown";
+}
+
+function asNumber(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function normalizeResultForExport(result, explicitType = null) {
+  const type = explicitType || inferResultType(result);
+  const raw = result && typeof result === "object" ? result : {};
+  if (type === "watch") {
+    const verdicts = Array.isArray(raw.verdicts) ? raw.verdicts.length : 0;
+    const focusLossCount = asNumber(raw.focusLossCount, 0);
+    const bursts = asNumber(raw.bursts, 0);
+    const totalLoadingMs = asNumber(raw.totalLoadingMs, 0);
+    return {
+      type,
+      blockingCount: verdicts + focusLossCount,
+      summaryScore: (focusLossCount * 5) + bursts + (totalLoadingMs / 1000) + (verdicts ? 50 : 0),
+      primaryCounts: { verdicts, focusLossCount, bursts, totalLoadingMs },
+      raw
+    };
+  }
+  if (type === "contrast") {
+    const failures = Array.isArray(raw.failures) ? raw.failures.length : 0;
+    const failuresCount = asNumber(raw.failuresCount, failures);
+    return {
+      type,
+      blockingCount: failuresCount,
+      summaryScore: failuresCount,
+      primaryCounts: { failures: failuresCount, scanned: asNumber(raw.scanned, 0) },
+      raw
+    };
+  }
+  if (type === "tabWalk") {
+    const events = Array.isArray(raw.events) ? raw.events.length : 0;
+    return {
+      type,
+      blockingCount: events,
+      summaryScore: events,
+      primaryCounts: { events, walked: asNumber(raw.walked, 0), totalFocusables: asNumber(raw.totalFocusables, 0) },
+      raw
+    };
+  }
+  if (type === "observe") {
+    const findings = Array.isArray(raw.findings) ? raw.findings.length : 0;
+    const snapshots = Array.isArray(raw.snapshots) ? raw.snapshots.length : 0;
+    return {
+      type,
+      blockingCount: findings,
+      summaryScore: findings + snapshots,
+      primaryCounts: { findings, snapshots },
+      raw
+    };
+  }
+  const findings = Array.isArray(raw.findings) ? raw.findings.length : 0;
+  return {
+    type: "run",
+    blockingCount: findings,
+    summaryScore: findings,
+    primaryCounts: { findings },
+    raw
+  };
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function makeId(prefix = "id") {
+  return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function normalizeWs(s, max = 120) {
+  return String(s || "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function normalizePathForSig(path, max = 140) {
+  return normalizeWs(path, max)
+    .replace(/nth-child\(\d+\)/g, "nth-child(*)")
+    .replace(/\b[0-9a-f]{8,}\b/gi, "#")
+    .replace(/\b\d{2,}\b/g, "#");
+}
+
+function normalizeRouteSegment(seg) {
+  const s = String(seg || "").toLowerCase().trim();
+  if (!s) return "";
+  if (/^[0-9]+$/.test(s)) return "_id";
+  if (/^[0-9a-f]{8,}$/i.test(s)) return "_id";
+  if (/^[0-9a-f]{4,}-[0-9a-f-]{8,}$/i.test(s)) return "_id";
+  return s.slice(0, 36);
+}
+
+function stableRoutePathHint(url) {
+  try {
+    const u = new URL(url);
+    const segs = u.pathname.split("/").map(normalizeRouteSegment).filter(Boolean).slice(0, 3);
+    return segs.length ? segs.join("/") : "root";
+  } catch {
+    return "root";
+  }
+}
+
+function normalizedTitleHint(title) {
+  const t = String(title || "").toLowerCase().replace(/\s+/g, " ").trim();
+  return t ? t.slice(0, 80) : "";
+}
+
+function deriveHelpCenterRouteHint(url, activeProfileIds = []) {
+  if (!Array.isArray(activeProfileIds) || !activeProfileIds.includes("helpcenter")) return null;
+  try {
+    const u = new URL(url);
+    const path = u.pathname.toLowerCase();
+    const articleParam = u.searchParams.get("articleId")
+      || u.searchParams.get("article_id")
+      || u.searchParams.get("articleSlug")
+      || u.searchParams.get("slug")
+      || u.searchParams.get("aid");
+    if (articleParam) return `article:${normalizeRouteSegment(articleParam)}`;
+    const match = path.match(/\/articles?\/([^/?#]+)/i) || path.match(/\/article\/([^/?#]+)/i);
+    if (match?.[1]) return `article:${normalizeRouteSegment(match[1])}`;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function fetchInspectedTitleBestEffort() {
+  return new Promise(resolve => {
+    chrome.devtools.inspectedWindow.eval("document.title", (res, err) => {
+      if (err) return resolve("");
+      resolve(String(res || ""));
+    });
+  });
+}
+
+async function deriveStepRouteHint(url, activeProfileIds = []) {
+  const hcHint = deriveHelpCenterRouteHint(url, activeProfileIds);
+  if (hcHint) return `hc/${hcHint}`.slice(0, 120);
+  const pathHint = stableRoutePathHint(url);
+  if (pathHint && pathHint !== "root") return pathHint.slice(0, 120);
+  const titleHint = normalizedTitleHint(await fetchInspectedTitleBestEffort());
+  if (titleHint) return `title:${titleHint}`.slice(0, 120);
+  return "(unknown)";
+}
+
+function formatTimeHms(isoValue) {
+  if (!isoValue) return "—";
+  const d = new Date(isoValue);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toTimeString().slice(0, 8);
+}
+
+function fnv1aHash8(input) {
+  const s = String(input ?? "");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0").slice(0, 8);
+}
+
+function estimateJsonBytes(value) {
+  try {
+    const json = JSON.stringify(value);
+    if (typeof TextEncoder !== "undefined") return new TextEncoder().encode(json).length;
+    return json.length;
+  } catch {
+    return -1;
+  }
+}
+
+function safeSlug(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-")
+    .slice(0, 64) || "unknown";
+}
+
+function buildSessionFileName(session) {
+  const origin = originFrom(session?.inspectedOrigin || "") || session?.inspectedOrigin || "unknown";
+  const envFromTag = (() => {
+    const tag = String(session?.envTag || "");
+    if (tag.includes("local")) return "local";
+    if (tag.includes("staging")) return "staging";
+    if (tag.includes("prod")) return "prod";
+    return "";
+  })();
+  const env = envFromTag || detectEnv(getCurrentScopeInfo().url || session?.inspectedOrigin || "");
+  const date = new Date();
+  const y = String(date.getFullYear());
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  const host = (() => {
+    try { return new URL(origin).host; } catch { return origin; }
+  })();
+  return `flowlens-session_${safeSlug(host)}_${safeSlug(env)}_${y}${m}${d}-${hh}${mm}.json`;
+}
+
+function classifyPersistReason(err) {
+  const msg = String(err?.message || err || "").toLowerCase();
+  if (msg.includes("quota") || msg.includes("max write") || msg.includes("exceeded")) return "persist:quota";
+  return "persist:error";
+}
+
+function reasonDetail(reasonCode) {
+  return MARK_REASON_DETAILS[reasonCode] || "status recorded";
+}
+
+function flashInlineHint(el, text = "Copied \u2713", ms = 1500) {
+  if (!el) return;
+  el.textContent = text;
+  el.classList.add("show");
+  window.setTimeout(() => {
+    el.classList.remove("show");
+    el.textContent = "";
+  }, ms);
+}
+
+function bucketNumber(value, step = 1, fallback = "na") {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  const b = Math.floor(n / step) * step;
+  return String(b);
+}
+
+function getActiveModeForSessionCapture() {
+  const candidates = ["run", "contrast", "tabWalk", "watch", "observe"];
+  if (candidates.includes(state.activeMode)) return state.activeMode;
+  const fromResult = state.lastResult?.bestEntry?.normalized?.type || state.lastResult?.bestEntry?.result?.mode;
+  if (candidates.includes(fromResult)) return fromResult;
+  return "run";
+}
+
+function getCurrentScopeInfo() {
+  const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
+  const origin = originFrom(url) || "";
+  const env = detectEnv(url);
+  return { url, origin, env, envTag: `${origin || "—"} • ${env}` };
+}
+
+function getSessionKeys(origin, env, sessionId = null) {
+  return {
+    active: `session::active::${origin || ""}::${env || ""}`,
+    archive: sessionId ? `session::archive::${origin || ""}::${env || ""}::${sessionId}` : null,
+  };
+}
+
+function normalizeLoadedSession(session) {
+  if (!session || typeof session !== "object") return null;
+  const out = { ...session };
+  out.schemaVersion = asNumber(out.schemaVersion, 1);
+  out.signatureVersion = asNumber(out.signatureVersion, 1);
+  out.frameKeyVersion = asNumber(out.frameKeyVersion, 1);
+  if (!out.rawAppendix || typeof out.rawAppendix !== "object") out.rawAppendix = {};
+  if (!Array.isArray(out.steps)) out.steps = [];
+  for (const step of out.steps) {
+    if (!step || typeof step !== "object") continue;
+    if (!step.snapshots || typeof step.snapshots !== "object") step.snapshots = { run: null, active: null };
+    if (step.snapshots.run && !step.snapshots.run.targeting) step.snapshots.run.targeting = null;
+    if (step.snapshots.active && !step.snapshots.active.targeting) step.snapshots.active.targeting = null;
+  }
+  if (!out.frames || typeof out.frames !== "object") out.frames = { frameKeys: [], frameKeyToLastFrameId: {} };
+  if (!Array.isArray(out.frames.frameKeys)) out.frames.frameKeys = [];
+  if (!out.frames.frameKeyToLastFrameId || typeof out.frames.frameKeyToLastFrameId !== "object") out.frames.frameKeyToLastFrameId = {};
+  return out;
+}
+
+function setLastMarkStatus(status, reasonCode = "-") {
+  const code = status === "OK" ? "-" : String(reasonCode || "-");
+  sessionState.lastMarkStep = {
+    status,
+    reasonCode: code.slice(0, 48),
+    at: nowIso(),
+  };
+}
+
+function renderSessionHud() {
+  const sess = sessionState.current;
+  if (!els.sessionHudLine) return;
+  if (!sess?.id) {
+    els.sessionHudLine.textContent = "Session • none";
+    els.sessionHudLine.title = "No active session";
+    return;
+  }
+  const steps = Array.isArray(sess?.steps) ? sess.steps : [];
+  if (sessionState.inFlight) {
+    const slowText = sessionState.captureSlow ? "Capturing… (slow)" : "Capturing…";
+    els.sessionHudLine.textContent = `Session • ${steps.length} steps • ${slowText}`;
+    els.sessionHudLine.title = "Capture in-flight";
+    return;
+  }
+  const lastAt = steps.length ? steps[steps.length - 1]?.at : null;
+  const status = sessionState.lastMarkStep?.status || "—";
+  const reasonCode = sessionState.lastMarkStep?.reasonCode || (status === "OK" ? "-" : "—");
+  els.sessionHudLine.textContent = `Session • ${steps.length} steps • Last ${formatTimeHms(lastAt)} • ${status}/${reasonCode}`;
+  els.sessionHudLine.title = `${status} (${reasonCode}) — ${reasonDetail(reasonCode)}`;
+}
+
+function updateSessionButtons() {
+  const hasSession = !!sessionState.current;
+  const inFlight = !!sessionState.inFlight;
+  if (els.sessionStart) els.sessionStart.disabled = hasSession || inFlight;
+  if (els.sessionMark) {
+    els.sessionMark.disabled = !hasSession || inFlight;
+    els.sessionMark.classList.toggle("primary", hasSession);
+    els.sessionMark.classList.toggle("secondary", !hasSession);
+    els.sessionMark.textContent = inFlight ? "Capturing…" : "Mark step";
+  }
+  if (els.sessionEnd) els.sessionEnd.disabled = !hasSession || inFlight;
+  if (els.sessionExportJson) els.sessionExportJson.disabled = !hasSession;
+  if (els.sessionExportMd) els.sessionExportMd.disabled = !hasSession;
+  renderSessionHud();
+}
+
+async function persistActiveSessionBestEffort(session) {
+  if (!session) return false;
+  const { origin, env } = getCurrentScopeInfo();
+  const keys = getSessionKeys(origin || session.inspectedOrigin || "", env || "prod");
+  const estimatedBytes = estimateJsonBytes(session);
+  try {
+    await storageSet({ [keys.active]: session });
+    sessionState.lastPersistReasonCode = "-";
+    debugSession("persist_active_ok", { estimatedBytes });
+    return true;
+  } catch (err) {
+    console.warn("persist active session failed", err);
+    sessionState.lastPersistReasonCode = classifyPersistReason(err);
+    debugSession("persist_active_fail", { estimatedBytes, error: String(err?.message || err) });
+    return false;
+  }
+}
+
+async function archiveSessionBestEffort(session) {
+  if (!session) return false;
+  const { origin, env } = getCurrentScopeInfo();
+  const keys = getSessionKeys(origin || session.inspectedOrigin || "", env || "prod", session.id);
+  const estimatedBytes = estimateJsonBytes(session);
+  try {
+    await storageSet({
+      [keys.archive]: session,
+      [getSessionKeys(origin || session.inspectedOrigin || "", env || "prod").active]: null
+    });
+    sessionState.lastArchiveId = session.id;
+    debugSession("archive_ok", { estimatedBytes });
+    return true;
+  } catch (err) {
+    console.warn("archive session failed", err);
+    debugSession("archive_fail", { estimatedBytes, error: String(err?.message || err) });
+    return false;
+  }
+}
+
+async function loadActiveSessionForScope(origin, env) {
+  const keys = getSessionKeys(origin || "", env || "");
+  try {
+    const r = await storageGet([keys.active]);
+    const loaded = r?.[keys.active] || null;
+    sessionState.current = normalizeLoadedSession(loaded);
+    if (!sessionState.current) sessionState.lastMarkStep = null;
+  } catch (err) {
+    console.warn("load active session failed", err);
+    sessionState.current = null;
+    sessionState.lastMarkStep = null;
+  }
+  updateSessionButtons();
+}
+
+function buildSessionSettings() {
+  const mode = els.pinFrame.checked
+    ? "pinned"
+    : (els.target.value === "manual" ? "manual" : "auto");
+  return {
+    captureBaselineRun: true,
+    captureActiveMode: true,
+    targetModeAtCapture: mode,
+    helpCenterMatchEnabled: !!buildMatch(),
+  };
+}
+
+function compactRawForSession(raw, mode) {
+  if (!raw || typeof raw !== "object") return raw;
+  const out = { ...raw };
+  const capRows = (arr, n) => Array.isArray(arr) ? arr.slice(0, n) : arr;
+  if (mode === "run") out.findings = capRows(out.findings, 220);
+  if (mode === "contrast") {
+    out.failures = capRows(out.failures, 120);
+    out.samples = capRows(out.samples, 40);
+  }
+  if (mode === "tabWalk") out.events = capRows(out.events, 200);
+  if (mode === "watch") {
+    out.events = capRows(out.events, 200);
+    out.verdicts = capRows(out.verdicts, 80);
+  }
+  if (mode === "observe") {
+    out.findings = capRows(out.findings, 220);
+    out.snapshots = capRows(out.snapshots, 140);
+  }
+  return out;
+}
+
+function toModeSnapshot(capture, mode, capturedAt, targeting = null) {
+  if (!capture || capture.ok !== true) {
+    return { mode, capturedAt, best: null, perFrame: [], targeting: targeting || null };
+  }
+  const best = capture?.bestEntry || null;
+  const bestNormalized = best?.normalized || normalizeResultForExport(best?.result || null, mode);
+  const bestOut = (best && best.ok === true && best.result && typeof best.result === "object")
+    ? {
+      frameId: best.frameId,
+      frameKey: best.frameKey || `fk::unknown::unknown::root::00000000`,
+      normalized: {
+        type: bestNormalized?.type || mode,
+        blockingCount: asNumber(bestNormalized?.blockingCount, 0),
+        summaryScore: asNumber(bestNormalized?.summaryScore, 0),
+        primaryCounts: bestNormalized?.primaryCounts || {},
+      },
+      rawRef: `best:${mode}:${best.frameKey || best.frameId || "unknown"}`,
+      raw: compactRawForSession(bestNormalized?.raw ?? best?.result ?? null, mode),
+    }
+    : null;
+
+  const perFrame = Array.isArray(capture?.perFrame) ? capture.perFrame.map(f => {
+    const n = f?.normalized || null;
+    const normalizedNoRaw = n ? {
+      type: n.type || mode,
+      blockingCount: asNumber(n.blockingCount, 0),
+      summaryScore: asNumber(n.summaryScore, 0),
+      primaryCounts: n.primaryCounts || {},
+    } : null;
+    return {
+      frameId: f?.frameId ?? 0,
+      frameKey: f?.frameKey || `fk::unknown::unknown::root::00000000`,
+      ok: !!f?.ok,
+      normalized: normalizedNoRaw,
+      error: f?.error || null,
+      reason: f?.reason || null,
+    };
+  }) : [];
+
+  return { mode, capturedAt, best: bestOut, perFrame, targeting: targeting || null };
+}
+
+function resolveSnapshotRaw(snapshot, rawAppendix = null) {
+  const inlineRaw = snapshot?.best?.normalized?.raw;
+  if (inlineRaw && typeof inlineRaw === "object") return inlineRaw;
+  const ref = snapshot?.best?.rawRef;
+  if (ref && rawAppendix && typeof rawAppendix === "object" && rawAppendix[ref] && typeof rawAppendix[ref] === "object") {
+    return rawAppendix[ref];
+  }
+  return {};
+}
+
+function rawAppendixEntryCount(session) {
+  if (!session?.rawAppendix || typeof session.rawAppendix !== "object") return 0;
+  return Object.keys(session.rawAppendix).length;
+}
+
+function clearSnapshotRaw(snapshot, appendix = null) {
+  if (!snapshot?.best) return;
+  const ref = snapshot.best.rawRef;
+  if (ref && appendix && typeof appendix === "object") delete appendix[ref];
+  delete snapshot.best.rawRef;
+  delete snapshot.best.raw;
+  if (snapshot.best.normalized && typeof snapshot.best.normalized === "object") delete snapshot.best.normalized.raw;
+}
+
+function softCompactSessionRawAppendix(session) {
+  if (!session || !Array.isArray(session.steps) || !session.steps.length) return 0;
+  if (!session.rawAppendix || typeof session.rawAppendix !== "object") session.rawAppendix = {};
+  const cut = Math.max(0, session.steps.length - RAW_SOFT_COMPACT_KEEP_RECENT);
+  let removed = 0;
+  for (let i = 0; i < cut; i++) {
+    const step = session.steps[i];
+    if (!step?.snapshots) continue;
+    for (const key of ["run", "active"]) {
+      const snap = step.snapshots[key];
+      const ref = snap?.best?.rawRef;
+      if (ref && session.rawAppendix[ref]) {
+        delete session.rawAppendix[ref];
+        removed += 1;
+      }
+      if (snap?.best?.rawRef) delete snap.best.rawRef;
+    }
+  }
+  pruneSessionRawAppendix(session);
+  return removed;
+}
+
+function registerSnapshotRawAppendix(session, snapshot, stepIndex) {
+  if (!session || !snapshot?.best) return { stored: false, reason: "no_snapshot" };
+  const mode = snapshot.mode || "run";
+  const raw = snapshot.best.raw && typeof snapshot.best.raw === "object"
+    ? snapshot.best.raw
+    : snapshot.best.normalized?.raw;
+  if (!raw || typeof raw !== "object") return { stored: false, reason: "no_raw" };
+  if (!session.rawAppendix || typeof session.rawAppendix !== "object") session.rawAppendix = {};
+  if (rawAppendixEntryCount(session) >= MAX_RAW_APPENDIX_ENTRIES) {
+    softCompactSessionRawAppendix(session);
+  }
+  if (rawAppendixEntryCount(session) >= MAX_RAW_APPENDIX_ENTRIES) {
+    clearSnapshotRaw(snapshot, session.rawAppendix);
+    return { stored: false, reason: "raw_capped" };
+  }
+  const baseRef = `raw::s${stepIndex}::${mode}::${snapshot.best.frameKey || snapshot.best.frameId || "unknown"}`;
+  let ref = baseRef;
+  let i = 1;
+  while (session.rawAppendix[ref] && i < 200) {
+    ref = `${baseRef}::${i}`;
+    i += 1;
+  }
+  session.rawAppendix[ref] = compactRawForSession(raw, mode);
+  snapshot.best.rawRef = ref;
+  delete snapshot.best.raw;
+  if (snapshot.best.normalized && typeof snapshot.best.normalized === "object") {
+    delete snapshot.best.normalized.raw;
+  }
+  pruneSessionRawAppendix(session);
+  return { stored: true, reason: "ok" };
+}
+
+function pruneSessionRawAppendix(session) {
+  if (!session || typeof session !== "object") return;
+  const appendix = session.rawAppendix;
+  if (!appendix || typeof appendix !== "object") return;
+  const used = new Set();
+  for (const step of session.steps || []) {
+    for (const key of ["run", "active"]) {
+      const ref = step?.snapshots?.[key]?.best?.rawRef;
+      if (ref) used.add(ref);
+    }
+  }
+  for (const key of Object.keys(appendix)) {
+    if (!used.has(key)) delete appendix[key];
+  }
+}
+
+function runSignatureEntries(snapshot, rawAppendix = null) {
+  const out = [];
+  const frameKey = snapshot?.best?.frameKey || "fk::unknown::unknown::root::00000000";
+  const findings = resolveSnapshotRaw(snapshot, rawAppendix)?.findings;
+  if (!Array.isArray(findings)) return out;
+  for (const f of findings) {
+    const sig = [
+      "run",
+      frameKey,
+      normalizeWs(f?.type, 40),
+      normalizeWs(f?.wcag, 24),
+      normalizeWs(f?.level, 12),
+      normalizeWs(f?.confidence, 16),
+      normalizeWs(f?.severity, 10),
+      normalizeWs(f?.product, 30),
+      normalizeWs(f?.testId, 60),
+      normalizeWs(f?.role, 20),
+      normalizePathForSig(f?.path, 120),
+      normalizeWs(f?.name, 80),
+      normalizeWs(f?.note, 80),
+    ].join("|");
+    const severity = normalizeWs(f?.severity, 12);
+    out.push({
+      sig,
+      blocking: severity === "high" || severity === "medium",
+      wcag: f?.wcag || null,
+      confidence: f?.confidence || null,
+      level: f?.level || null,
+      severity: severity || null,
+      label: f?.type || "run_finding",
+    });
+  }
+  return out;
+}
+
+function contrastSignatureEntries(snapshot, rawAppendix = null) {
+  const out = [];
+  const frameKey = snapshot?.best?.frameKey || "fk::unknown::unknown::root::00000000";
+  const failures = resolveSnapshotRaw(snapshot, rawAppendix)?.failures;
+  if (!Array.isArray(failures)) return out;
+  for (const f of failures) {
+    const sig = [
+      "contrast",
+      frameKey,
+      normalizeWs(f?.wcag || "1.4.3", 24),
+      `ratio:${bucketNumber(asNumber(f?.ratio, 0) * 10, 2)}`,
+      `required:${bucketNumber(asNumber(f?.required, 0) * 10, 2)}`,
+      normalizeWs(f?.tag, 16),
+      normalizeWs(f?.testId, 60),
+      normalizePathForSig(f?.path, 120),
+      normalizeWs(f?.text, 60),
+    ].join("|");
+    out.push({
+      sig,
+      blocking: true,
+      wcag: f?.wcag || "1.4.3",
+      confidence: f?.confidence || "heuristic",
+      level: null,
+      severity: "high",
+      label: "contrast_failure",
+    });
+  }
+  return out;
+}
+
+function tabWalkSignatureEntries(snapshot, rawAppendix = null) {
+  const out = [];
+  const frameKey = snapshot?.best?.frameKey || "fk::unknown::unknown::root::00000000";
+  const events = resolveSnapshotRaw(snapshot, rawAppendix)?.events;
+  if (!Array.isArray(events)) return out;
+  for (const e of events) {
+    const sig = [
+      "tabwalk",
+      frameKey,
+      normalizeWs(e?.type, 40),
+      normalizePathForSig(e?.path, 120),
+      normalizeWs(e?.name, 80),
+      normalizeWs(e?.note, 80),
+      `tabi:${bucketNumber(asNumber(e?.tabIndex, 0), 1)}`,
+    ].join("|");
+    const type = normalizeWs(e?.type, 40);
+    out.push({
+      sig,
+      blocking: TAB_BLOCKING_TYPES.has(type),
+      wcag: null,
+      confidence: "heuristic",
+      level: null,
+      severity: TAB_BLOCKING_TYPES.has(type) ? "medium" : "info",
+      label: e?.type || "tabwalk_event",
+    });
+  }
+  return out;
+}
+
+function watchSignatureEntries(snapshot, rawAppendix = null) {
+  const out = [];
+  const frameKey = snapshot?.best?.frameKey || "fk::unknown::unknown::root::00000000";
+  const raw = resolveSnapshotRaw(snapshot, rawAppendix) || {};
+  const verdicts = Array.isArray(raw?.verdicts) ? raw.verdicts : [];
+  for (const v of verdicts) {
+    const sig = [
+      "watch",
+      frameKey,
+      normalizeWs(v?.metric, 32),
+      `b:${bucketNumber(v?.budget, 1)}`,
+      `v:${bucketNumber(v?.value, 1)}`,
+    ].join("|");
+    out.push({
+      sig,
+      blocking: true,
+      wcag: null,
+      confidence: "heuristic",
+      level: null,
+      severity: "medium",
+      label: v?.metric || "watch_verdict",
+    });
+  }
+  const focusLossCount = asNumber(raw?.focusLossCount, 0);
+  if (focusLossCount > 0) {
+    out.push({
+      sig: ["watch", frameKey, "focus_loss", `v:${bucketNumber(focusLossCount, 1)}`].join("|"),
+      blocking: true,
+      wcag: null,
+      confidence: "heuristic",
+      level: null,
+      severity: "high",
+      label: "focus_loss",
+    });
+  }
+  return out;
+}
+
+function observeSignatureEntries(snapshot, rawAppendix = null) {
+  const out = [];
+  const frameKey = snapshot?.best?.frameKey || "fk::unknown::unknown::root::00000000";
+  const raw = resolveSnapshotRaw(snapshot, rawAppendix) || {};
+  const findings = Array.isArray(raw?.findings) ? raw.findings : [];
+  for (const f of findings) {
+    const sig = [
+      "observe",
+      frameKey,
+      normalizeWs(f?.type, 40),
+      normalizeWs(f?.wcag, 24),
+      normalizeWs(f?.severity, 10),
+      normalizePathForSig(f?.path, 120),
+      normalizeWs(f?.note, 80),
+    ].join("|");
+    const severity = normalizeWs(f?.severity, 12);
+    out.push({
+      sig,
+      blocking: severity === "high" || severity === "medium",
+      wcag: f?.wcag || null,
+      confidence: f?.confidence || "heuristic",
+      level: f?.level || null,
+      severity: severity || null,
+      label: f?.type || "observe_finding",
+    });
+  }
+
+  const snapshots = Array.isArray(raw?.snapshots) ? raw.snapshots : [];
+  const peak = snapshots.reduce((m, s) => Math.max(m, asNumber(s?.count, 0)), 0);
+  let jumps = 0;
+  for (let i = 1; i < snapshots.length; i++) {
+    if (asNumber(snapshots[i]?.count, 0) > asNumber(snapshots[i - 1]?.count, 0)) jumps += 1;
+  }
+  out.push({
+    sig: ["observe", frameKey, "trend", `peak:${bucketNumber(peak, 5)}`, `jumps:${bucketNumber(jumps, 1)}`].join("|"),
+    blocking: jumps > 0,
+    wcag: null,
+    confidence: "heuristic",
+    level: null,
+    severity: jumps > 0 ? "medium" : "info",
+    label: "trend",
+  });
+  return out;
+}
+
+function buildModeSignatureBundle(snapshot, rawAppendix = null) {
+  const empty = { set: new Set(), blockingSet: new Set(), metaBySig: new Map(), counts: {} };
+  if (!snapshot) return empty;
+
+  let entries = [];
+  if (snapshot.mode === "run") entries = runSignatureEntries(snapshot, rawAppendix);
+  else if (snapshot.mode === "contrast") entries = contrastSignatureEntries(snapshot, rawAppendix);
+  else if (snapshot.mode === "tabWalk") entries = tabWalkSignatureEntries(snapshot, rawAppendix);
+  else if (snapshot.mode === "watch") entries = watchSignatureEntries(snapshot, rawAppendix);
+  else if (snapshot.mode === "observe") entries = observeSignatureEntries(snapshot, rawAppendix);
+
+  const set = new Set();
+  const blockingSet = new Set();
+  const metaBySig = new Map();
+  for (const e of entries) {
+    set.add(e.sig);
+    if (e.blocking) blockingSet.add(e.sig);
+    metaBySig.set(e.sig, {
+      wcag: e.wcag || null,
+      confidence: e.confidence || null,
+      level: e.level || null,
+      severity: e.severity || null,
+      label: e.label || snapshot.mode,
+    });
+  }
+  return {
+    set,
+    blockingSet,
+    metaBySig,
+    counts: snapshot?.best?.normalized?.primaryCounts || {},
+  };
+}
+
+function mergeSignatureBundles(bundles) {
+  const out = { set: new Set(), blockingSet: new Set(), metaBySig: new Map(), counts: {} };
+  for (const b of bundles || []) {
+    if (!b) continue;
+    for (const sig of b.set || []) out.set.add(sig);
+    for (const sig of b.blockingSet || []) out.blockingSet.add(sig);
+    for (const [sig, meta] of b.metaBySig || []) if (!out.metaBySig.has(sig)) out.metaBySig.set(sig, meta);
+    for (const [k, v] of Object.entries(b.counts || {})) out.counts[k] = asNumber(out.counts[k], 0) + asNumber(v, 0);
+  }
+  return out;
+}
+
+function computeCountsDelta(currentCounts = {}, prevCounts = {}) {
+  const keys = [...new Set([...Object.keys(currentCounts || {}), ...Object.keys(prevCounts || {})])];
+  const out = {};
+  for (const k of keys) out[k] = asNumber(currentCounts[k], 0) - asNumber(prevCounts[k], 0);
+  return out;
+}
+
+function summarizeDiff({ added, fixed, persisting, countsDelta, blockingAdded, blockingFixed }) {
+  const deltaKeys = Object.keys(countsDelta || {}).slice(0, 4);
+  const deltaText = deltaKeys.map(k => `${k} ${countsDelta[k] > 0 ? "+" : ""}${countsDelta[k]}`).join(", ");
+  return `new=${added}, persisting=${persisting}, fixed=${fixed}, blocking +${blockingAdded}/-${blockingFixed}${deltaText ? ` • ${deltaText}` : ""}`;
+}
+
+function diffModeBundles(prevBundle, nextBundle) {
+  const prevSet = prevBundle?.set || new Set();
+  const nextSet = nextBundle?.set || new Set();
+  let added = 0;
+  let fixed = 0;
+  let persisting = 0;
+  for (const sig of nextSet) {
+    if (prevSet.has(sig)) persisting += 1;
+    else added += 1;
+  }
+  for (const sig of prevSet) {
+    if (!nextSet.has(sig)) fixed += 1;
+  }
+  let blockingAdded = 0;
+  let blockingFixed = 0;
+  for (const sig of nextSet) if (!prevSet.has(sig) && nextBundle.blockingSet.has(sig)) blockingAdded += 1;
+  for (const sig of prevSet) if (!nextSet.has(sig) && prevBundle.blockingSet.has(sig)) blockingFixed += 1;
+  const countsDelta = computeCountsDelta(nextBundle.counts, prevBundle.counts);
+  return {
+    added,
+    fixed,
+    persisting,
+    blockingAdded,
+    blockingFixed,
+    countsDelta,
+    text: summarizeDiff({ added, fixed, persisting, countsDelta, blockingAdded, blockingFixed }),
+  };
+}
+
+function buildStepDiffs(step, prevStep, rawAppendix = null) {
+  const runNext = buildModeSignatureBundle(step?.snapshots?.run, rawAppendix);
+  const runPrev = buildModeSignatureBundle(prevStep?.snapshots?.run, rawAppendix);
+  const activeNext = buildModeSignatureBundle(step?.snapshots?.active, rawAppendix);
+  const activePrev = (prevStep?.snapshots?.active?.mode && prevStep?.snapshots?.active?.mode === step?.snapshots?.active?.mode)
+    ? buildModeSignatureBundle(prevStep?.snapshots?.active, rawAppendix)
+    : { set: new Set(), blockingSet: new Set(), metaBySig: new Map(), counts: {} };
+  const consolidatedNext = mergeSignatureBundles([runNext, activeNext]);
+  const consolidatedPrev = mergeSignatureBundles([runPrev, activePrev]);
+  return {
+    run: step?.snapshots?.run ? diffModeBundles(runPrev, runNext) : undefined,
+    active: step?.snapshots?.active ? diffModeBundles(activePrev, activeNext) : undefined,
+    consolidated: diffModeBundles(consolidatedPrev, consolidatedNext),
+  };
+}
+
+function updateSessionFramesIndex(session, step) {
+  if (!session || !step) return;
+  const keys = new Set(session.frames?.frameKeys || []);
+  const mapping = { ...(session.frames?.frameKeyToLastFrameId || {}) };
+  const snapshots = [step?.snapshots?.run, step?.snapshots?.active].filter(Boolean);
+  for (const snap of snapshots) {
+    for (const f of snap.perFrame || []) {
+      if (!f?.frameKey) continue;
+      keys.add(f.frameKey);
+      mapping[f.frameKey] = f.frameId;
+    }
+  }
+  session.frames = {
+    frameKeys: [...keys].sort(),
+    frameKeyToLastFrameId: mapping,
+  };
+}
+
+function severityWeight(severity) {
+  const s = String(severity || "").toLowerCase();
+  if (s === "high") return 3;
+  if (s === "medium") return 2;
+  return 1;
+}
+
+function shortUrlForMarkdown(url) {
+  try {
+    const u = new URL(url);
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    return txt(url || "—", 120);
+  }
+}
+
+function formatTargetingShort(targeting) {
+  if (!targeting || typeof targeting !== "object") return "—";
+  const profiles = Array.isArray(targeting.profileIds) ? targeting.profileIds.join(",") : "";
+  return [
+    `mode=${targeting.targetMode || "auto"}`,
+    `pinned=${targeting.pinned ? "y" : "n"}`,
+    `hc=${targeting.helpCenterMatchEnabled ? "y" : "n"}`,
+    `why=${targeting.selectionReason || "auto-best"}`,
+    profiles ? `profiles=${profiles}` : null,
+  ].filter(Boolean).join(" • ");
+}
+
+function buildDeterminismMeta(session) {
+  const out = {
+    schemaVersion: asNumber(session?.schemaVersion, 1),
+    signatureVersion: asNumber(session?.signatureVersion, 1),
+    frameKeyVersion: asNumber(session?.frameKeyVersion, 1),
+    totalSteps: Array.isArray(session?.steps) ? session.steps.length : 0,
+    perStepFrameKeys: [],
+    warnings: [],
+  };
+  const steps = Array.isArray(session?.steps) ? session.steps : [];
+  for (const step of steps) {
+    const keys = Array.isArray(step?.frameSelections?.usedFrameKeys)
+      ? [...step.frameSelections.usedFrameKeys].map(String).sort()
+      : [];
+    out.perStepFrameKeys.push({
+      step: asNumber(step?.index, out.perStepFrameKeys.length + 1),
+      count: keys.length,
+      hash: fnv1aHash8(keys.join("|") || "none"),
+    });
+    if (!keys.length) out.warnings.push(`step_${asNumber(step?.index, 0)}:missing_usedFrameKeys`);
+    const runV = asNumber(step?.snapshots?.run?.targeting?.frameKeyVersion, out.frameKeyVersion);
+    if (runV !== out.frameKeyVersion) out.warnings.push(`step_${asNumber(step?.index, 0)}:frameKeyVersion_mismatch`);
+  }
+  if (out.warnings.length > 40) out.warnings = out.warnings.slice(0, 40);
+  return out;
+}
+
+function compactSessionForExport(session) {
+  if (!session || typeof session !== "object") return session;
+  const clone = JSON.parse(JSON.stringify(session));
+  clone.schemaVersion = asNumber(clone.schemaVersion, 1);
+  clone.signatureVersion = asNumber(clone.signatureVersion, 1);
+  clone.frameKeyVersion = asNumber(clone.frameKeyVersion, 1);
+  if (!clone.rawAppendix || typeof clone.rawAppendix !== "object") clone.rawAppendix = {};
+  for (const step of clone.steps || []) {
+    for (const key of ["run", "active"]) {
+      const snap = step?.snapshots?.[key];
+      if (!snap?.best) continue;
+      const mode = snap.mode || key;
+      const inlineRaw = snap.best.raw && typeof snap.best.raw === "object"
+        ? snap.best.raw
+        : snap.best?.normalized?.raw;
+      if (inlineRaw && typeof inlineRaw === "object") {
+        const baseRef = `raw::s${step.index || "x"}::${mode}::${snap.best.frameKey || snap.best.frameId || "unknown"}`;
+        let ref = baseRef;
+        let i = 1;
+        while (clone.rawAppendix[ref] && i < 50) {
+          ref = `${baseRef}::${i}`;
+          i += 1;
+        }
+        clone.rawAppendix[ref] = compactRawForSession(inlineRaw, mode);
+        snap.best.rawRef = ref;
+      }
+      const rawRef = snap.best.rawRef;
+      if (rawRef && clone.rawAppendix[rawRef]) {
+        clone.rawAppendix[rawRef] = compactRawForSession(clone.rawAppendix[rawRef], mode);
+      }
+      delete snap.best.raw;
+      if (snap.best.normalized && typeof snap.best.normalized === "object") delete snap.best.normalized.raw;
+    }
+  }
+  if (Object.keys(clone.rawAppendix).length > MAX_RAW_APPENDIX_ENTRIES) {
+    const keys = Object.keys(clone.rawAppendix).sort();
+    for (const key of keys.slice(0, keys.length - MAX_RAW_APPENDIX_ENTRIES)) delete clone.rawAppendix[key];
+  }
+  pruneSessionRawAppendix(clone);
+  clone.determinismMeta = buildDeterminismMeta(clone);
+  return clone;
+}
+
+function buildSessionMarkdown(session) {
+  if (!session) return "FlowLens session export: no active session.";
+  const steps = Array.isArray(session.steps) ? session.steps : [];
+  const frameKeys = Array.isArray(session?.frames?.frameKeys) ? session.frames.frameKeys : [];
+  const rawAppendix = session?.rawAppendix && typeof session.rawAppendix === "object" ? session.rawAppendix : {};
+  const lines = [];
+  lines.push(`**FlowLens Session** ${session.id}`);
+  lines.push(`Origin: ${session.inspectedOrigin || "—"} • Env: ${session.envTag || "—"}`);
+  lines.push(`Started: ${session.startedAt} • Ended: ${session.endedAt || "in-progress"}`);
+  lines.push(`Steps: ${steps.length} • Frames: ${frameKeys.length}`);
+  lines.push(`Versions: schema=v${asNumber(session.schemaVersion, 1)} signature=v${asNumber(session.signatureVersion, 1)} frameKey=v${asNumber(session.frameKeyVersion, 1)}`);
+  lines.push(`Settings: baselineRun=${session.settings?.captureBaselineRun ? "yes" : "no"}, activeMode=${session.settings?.captureActiveMode ? "yes" : "no"}, target=${session.settings?.targetModeAtCapture || "auto"}, hcMatch=${session.settings?.helpCenterMatchEnabled ? "yes" : "no"}`);
+  lines.push("");
+
+  const flowMap = new Map();
+  for (const step of steps) {
+    const bundle = mergeSignatureBundles([
+      buildModeSignatureBundle(step?.snapshots?.run, rawAppendix),
+      buildModeSignatureBundle(step?.snapshots?.active, rawAppendix),
+    ]);
+    for (const sig of bundle.blockingSet) {
+      const meta = bundle.metaBySig.get(sig) || {};
+      const existing = flowMap.get(sig) || {
+        sig,
+        firstSeenStep: step.index,
+        lastSeenStep: step.index,
+        occurrences: 0,
+        wcag: meta.wcag || "",
+        level: meta.level || "",
+        confidence: meta.confidence || "",
+        label: meta.label || "",
+        blockingWeight: severityWeight(meta.severity),
+      };
+      existing.lastSeenStep = step.index;
+      existing.occurrences += 1;
+      existing.blockingWeight = Math.max(existing.blockingWeight, severityWeight(meta.severity));
+      flowMap.set(sig, existing);
+    }
+  }
+
+  const topBlocking = [...flowMap.values()]
+    .sort((a, b) =>
+      (b.blockingWeight - a.blockingWeight)
+      || (b.occurrences - a.occurrences)
+      || (a.firstSeenStep - b.firstSeenStep)
+      || a.sig.localeCompare(b.sig)
+    )
+    .slice(0, 24);
+  lines.push("Flow summary (blocking signatures):");
+  if (!topBlocking.length) {
+    lines.push("- none");
+  } else {
+    lines.push("| Blocking | Occurrences | First | Last | Label | WCAG | Level | Confidence | Signature |");
+    lines.push("| --- | ---: | ---: | ---: | --- | --- | --- | --- | --- |");
+    for (const x of topBlocking) {
+      lines.push(`| ${x.blockingWeight} | ${x.occurrences} | ${x.firstSeenStep} | ${x.lastSeenStep} | ${txt(x.label || "issue", 26)} | ${x.wcag || "—"} | ${x.level || "—"} | ${x.confidence || "—"} | \`${txt(x.sig, 90)}\` |`);
+    }
+  }
+  lines.push("");
+
+  lines.push("Per-step:");
+  for (const step of steps) {
+    const routeHint = txt(step?.routeHint || "(unknown)", 120);
+    lines.push(`### Step ${step.index} — ${routeHint}`);
+    if (step.label) lines.push(`- Label: ${txt(step.label, 120)}`);
+    lines.push(`- At: ${step.at || "—"}`);
+    lines.push(`- URL: ${shortUrlForMarkdown(step.url || "—")} (\`${txt(step.url || "—", 180)}\`)`);
+    lines.push(`- Modes: ${modeLabel("run")}${step.snapshots?.active ? ` + ${modeLabel(step.snapshots.active.mode)}` : ""}`);
+    const diff = step.diffs?.consolidated || {};
+    lines.push(`- Diff: new=${asNumber(diff.added, 0)} • persisting=${asNumber(diff.persisting, 0)} • fixed=${asNumber(diff.fixed, 0)} • blocking +${asNumber(diff.blockingAdded, 0)}/-${asNumber(diff.blockingFixed, 0)}`);
+    const runTarget = step?.snapshots?.run?.targeting || null;
+    const activeTarget = step?.snapshots?.active?.targeting || null;
+    if (runTarget) {
+      lines.push(`- Targeting(run): ${formatTargetingShort(runTarget)} • frameKeyV=v${asNumber(runTarget.frameKeyVersion, 1)}`);
+    }
+    if (activeTarget) {
+      lines.push(`- Targeting(${modeLabel(step.snapshots.active.mode)}): ${formatTargetingShort(activeTarget)} • frameKeyV=v${asNumber(activeTarget.frameKeyVersion, 1)}`);
+    }
+    const runBest = step.snapshots?.run?.best;
+    const activeBest = step.snapshots?.active?.best;
+    if (runBest) lines.push(`- Run best: frameKey=${runBest.frameKey} • blocking=${runBest.normalized?.blockingCount ?? 0} • score=${runBest.normalized?.summaryScore ?? 0}`);
+    if (activeBest) lines.push(`- Active best (${modeLabel(step.snapshots.active.mode)}): frameKey=${activeBest.frameKey} • blocking=${activeBest.normalized?.blockingCount ?? 0} • score=${activeBest.normalized?.summaryScore ?? 0}`);
+    lines.push("");
+  }
+
+  lines.push("Appendix:");
+  for (const step of steps) {
+    const keys = step.frameSelections?.usedFrameKeys || [];
+    lines.push(`- Step ${step.index} frames: ${keys.join(", ") || "—"}`);
+  }
+  return lines.join("\n");
 }
 
 function buildMarkdown({ inspectedUrl, best, perFrame, usedFrameIds, envTag }) {
   const r = best?.result;
   if (!r) return `FlowLens — no result (env=${envTag})\nURL: ${inspectedUrl}`;
+  const normalized = best?.normalized || normalizeResultForExport(r);
   const findings = Array.isArray(r.findings) ? r.findings : [];
   const c = countBySeverity(findings);
   const top = topFindings(findings, 10);
+  const withMeta = (item) => {
+    const level = item?.level ? `, level=${item.level}` : "";
+    const confidence = item?.confidence ? `, confidence=${item.confidence}` : "";
+    return `${level}${confidence}`;
+  };
   const lines = [];
   lines.push(`**FlowLens** (${envTag})`);
   lines.push(`URL: ${inspectedUrl}`);
   lines.push(`FrameIds: ${(usedFrameIds || []).join(", ") || "?"}`);
-  lines.push(`Mode: ${r.mode || "—"} • inIframe: ${String(r?.env?.inIframe ?? "—")}`);
+  lines.push(`Mode: ${modeLabel(r.mode || "run")} • inIframe: ${String(r?.env?.inIframe ?? "—")}`);
   lines.push(`Findings: high=${c.high}, medium=${c.medium}, low=${c.low}, info=${c.info} (total=${findings.length})`);
   if (actionIsWatch(r)) {
     const w = r;
-    lines.push(`Watch: bursts=${w.bursts?.length ?? "—"}, silentMs=${w.silentMs ?? "—"}, totalLoadingMs=${w.totalLoadingMs ?? "—"}, focusLossCount=${w.focusLossCount ?? "—"}`);
+    const watchCounts = normalized?.type === "watch" ? normalized.primaryCounts : {};
+    lines.push(`Watch: bursts=${watchCounts?.bursts ?? asNumber(w.bursts, "—")}, silentMs=${w.silentMs ?? "—"}, totalLoadingMs=${watchCounts?.totalLoadingMs ?? w.totalLoadingMs ?? "—"}, focusLossCount=${watchCounts?.focusLossCount ?? w.focusLossCount ?? "—"}`);
   }
   lines.push("");
     if (Array.isArray(r.failures)) {
-    lines.push(`Contrast: failures=${r.failuresCount ?? r.failures.length}, scanned=${r.scanned ?? "—"}`);
+    const contrastCounts = normalized?.type === "contrast" ? normalized.primaryCounts : {};
+    lines.push(`Contrast: failures=${contrastCounts?.failures ?? r.failuresCount ?? r.failures.length}, scanned=${contrastCounts?.scanned ?? r.scanned ?? "—"}`);
     lines.push("");
     lines.push("Top contrast failures:");
     for (const f of r.failures.slice(0, 10)) {
@@ -666,7 +1907,8 @@ function buildMarkdown({ inspectedUrl, best, perFrame, usedFrameIds, envTag }) {
   }
 
   if (Array.isArray(r.events)) {
-    lines.push(`TabWalk: events=${r.events.length}, walked=${r.walked ?? "—"}/${r.totalFocusables ?? "—"}`);
+    const tabCounts = normalized?.type === "tabWalk" ? normalized.primaryCounts : {};
+    lines.push(`TabWalk: events=${tabCounts?.events ?? r.events.length}, walked=${tabCounts?.walked ?? r.walked ?? "—"}/${tabCounts?.totalFocusables ?? r.totalFocusables ?? "—"}`);
     lines.push("");
     lines.push("Top TabWalk events:");
     for (const e of r.events.slice(0, 12)) {
@@ -679,7 +1921,7 @@ function buildMarkdown({ inspectedUrl, best, perFrame, usedFrameIds, envTag }) {
 
   lines.push("Top findings:");
   for (const f of top) {
-    lines.push(`- [${f.severity}] ${f.product ? f.product + " • " : ""}${f.type || ""}${f.wcag ? ` (${f.wcag})` : ""} — ${txt(f.note || f.name || "", 120)}${f.testId ? ` • testId=${f.testId}` : ""}${f.fix ? "\n  Fix: " + txt(f.fix, 120) : ""}`);
+    lines.push(`- [${f.severity}] ${f.product ? f.product + " • " : ""}${f.type || ""}${f.wcag ? ` (${f.wcag})` : ""}${withMeta(f)} — ${txt(f.note || f.name || "", 120)}${f.testId ? ` • testId=${f.testId}` : ""}${f.fix ? "\n  Fix: " + txt(f.fix, 120) : ""}`);
   }
   lines.push("");
   lines.push(`Panel summary: ${summarizeFrames(perFrame || [])}`);
@@ -803,7 +2045,11 @@ function applyExplorerFilters(findings) {
     });
   }
 
-  return list;
+  return [...list].sort((a, b) =>
+    hashFinding(a).localeCompare(hashFinding(b))
+    || String(a?.wcag || "").localeCompare(String(b?.wcag || ""))
+    || String(a?.name || "").localeCompare(String(b?.name || ""))
+  );
 }
 
 function renderContrast(res) {
@@ -927,6 +2173,7 @@ function refreshInspectedUrl(retries = 3) {
     // load stored records for this origin/env
     const scopeKey = `records::${origin || ""}::${env}`;
     await loadRecords(scopeKey);
+    await loadActiveSessionForScope(origin || "", env || "");
     // if we have records, render newest
     if (state.records.length) {
       state.currentId = state.records[0].id;
@@ -1070,6 +2317,8 @@ function diffSnapshots(prev, next) {
 }
 
 async function runAction(action, opts = {}) {
+  state.activeMode = action;
+  setPressed(action);
   els.usedFrames.textContent = "Running…";
   els.diff.textContent = "—";
 
@@ -1082,20 +2331,39 @@ async function runAction(action, opts = {}) {
   // pinned frame: if checked, ensure we persist
   await setPinnedFrameIfNeeded();
 
-  const r = await send({
-    type: "RUN_AUDIT",
-    action,
-    target,
-    match,
-    modeHints: buildModeHints(),
-    appMarkers: buildAppMarkers(),
-    alsoConsole: !!els.alsoConsole.checked,
-    wcagLevel: els.wcagLevel?.value || "2.1-AA",
-    ...opts,
-  });
+  let r;
+  try {
+    r = await send({
+      type: "RUN_AUDIT",
+      action,
+      target,
+      match,
+      modeHints: buildModeHints(),
+      appMarkers: buildAppMarkers(),
+      alsoConsole: !!els.alsoConsole.checked,
+      wcagLevel: els.wcagLevel?.value || "2.1-AA",
+      ...opts,
+    });
+  } catch (err) {
+    const failed = { ok: false, action, error: String(err?.message || err) };
+    state.lastResult = failed;
+    els.json.textContent = pretty(failed);
+    els.usedFrames.textContent = "—";
+    els.diff.textContent = "(run failed)";
+    console.error("RUN_AUDIT transport failure", err);
+    toast(`${action} failed`);
+    return false;
+  }
 
   state.lastResult = r;
   els.json.textContent = pretty(r);
+  if (!r?.ok) {
+    els.usedFrames.textContent = "—";
+    els.diff.textContent = "(run failed)";
+    console.error("RUN_AUDIT backend failure", r);
+    toast(`${action} failed`);
+    return false;
+  }
 
   // store result record for quick switching
   const url0 = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
@@ -1106,13 +2374,16 @@ async function runAction(action, opts = {}) {
     action,
     envTag,
     usedFrameIds: r?.usedFrameIds || [],
-    best: r?.bestEntry || (r?.perFrame || []).find(x => x.ok) || null,
+    best: r?.bestEntry || null,
   };
   // newest first
   state.records = [rec, ...state.records.filter(x => String(x.id) !== String(rec.id))];
   state.byId[String(rec.id)] = rec;
-  await persistRecords(scopeKey);
   renderRecord(rec);
+  const persisted = await persistRecords(scopeKey);
+  if (!persisted) {
+    console.warn("Record rendered but history persistence failed");
+  }
 
   els.usedFrames.textContent = (r?.usedFrameIds || []).join(", ") || "—";
 
@@ -1143,7 +2414,281 @@ async function runAction(action, opts = {}) {
   const _cc = bestResult?.failuresCount ?? bestResult?.failures?.length;
   const _ec = bestResult?.events?.length;
   const detail = _fc ? ` — ${_fc} findings` : _cc != null ? ` — ${_cc} failures` : _ec != null ? ` — ${_ec} events` : "";
-  toast(`${action} done${detail}`);
+  toast(`${modeLabel(action)} done${detail}`);
+  return true;
+}
+
+async function startSession() {
+  if (sessionState.current) {
+    toast("Session already active");
+    return false;
+  }
+  const { url, origin, envTag } = getCurrentScopeInfo();
+  if (!origin) {
+    toast("Open a page before starting a session");
+    return false;
+  }
+  sessionState.current = {
+    id: makeId("sess"),
+    schemaVersion: 1,
+    signatureVersion: 1,
+    startedAt: nowIso(),
+    endedAt: null,
+    frameKeyVersion: 1,
+    inspectedOrigin: origin,
+    envTag,
+    settings: buildSessionSettings(),
+    frames: { frameKeys: [], frameKeyToLastFrameId: {} },
+    rawAppendix: {},
+    steps: [],
+  };
+  sessionState.lastMarkStep = null;
+  await persistActiveSessionBestEffort(sessionState.current);
+  updateSessionButtons();
+  toast("Session started");
+  return true;
+}
+
+async function endSession() {
+  if (!sessionState.current) {
+    toast("No active session");
+    return false;
+  }
+  sessionState.current.endedAt = nowIso();
+  await archiveSessionBestEffort(compactSessionForExport(sessionState.current));
+  sessionState.current = null;
+  sessionState.lastMarkStep = null;
+  updateSessionButtons();
+  toast("Session ended");
+  return true;
+}
+
+async function captureStepOptionC(label = null) {
+  if (!sessionState.current) {
+    toast("Start a session first");
+    return false;
+  }
+  if ((sessionState.current.steps?.length || 0) >= MAX_STEPS) {
+    setLastMarkStatus("FAILED", "session:limit");
+    updateSessionButtons();
+    toast(`Step limit reached (${MAX_STEPS})`);
+    return false;
+  }
+  if (sessionState.inFlight) return false;
+
+  sessionState.inFlight = true;
+  sessionState.captureSlow = false;
+  if (sessionState.captureSlowTimer) window.clearTimeout(sessionState.captureSlowTimer);
+  sessionState.captureSlowTimer = window.setTimeout(() => {
+    if (!sessionState.inFlight) return;
+    sessionState.captureSlow = true;
+    renderSessionHud();
+  }, CAPTURE_SLOW_MS);
+  updateSessionButtons();
+  els.usedFrames.textContent = "Capturing step…";
+  const t0 = performance.now();
+  try {
+    const activeMode = getActiveModeForSessionCapture();
+    const target = getTargetSpec();
+    const match = buildMatch();
+    const baseTargeting = {
+      targetMode: target?.mode || "auto",
+      manual: target?.mode === "manual",
+      manualFrameIds: Array.isArray(target?.frameIds) ? [...target.frameIds] : [],
+      pinned: !!els.pinFrame.checked,
+      helpCenterMatchEnabled: !!match,
+      profileIds: [...profileState.active].sort(),
+    };
+    await setPinnedFrameIfNeeded();
+
+    let r;
+    try {
+      r = await send({
+        type: "CAPTURE_STEP",
+        activeMode,
+        target,
+        match,
+        modeHints: buildModeHints(),
+        appMarkers: buildAppMarkers(),
+        alsoConsole: !!els.alsoConsole.checked,
+        wcagLevel: els.wcagLevel?.value || "2.1-AA",
+      });
+    } catch (err) {
+      console.error("CAPTURE_STEP transport failure", err);
+      setLastMarkStatus("FAILED", "baseline:transport");
+      updateSessionButtons();
+      toast("Step capture failed");
+      return false;
+    }
+
+    if (!r?.ok || !r?.run?.ok) {
+      console.error("CAPTURE_STEP failure", r);
+      setLastMarkStatus("FAILED", "baseline:ok:false");
+      updateSessionButtons();
+      toast("Step capture failed");
+      return false;
+    }
+
+    const capturedAt = nowIso();
+    const runSnapshot = toModeSnapshot(r.run, "run", capturedAt, {
+      ...baseTargeting,
+      selectionReason: r?.run?.selectionReason || "auto-best",
+      usedFrameIds: Array.isArray(r?.run?.usedFrameIds) ? [...r.run.usedFrameIds] : [],
+      frameKeyVersion: asNumber(r?.run?.frameKeyVersion, 1),
+    });
+    const activeSnapshot = activeMode !== "run" ? toModeSnapshot(r.active, activeMode, capturedAt, {
+      ...baseTargeting,
+      selectionReason: r?.active?.selectionReason || "auto-best",
+      usedFrameIds: Array.isArray(r?.active?.usedFrameIds) ? [...r.active.usedFrameIds] : [],
+      frameKeyVersion: asNumber(r?.active?.frameKeyVersion, asNumber(r?.run?.frameKeyVersion, 1)),
+    }) : null;
+    if (!runSnapshot?.best?.normalized || typeof runSnapshot.best.normalized !== "object") {
+      setLastMarkStatus("FAILED", "baseline:parse");
+      updateSessionButtons();
+      toast("Step capture failed (invalid baseline)");
+      return false;
+    }
+
+    const { url } = getCurrentScopeInfo();
+    const usedFrameIds = [...new Set([...(r?.run?.usedFrameIds || []), ...(r?.active?.usedFrameIds || [])])];
+    const usedFrameKeysSet = new Set();
+    for (const snap of [runSnapshot, activeSnapshot].filter(Boolean)) {
+      for (const f of snap.perFrame || []) if (f?.frameKey) usedFrameKeysSet.add(f.frameKey);
+      if (snap?.best?.frameKey) usedFrameKeysSet.add(snap.best.frameKey);
+    }
+
+    const stepIndex = (sessionState.current.steps?.length || 0) + 1;
+    const runRawStored = registerSnapshotRawAppendix(sessionState.current, runSnapshot, stepIndex);
+    const activeRawStored = activeSnapshot ? registerSnapshotRawAppendix(sessionState.current, activeSnapshot, stepIndex) : { stored: true, reason: "none" };
+    if (runRawStored.reason === "raw_capped" || activeRawStored.reason === "raw_capped") {
+      toast("Raw appendix capped; continuing without raw");
+    }
+    const routeHint = await deriveStepRouteHint(url, baseTargeting.profileIds);
+
+    const step = {
+      id: makeId("step"),
+      index: stepIndex,
+      label: label || null,
+      at: capturedAt,
+      url: url || "",
+      routeHint,
+      activeModeCaptured: activeMode,
+      frameSelections: {
+        usedFrameIds,
+        usedFrameKeys: [...usedFrameKeysSet],
+      },
+      snapshots: {
+        run: runSnapshot,
+        active: activeSnapshot,
+      },
+      diffs: { consolidated: { added: 0, fixed: 0, persisting: 0, blockingAdded: 0, blockingFixed: 0, countsDelta: {}, text: "—" } },
+    };
+
+    const prevStep = (sessionState.current.steps || []).slice(-1)[0] || null;
+    sessionState.current.schemaVersion = asNumber(r?.schemaVersion, sessionState.current.schemaVersion || 1);
+    sessionState.current.signatureVersion = asNumber(r?.signatureVersion, sessionState.current.signatureVersion || 1);
+    sessionState.current.frameKeyVersion = asNumber(r?.run?.frameKeyVersion, sessionState.current.frameKeyVersion || 1);
+    step.diffs = buildStepDiffs(step, prevStep, sessionState.current.rawAppendix || {});
+    sessionState.current.steps.push(step);
+    updateSessionFramesIndex(sessionState.current, step);
+
+    const compacted = compactSessionForExport(sessionState.current);
+    const estimatedBytes = estimateJsonBytes(compacted);
+    if (estimatedBytes > MAX_SESSION_BYTES_ESTIMATE) {
+      console.warn("session size warning", { estimatedBytes });
+      toast("Session is large; exports may be compacted");
+    }
+    const persisted = await persistActiveSessionBestEffort(compacted);
+    if (!persisted) console.warn("session persistence failed; continuing in-memory");
+    debugSession("capture_step", {
+      durationMs: Math.round(performance.now() - t0),
+      usedFrames: usedFrameIds.length,
+      bestFrameKey: runSnapshot?.best?.frameKey || null,
+      selectionReason: runSnapshot?.targeting?.selectionReason || "auto-best",
+      persisted,
+      estimatedBytes,
+    });
+
+    els.diff.textContent = step.diffs?.consolidated?.text || "—";
+    const baselineFindings = asNumber(runSnapshot?.best?.normalized?.primaryCounts?.findings, 0);
+    const activeFailed = activeMode !== "run" && (!r?.active?.ok || !activeSnapshot?.best);
+    const activeReasonCode = activeMode === "run"
+      ? "-"
+      : (!r?.active ? "active:transport" : (r.active.ok === false ? "active:ok:false" : (!activeSnapshot?.best ? "active:parse" : "-")));
+    const persistWarn = !persisted;
+    const rawWarn = runRawStored.reason === "raw_capped" || activeRawStored.reason === "raw_capped";
+    if (activeFailed) setLastMarkStatus("PARTIAL", activeReasonCode);
+    else if (persistWarn) setLastMarkStatus("PARTIAL", sessionState.lastPersistReasonCode || "persist:error");
+    else if (rawWarn) setLastMarkStatus("PARTIAL", "raw:capped");
+    else setLastMarkStatus("OK", "-");
+    updateSessionButtons();
+    toast(`Step ${step.index} captured (${baselineFindings} baseline findings)`);
+    return true;
+  } finally {
+    sessionState.inFlight = false;
+    sessionState.captureSlow = false;
+    if (sessionState.captureSlowTimer) {
+      window.clearTimeout(sessionState.captureSlowTimer);
+      sessionState.captureSlowTimer = null;
+    }
+    updateSessionButtons();
+  }
+}
+
+function downloadText(name, text, mime = "text/plain") {
+  const blob = new Blob([String(text ?? "")], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function exportSessionJson() {
+  if (!sessionState.current) {
+    toast("No active session");
+    return false;
+  }
+  try {
+    const payload = compactSessionForExport(normalizeLoadedSession(sessionState.current));
+    if (!payload || typeof payload !== "object") {
+      toast("Session JSON export failed");
+      return false;
+    }
+    downloadText(buildSessionFileName(payload), JSON.stringify(payload, null, 2), "application/json");
+    toast("Session JSON exported");
+    return true;
+  } catch (err) {
+    console.error("session json export failed", err);
+    toast("Session JSON export failed");
+    return false;
+  }
+}
+
+async function exportSessionMarkdown() {
+  if (!sessionState.current) {
+    toast("No active session");
+    return false;
+  }
+  try {
+    const payload = compactSessionForExport(normalizeLoadedSession(sessionState.current));
+    if (!payload || typeof payload !== "object") {
+      toast("Session Markdown export failed");
+      return false;
+    }
+    const md = buildSessionMarkdown(payload);
+    const ok = await copyText(md);
+    if (ok) {
+      flashInlineHint(els.sessionMdHint);
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.error("session markdown export failed", err);
+    toast("Session Markdown export failed");
+    return false;
+  }
 }
 
 // --- Presets ---
@@ -1157,13 +2702,13 @@ async function copyMarkdown() {
   const envTag = `${originFrom(url) || "—"} • ${detectEnv(url)}`;
   const md = buildMarkdown({
     inspectedUrl: url,
-    best: state.lastResult?.bestEntry ? { result: state.lastResult.bestEntry.result } : state.lastResult?.best,
+    best: state.lastResult?.bestEntry || state.lastResult?.best,
     perFrame: state.lastResult?.perFrame,
     usedFrameIds: state.lastResult?.usedFrameIds,
     envTag,
   });
-  await copyText(md);
-  toast("Copied Markdown");
+  const ok = await copyText(md);
+  if (ok) flashInlineHint(els.copyMdHint);
 }
 
 
@@ -1302,6 +2847,11 @@ els.downloadJson.addEventListener("click", () => {
 });
 
 els.copyMd.addEventListener("click", copyMarkdown);
+if (els.sessionStart) els.sessionStart.addEventListener("click", () => startSession());
+if (els.sessionMark) els.sessionMark.addEventListener("click", () => captureStepOptionC());
+if (els.sessionEnd) els.sessionEnd.addEventListener("click", () => endSession());
+if (els.sessionExportJson) els.sessionExportJson.addEventListener("click", () => exportSessionJson());
+if (els.sessionExportMd) els.sessionExportMd.addEventListener("click", () => exportSessionMarkdown());
 
 if (els.copyJsonRaw) {
   els.copyJsonRaw.addEventListener("click", async () => {
@@ -1320,9 +2870,10 @@ if (els.viewSelect) {
 }
 
 async function switchToAction(action) {
+  setPressed(action);
   const rec = state.records.find(r => r.action === action);
   if (rec) return renderRecord(rec);
-  toast(`No stored result for ${action} yet`);
+  toast(`No stored result for ${modeLabel(action)} yet`);
 }
 
 if (els.viewRun) els.viewRun.addEventListener("click", () => switchToAction("run"));
@@ -1330,6 +2881,9 @@ if (els.viewContrast) els.viewContrast.addEventListener("click", () => switchToA
 if (els.viewTab) els.viewTab.addEventListener("click", () => switchToAction("tabWalk"));
 if (els.viewWatch) els.viewWatch.addEventListener("click", () => switchToAction("watch"));
 if (els.viewObserve) els.viewObserve.addEventListener("click", () => switchToAction("observe"));
+if (els.rerunCurrent) {
+  els.rerunCurrent.addEventListener("click", () => _lockedPreset([state.activeMode || "run"]));
+}
 
 if (els.clearHistory) {
   let _clearConfirm = null;
@@ -1812,8 +3366,9 @@ refreshInspectedUrl();
 refreshFrames();
 setVersionBadge();
 loadUiPrefs();
+updateSessionButtons();
+setPressed(state.activeMode || "run");
 
 if (!hasRuntime()) {
   toast("Runtime API missing — try reopening DevTools after reloading extension");
 }
-
