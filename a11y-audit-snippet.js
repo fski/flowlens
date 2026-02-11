@@ -188,12 +188,12 @@
       const lbl = [...el.labels].map(l => l.textContent).join(" ");
       if (lbl.trim()) return lbl.trim();
     }
-    const title = el.getAttribute("title");
-    if (title?.trim()) return title.trim();
     if (el.tagName === "IMG") {
       const alt = el.getAttribute("alt");
       if (alt?.trim()) return alt.trim();
     }
+    const title = el.getAttribute("title");
+    if (title?.trim()) return title.trim();
     const ph = el.getAttribute("placeholder");
     if (ph?.trim()) return `[placeholder] ${ph.trim()}`;
     return txt(el.textContent, 160) || "";
@@ -221,8 +221,11 @@
   const hasAnnouncementHook = () =>
     !!doc.querySelector("[aria-live='polite'],[aria-live='assertive'],[role='status'],[role='alert']");
 
-  const sanity = () => {
-    const q = (sel) => doc.querySelectorAll(sel).length;
+  const DEFAULT_APP_MARKERS = "[data-testid^='GST_CHAT__'], #GST_CHAT__FEED, [data-testid*='HELP'], [data-testid*='HC']";
+
+  const sanity = (appMarkersSel) => {
+    const q = (sel) => { try { return doc.querySelectorAll(sel).length; } catch { return 0; } };
+    const markers = appMarkersSel || DEFAULT_APP_MARKERS;
     return {
       href: w.location.href,
       inIframe: w.self !== w.top,
@@ -236,14 +239,14 @@
       regions: q("[role='region']"),
       landmarks: q("main,nav,header,footer,aside,[role='main'],[role='navigation'],[role='banner'],[role='contentinfo'],[role='complementary']"),
       headings: q("h1,h2,h3,h4,h5,h6"),
-      appMarkers: q("[data-testid^='GST_CHAT__'], #GST_CHAT__FEED, [data-testid*='HELP'], [data-testid*='HC']"),
+      appMarkers: q(markers),
       shadowRoots: (() => { let n = 0; for (const el of doc.querySelectorAll("*")) { if (el.shadowRoot) n++; if (n >= 50) break; } return n; })()
     };
   };
 
   // Mode detection — ARIA/role patterns first, product-specific testIds as fallback.
-  // Override via A11YFlowAudit.modeHints before running.
-  const modeHints = {
+  // Can be overridden at runtime via cfg.modeHints in run() or via A11YFlowAudit.modeHints.
+  const defaultModeHints = {
     chat: {
       roles: ["[role='log']"],
       testIds: ["[data-testid^='GST_CHAT__']", "#GST_CHAT__FEED"],
@@ -261,11 +264,20 @@
     },
   };
 
+  // modeHints is the mutable reference used by detectMode.
+  // It can be replaced at runtime by the panel via cfg.modeHints.
+  let modeHints = defaultModeHints;
+
   const detectMode = () => {
     for (const [mode, hints] of Object.entries(modeHints)) {
-      if (hints.url && hints.url.test(w.location.href)) return mode;
-      const sels = [...(hints.roles || []), ...(hints.testIds || [])];
-      if (sels.length && doc.querySelector(sels.join(","))) return mode;
+      try {
+        if (hints.url) {
+          const pattern = hints.url instanceof RegExp ? hints.url : new RegExp(hints.url, "i");
+          if (pattern.test(w.location.href)) return mode;
+        }
+        const sels = [...(hints.roles || []), ...(hints.testIds || [])];
+        if (sels.length && doc.querySelector(sels.join(","))) return mode;
+      } catch { /* invalid regex or selector — skip this hint */ }
     }
     return "auto";
   };
@@ -386,7 +398,7 @@
 
   const getEffectiveBg = (el) => {
     const layers = [];
-    let node = el.parentElement;
+    let node = el;
     while (node && node !== doc.documentElement) {
       const c = parseRGBA(w.getComputedStyle(node).backgroundColor);
       if (c && c.a > 0) {
@@ -412,6 +424,11 @@
 
   // ---------------- main checks ----------------
   const run = (cfg = {}) => {
+    // Apply runtime mode hints if provided (from panel profiles)
+    if (cfg.modeHints && typeof cfg.modeHints === "object") {
+      modeHints = { ...defaultModeHints, ...cfg.modeHints };
+    }
+
     const config = {
       strict: cfg.strict ?? true,
       mode: cfg.mode ?? detectMode(),
@@ -424,7 +441,7 @@
     const isAAA = wcagConformance === "AAA";
     const is22 = wcagVersion >= 2.2;
 
-    const s = sanity();
+    const s = sanity(cfg.appMarkers || null);
     const findings = [];
 
     // If this looks like a "shell" state, warn (use observe/watch during navigation/loader phases).
@@ -1138,9 +1155,12 @@
       if (dialogFocusables.length === 0) {
         events.push({ i: -1, type: "dialog_no_focusables", path: cssPath(dialog), name: getAccName(dialog), tabIndex: 0, note: "Open dialog has no focusable elements inside it." });
       }
-      const walkedOutside = filtered.slice(0, max).filter(el => !dialog.contains(el));
-      if (dialogFocusables.length > 0 && walkedOutside.length > 0) {
-        events.push({ i: -1, type: "dialog_focus_not_trapped", path: cssPath(dialog), name: getAccName(dialog), tabIndex: 0, note: "Open dialog present but focus can reach elements outside it." });
+      const isModal = dialog.getAttribute("aria-modal") === "true" || dialog.tagName === "DIALOG";
+      if (isModal && dialogFocusables.length > 0) {
+        const siblingsInert = [...(dialog.parentElement?.children || [])].every(sib => sib === dialog || sib.inert || sib.getAttribute("aria-hidden") === "true");
+        if (!siblingsInert) {
+          events.push({ i: -1, type: "dialog_focus_not_trapped", path: cssPath(dialog), name: getAccName(dialog), tabIndex: 0, note: "Modal dialog is open but sibling content is not inert/aria-hidden — focus may escape." });
+        }
       }
     });
 
@@ -1297,7 +1317,8 @@
     watch,
     tabWalk,
     contrastScan,
-    modeHints,
+    get modeHints() { return modeHints; },
+    set modeHints(v) { modeHints = v && typeof v === "object" ? v : defaultModeHints; },
     last: null,
     lastObserved: null,
     lastWatch: null,
