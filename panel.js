@@ -10,6 +10,7 @@ const els = {
   target: document.getElementById("target"),
   refreshFrames: document.getElementById("refreshFrames"),
   frameSelect: document.getElementById("frameSelect"),
+  copyFrameUrl: document.getElementById("copyFrameUrl"),
   onlyHcFrames: document.getElementById("onlyHcFrames"),
   alsoConsole: document.getElementById("alsoConsole"),
   pinFrame: document.getElementById("pinFrame"),
@@ -866,7 +867,10 @@ async function refreshFrames() {
   for (const f of frames) {
     const opt = document.createElement("option");
     opt.value = String(f.frameId);
-    opt.textContent = `#${f.frameId} — ${f.url || "(no url)"}`;
+    const fullUrl = f.url || "(no url)";
+    opt.textContent = `#${f.frameId} — ${truncateMiddle(fullUrl, 70)}`;
+    opt.title = fullUrl;
+    opt.dataset.fullUrl = fullUrl;
     els.frameSelect.appendChild(opt);
   }
   els.frameSelect.disabled = els.target.value !== "manual";
@@ -901,7 +905,7 @@ function buildMatch() {
 
 async function setPinnedFrameIfNeeded() {
   // stores selected frame for this origin
-  const url = els.inspectedUrl.textContent || "";
+  const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
   const origin = originFrom(url);
   if (!origin) return;
 
@@ -956,7 +960,7 @@ async function runAction(action, opts = {}) {
   els.usedFrames.textContent = "—";
   els.diff.textContent = "—";
 
-  const url = els.inspectedUrl.textContent || "";
+  const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
   const envTag = `${originFrom(url) || "—"} • ${detectEnv(url)}`;
 
   const target = getTargetSpec();
@@ -978,7 +982,7 @@ async function runAction(action, opts = {}) {
   els.json.textContent = pretty(r);
 
   // store result record for quick switching
-  const url0 = els.inspectedUrl.textContent || "";
+  const url0 = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
   const scopeKey = `records::${originFrom(url0)}::${detectEnv(url0)}`;
   const rec = {
     id: String(Date.now()) + "_" + Math.random().toString(16).slice(2),
@@ -1082,7 +1086,7 @@ async function presetFocus() { await _lockedPreset(["tabWalk", "run"]); }
 
 // --- Export ---
 async function copyMarkdown() {
-  const url = els.inspectedUrl.textContent || "";
+  const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
   const envTag = `${originFrom(url) || "—"} • ${detectEnv(url)}`;
   const md = buildMarkdown({
     inspectedUrl: url,
@@ -1142,6 +1146,15 @@ if (els.copyDetected) {
     if (ok) toast("Copied detected");
   });
 }
+if (els.copyFrameUrl) {
+  els.copyFrameUrl.addEventListener("click", async () => {
+    const selected = els.frameSelect.selectedOptions[0];
+    const url = selected?.dataset?.fullUrl || selected?.title || "";
+    if (!url || url === "(no url)") { toast("No URL to copy"); return; }
+    const ok = await copyText(url);
+    if (ok) toast("Copied frame URL");
+  });
+}
 
 els.copyJson.addEventListener("click", async () => {
   await copyText(pretty(state.lastResult || {}));
@@ -1191,7 +1204,7 @@ if (els.clearHistory) {
       _clearConfirm = null;
       els.clearHistory.textContent = "Clear";
       els.clearHistory.classList.remove("confirming");
-      const url0 = els.inspectedUrl.textContent || "";
+      const url0 = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
       const scopeKey = `records::${originFrom(url0)}::${detectEnv(url0)}`;
       state.records = [];
       state.byId = {};
