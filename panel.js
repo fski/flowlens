@@ -1350,6 +1350,122 @@ window.addEventListener("keydown", (e) => {
 });
 
 
+// --- Column visibility ---
+const TABLE_COLS = {
+  topTable: ['sev', 'product', 'type', 'wcag', 'name', 'role', 'testId', 'note'],
+  allTable: ['sev', 'product', 'type', 'wcag', 'name', 'testId', 'path', 'note'],
+  contrastTable: ['ratio', 'req', 'large', 'text', 'tag', 'testId', 'path', 'note'],
+  tabTable: ['i', 'type', 'tabIndex', 'name', 'path', 'note'],
+};
+
+const colVisibility = {};
+const colStyleEl = document.createElement('style');
+colStyleEl.id = 'colToggleStyles';
+document.head.appendChild(colStyleEl);
+
+function applyColStyles() {
+  const rules = [];
+  for (const [tableId, cols] of Object.entries(colVisibility)) {
+    for (const [idx, visible] of Object.entries(cols)) {
+      if (visible === false) {
+        const n = Number(idx) + 1;
+        rules.push(`#${tableId} th:nth-child(${n}), #${tableId} td:nth-child(${n}) { display: none; }`);
+      }
+    }
+  }
+  colStyleEl.textContent = rules.join('\n');
+}
+
+function isColVisible(tableId, colIdx) {
+  return colVisibility[tableId]?.[colIdx] !== false;
+}
+
+function toggleColVisibility(tableId, colIdx) {
+  if (!colVisibility[tableId]) colVisibility[tableId] = {};
+  colVisibility[tableId][colIdx] = !isColVisible(tableId, colIdx) ? true : false;
+  if (colVisibility[tableId][colIdx] === true) delete colVisibility[tableId][colIdx];
+  if (Object.keys(colVisibility[tableId]).length === 0) delete colVisibility[tableId];
+  applyColStyles();
+  storageSet({ colPrefs: colVisibility });
+}
+
+function createColToggle(tableId, parentEl) {
+  const cols = TABLE_COLS[tableId];
+  if (!cols || !parentEl) return;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'colToggle';
+
+  const btn = document.createElement('button');
+  btn.className = 'btn xs';
+  btn.type = 'button';
+  btn.textContent = 'Columns';
+  btn.setAttribute('aria-expanded', 'false');
+
+  const dropdown = document.createElement('div');
+  dropdown.className = 'colDropdown';
+  dropdown.hidden = true;
+
+  cols.forEach((name, idx) => {
+    const label = document.createElement('label');
+    label.className = 'colOption';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = isColVisible(tableId, idx);
+    cb.addEventListener('change', () => {
+      toggleColVisibility(tableId, idx);
+      cb.checked = isColVisible(tableId, idx);
+    });
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(' ' + name));
+    dropdown.appendChild(label);
+  });
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = !dropdown.hidden;
+    // Close any other open dropdowns first
+    document.querySelectorAll('.colDropdown').forEach(d => { d.hidden = true; });
+    document.querySelectorAll('.colToggle .btn').forEach(b => { b.setAttribute('aria-expanded', 'false'); });
+    if (!isOpen) {
+      dropdown.hidden = false;
+      btn.setAttribute('aria-expanded', 'true');
+    }
+  });
+
+  dropdown.addEventListener('click', (e) => e.stopPropagation());
+
+  wrapper.appendChild(btn);
+  wrapper.appendChild(dropdown);
+  parentEl.appendChild(wrapper);
+}
+
+// Close column dropdowns on outside click
+document.addEventListener('click', () => {
+  document.querySelectorAll('.colDropdown').forEach(d => { d.hidden = true; });
+  document.querySelectorAll('.colToggle .btn').forEach(b => { b.setAttribute('aria-expanded', 'false'); });
+});
+
+function initColToggles() {
+  // Load saved prefs then set up toggles
+  storageGet(['colPrefs']).then(({ colPrefs = {} }) => {
+    Object.assign(colVisibility, colPrefs);
+    applyColStyles();
+
+    const placements = [
+      { tableId: 'topTable', selector: '#findingsSection .tableTitle' },
+      { tableId: 'allTable', selector: '#explorerSection .cardTitle' },
+      { tableId: 'contrastTable', selector: '#contrastSection .tableTitle' },
+      { tableId: 'tabTable', selector: '#tabWalkSection .tableTitle' },
+    ];
+
+    for (const p of placements) {
+      const el = document.querySelector(p.selector);
+      if (el) createColToggle(p.tableId, el);
+    }
+  });
+}
+
 function initSortableHeaders() {
   const tables = [
     {
@@ -1513,6 +1629,7 @@ if (_jsonToggle) {
 // initial
 initVirtualTables();
 initSortableHeaders();
+initColToggles();
 refreshInspectedUrl();
 refreshFrames();
 setVersionBadge();
