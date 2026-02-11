@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <link rel="stylesheet" href="panel.css" />
@@ -8,7 +8,7 @@
     <div class="wrap">
       <header class="top">
         <div>
-          <div class="h1">FlowLens <span class="versionBadge" id="versionBadge" data-version="2.14.0">v2.14.0</span> <a class="authorBadge" href="https://fski.app" target="_blank" rel="noopener">by fski</a></div>
+          <h1 class="h1">FlowLens <span class="versionBadge" id="versionBadge" data-version="2.14.0">v2.14.0</span> <a class="authorBadge" href="https://fski.app" target="_blank" rel="noopener">by fski</a></h1>
         </div>
 
         
@@ -63,11 +63,13 @@
 
         <div class="row">
           <div class="group toggles" role="group" aria-label="Options">
-            <label class="switch"><input id="onlyHcFrames" type="checkbox" checked /> <span class="slider" aria-hidden="true"></span><span class="switchText">Prefer HC frames</span></label>
+            <span class="mutedLabel">MFE Profiles</span>
+            <select id="profileSelect" aria-label="Active MFE profiles" multiple></select>
             <label class="switch"><input id="alsoConsole" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Also log to Console</span></label>
             <label class="switch"><input id="pinFrame" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Pin selected frame for this origin</span></label>
           
             <label class="switch"><input id="density" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Compact density</span></label>
+            <label class="switch"><input id="themeToggle" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Light mode</span></label>
           </div>
         </div>
 

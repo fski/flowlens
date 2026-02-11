@@ -11,10 +11,11 @@ const els = {
   refreshFrames: document.getElementById("refreshFrames"),
   frameSelect: document.getElementById("frameSelect"),
   copyFrameUrl: document.getElementById("copyFrameUrl"),
-  onlyHcFrames: document.getElementById("onlyHcFrames"),
+  profileSelect: document.getElementById("profileSelect"),
   alsoConsole: document.getElementById("alsoConsole"),
   pinFrame: document.getElementById("pinFrame"),
   density: document.getElementById("density"),
+  themeToggle: document.getElementById("themeToggle"),
   wcagLevel: document.getElementById("wcagLevel"),
 
   copyJson: document.getElementById("copyJson"),
@@ -63,6 +64,54 @@ const els = {
 const ORDER = { high: 3, medium: 2, low: 1, info: 0 };
 
 const state = { top: [], explorer: [], records: [], byId: {}, currentId: null, currentFindings: [], lastResult: null, bestFrameId: 0, _toastTimer: null, running: false, _progressInterval: null, contrastData: [], tabData: [] };
+
+// --- MFE Profile Registry ---
+// Each profile defines detection heuristics for one microfrontend product.
+// Adding a new MFE = adding a new object here (or via custom profiles in storage).
+const BUILTIN_PROFILES = {
+  helpcenter: {
+    label: "Help Center",
+    frame: {
+      urlIncludes: ["helpcenter-webclient", "usehurrier.com", "helpcenter"],
+      domSelectors: [
+        "#help-center-root",
+        "[data-testid='help-center-wrapper']",
+        "[data-testid='global-help-center-container']",
+        "[data-testid*='HELP']",
+        "[data-testid*='HC']",
+      ],
+    },
+    modeHints: {
+      "helpcenter-bot": {
+        roles: [],
+        testIds: ["[data-testid*='conversational']", "[data-testid*='BOT']"],
+        url: "new-conversation",
+      },
+      "helpcenter-tree": {
+        roles: ["[role='tree']", "[role='treeitem']"],
+        testIds: ["[data-testid*='TREE']"],
+        url: null,
+      },
+    },
+  },
+  chat: {
+    label: "Chat",
+    frame: {
+      urlIncludes: [],
+      domSelectors: ["[data-testid^='GST_CHAT__']", "#GST_CHAT__FEED", "[role='log']"],
+    },
+    modeHints: {
+      chat: {
+        roles: ["[role='log']"],
+        testIds: ["[data-testid^='GST_CHAT__']", "#GST_CHAT__FEED"],
+        url: null,
+      },
+    },
+  },
+};
+
+// Active profile state: { profiles: { [id]: profileObj }, active: string[] }
+const profileState = { profiles: { ...BUILTIN_PROFILES }, active: ["helpcenter"] };
 
 // --- Column sorting ---
 const sortState = {
@@ -221,7 +270,7 @@ async function storageGet(keys) {
   const ks = Array.isArray(keys) ? keys : Object.keys(keys || {});
   for (const k of ks) {
     const raw = localStorage.getItem(__lsPrefix + k);
-    if (raw != null) out[k] = JSON.parse(raw);
+    if (raw != null) { try { out[k] = JSON.parse(raw); } catch { /* corrupted entry */ } }
   }
   return out;
 }
@@ -464,11 +513,20 @@ async function loadRecords(scopeKey) {
   for (const rec of state.records) state.byId[String(rec.id)] = rec;
 }
 
+function resetFilters() {
+  els.q.value = "";
+  els.sev.value = "";
+  els.prod.value = "";
+  els.type.value = "";
+  els.unique.checked = true;
+}
+
 function renderRecord(rec) {
   if (!rec) return;
   state.currentId = rec.id;
   setPressed(rec.action);
   updateViewSelect();
+  resetFilters();
 
   const bestResult = rec?.best?.result || null;
   const mode = rec.action;
@@ -477,6 +535,7 @@ function renderRecord(rec) {
   els.sevBadges.innerHTML = "";
   els.topTableBody.innerHTML = "";
   els.allTableBody.innerHTML = "";
+  state.currentFindings = [];
   showMode(mode);
 
   if (mode === "run") {
@@ -487,15 +546,32 @@ function renderRecord(rec) {
     buildOptionsFromFindings(findings, els.type, "type");
     renderExplorer(findings);
   } else if (mode === "contrast") {
+    const scanned = escapeHtml(String(bestResult?.scanned ?? "—"));
+    const failures = escapeHtml(String(bestResult?.failuresCount ?? bestResult?.failures?.length ?? "—"));
+    els.runSummary.innerHTML =
+      `<div class="kv"><b>action</b><span>contrast</span></div>` +
+      `<div class="kv"><b>scanned</b><span>${scanned}</span></div>` +
+      `<div class="kv"><b>failures</b><span>${failures}</span></div>` +
+      `<div class="kv"><b>timestamp</b><span>${escapeHtml(bestResult?.timestamp || rec.at || "—")}</span></div>`;
+    els.sevBadges.innerHTML = `<span class="badge info">failures: ${failures}</span><span class="badge low">scanned: ${scanned}</span>`;
     renderContrast(bestResult);
   } else if (mode === "tabWalk") {
+    const walked = escapeHtml(String(bestResult?.walked ?? "—"));
+    const totalFoc = escapeHtml(String(bestResult?.totalFocusables ?? "—"));
+    const evtCount = escapeHtml(String(bestResult?.events?.length ?? "—"));
+    els.runSummary.innerHTML =
+      `<div class="kv"><b>action</b><span>tabWalk</span></div>` +
+      `<div class="kv"><b>walked</b><span>${walked}/${totalFoc}</span></div>` +
+      `<div class="kv"><b>events</b><span>${evtCount}</span></div>` +
+      `<div class="kv"><b>timestamp</b><span>${escapeHtml(bestResult?.timestamp || rec.at || "—")}</span></div>`;
+    els.sevBadges.innerHTML = `<span class="badge info">events: ${evtCount}</span><span class="badge low">walked: ${walked}/${totalFoc}</span>`;
     renderTabWalk(bestResult);
   } else if (mode === "observe" && bestResult) {
     const snapshots = Array.isArray(bestResult.snapshots) ? bestResult.snapshots : [];
     const oFindings = Array.isArray(bestResult.findings) ? bestResult.findings : [];
     els.runSummary.innerHTML =
       `<div class="kv"><b>action</b><span>observe</span></div>` +
-      `<div class="kv"><b>duration</b><span>${bestResult.seconds ?? "—"}s (${bestResult.intervalMs ?? 900}ms interval)</span></div>` +
+      `<div class="kv"><b>duration</b><span>${escapeHtml(String(bestResult.seconds ?? "—"))}s (${escapeHtml(String(bestResult.intervalMs ?? 900))}ms interval)</span></div>` +
       `<div class="kv"><b>snapshots</b><span>${snapshots.length}</span></div>` +
       `<div class="kv"><b>unique findings</b><span>${oFindings.length}</span></div>` +
       `<div class="kv"><b>timestamp</b><span>${escapeHtml(bestResult.timestamp || rec.at || "—")}</span></div>`;
@@ -518,20 +594,20 @@ function renderRecord(rec) {
     const overBudget = verdicts.length > 0;
     els.runSummary.innerHTML =
       `<div class="kv"><b>action</b><span>watch</span></div>` +
-      `<div class="kv"><b>duration</b><span>${bestResult.seconds ?? "—"}s</span></div>` +
-      `<div class="kv"><b>loader bursts</b><span>${bestResult.bursts ?? "—"}</span></div>` +
-      `<div class="kv"><b>total loading</b><span>${bestResult.totalLoadingMs ?? "—"}ms</span></div>` +
-      `<div class="kv"><b>silent loading</b><span>${bestResult.silentMs ?? "—"}ms</span></div>` +
-      `<div class="kv"><b>focus loss</b><span>${bestResult.focusLossCount ?? "—"}</span></div>` +
+      `<div class="kv"><b>duration</b><span>${escapeHtml(String(bestResult.seconds ?? "—"))}s</span></div>` +
+      `<div class="kv"><b>loader bursts</b><span>${escapeHtml(String(bestResult.bursts ?? "—"))}</span></div>` +
+      `<div class="kv"><b>total loading</b><span>${escapeHtml(String(bestResult.totalLoadingMs ?? "—"))}ms</span></div>` +
+      `<div class="kv"><b>silent loading</b><span>${escapeHtml(String(bestResult.silentMs ?? "—"))}ms</span></div>` +
+      `<div class="kv"><b>focus loss</b><span>${escapeHtml(String(bestResult.focusLossCount ?? "—"))}</span></div>` +
       `<div class="kv"><b>events</b><span>${wEvents.length}</span></div>` +
-      `<div class="kv"><b>budget</b><span>${overBudget ? "OVER (" + verdicts.map(v => v.metric).join(", ") + ")" : "OK"}</span></div>` +
+      `<div class="kv"><b>budget</b><span>${overBudget ? "OVER (" + verdicts.map(v => escapeHtml(String(v.metric))).join(", ") + ")" : "OK"}</span></div>` +
       `<div class="kv"><b>timestamp</b><span>${escapeHtml(bestResult.timestamp || rec.at || "—")}</span></div>`;
     els.sevBadges.innerHTML = overBudget
       ? `<span class="badge high">OVER BUDGET</span>`
       : `<span class="badge info">Budgets OK</span>`;
   } else {
     els.runSummary.innerHTML = `<div class="kv"><b>action</b><span>${escapeHtml(mode)}</span></div>` +
-      `<div class="kv"><b>frameId</b><span>${rec?.best?.frameId ?? "—"}</span></div>` +
+      `<div class="kv"><b>frameId</b><span>${escapeHtml(String(rec?.best?.frameId ?? "—"))}</span></div>` +
       `<div class="kv"><b>timestamp</b><span>${escapeHtml(bestResult?.timestamp || bestResult?.endedAt || rec.at || "—")}</span></div>`;
   }
 }
@@ -730,19 +806,6 @@ function applyExplorerFilters(findings) {
   return list;
 }
 
-function showSection(which) {
-  const topWrap = document.getElementById("topTable")?.closest?.(".tableWrap");
-  const explorerCard = document.getElementById("q")?.closest?.("section.card");
-  const hasFindings = which === "findings";
-  const hasContrast = which === "contrast";
-  const hasTab = which === "tabwalk";
-
-  if (topWrap) topWrap.hidden = !hasFindings;
-  if (explorerCard) explorerCard.hidden = !hasFindings;
-  if (els.contrastSection) els.contrastSection.hidden = !hasContrast;
-  if (els.tabWalkSection) els.tabWalkSection.hidden = !hasTab;
-}
-
 function renderContrast(res) {
   const raw = Array.isArray(res?.failures) ? res.failures : [];
   state.contrastData = raw;
@@ -811,6 +874,7 @@ function renderExplorer(findings) {
         <td>${escapeHtml(f.testId ?? "")}</td>
         <td>${cellHtml(f.path, 60)}</td>
         <td>${cellHtml(f.note, 50)}</td>
+        <td class="fixCol">${cellHtml(f.fix, 50)}</td>
       </tr>
     `).join("");
   }
@@ -893,16 +957,37 @@ function getTargetSpec() {
 }
 
 function buildMatch() {
-  return els.onlyHcFrames.checked ? {
-    urlIncludes: ["helpcenter-webclient", "usehurrier.com", "helpcenter"],
-    domSelectorsAny: [
-      "#help-center-root",
-      "[data-testid='help-center-wrapper']",
-      "[data-testid='global-help-center-container']",
-      "[data-testid*='HELP']",
-      "[data-testid*='HC']"
-    ]
-  } : null;
+  const active = profileState.active;
+  if (!active.length) return null;
+  const urlIncludes = [];
+  const domSelectorsAny = [];
+  for (const id of active) {
+    const p = profileState.profiles[id];
+    if (!p?.frame) continue;
+    if (p.frame.urlIncludes) urlIncludes.push(...p.frame.urlIncludes);
+    if (p.frame.domSelectors) domSelectorsAny.push(...p.frame.domSelectors);
+  }
+  if (!urlIncludes.length && !domSelectorsAny.length) return null;
+  return { urlIncludes, domSelectorsAny };
+}
+
+function buildModeHints() {
+  const hints = {};
+  for (const id of profileState.active) {
+    const p = profileState.profiles[id];
+    if (!p?.modeHints) continue;
+    Object.assign(hints, p.modeHints);
+  }
+  return Object.keys(hints).length ? hints : null;
+}
+
+function buildAppMarkers() {
+  const sels = [];
+  for (const id of profileState.active) {
+    const p = profileState.profiles[id];
+    if (p?.frame?.domSelectors) sels.push(...p.frame.domSelectors);
+  }
+  return sels.length ? sels.join(", ") : null;
 }
 
 async function setPinnedFrameIfNeeded() {
@@ -976,6 +1061,8 @@ async function runAction(action, opts = {}) {
     action,
     target,
     match,
+    modeHints: buildModeHints(),
+    appMarkers: buildAppMarkers(),
     alsoConsole: !!els.alsoConsole.checked,
     wcagLevel: els.wcagLevel?.value || "2.1-AA",
     ...opts,
@@ -1001,62 +1088,14 @@ async function runAction(action, opts = {}) {
   await persistRecords(scopeKey);
   renderRecord(rec);
 
-  // renderRecord already updated UI sections
-  // keep rest of runAction for history/diff snapshots only
-
   els.usedFrames.textContent = (r?.usedFrameIds || []).join(", ") || "—";
   els.summary.textContent = r?.perFrame ? summarizeFrames(r.perFrame) : "—";
 
-  // pick best result + frame
   const bestEntry = rec.best || null;
   state.bestFrameId = bestEntry?.frameId ?? 0;
 
   const bestResult = bestEntry?.result || null;
   const findings = Array.isArray(bestResult?.findings) ? bestResult.findings : [];
-
-  // render based on action result shape
-  if (bestResult && Array.isArray(bestResult.findings)) {
-    // accessibility findings
-    showSection("findings");
-    state.currentFindings = findings;
-    renderRunSummary(bestResult);
-    buildOptionsFromFindings(findings, els.prod, "product");
-    buildOptionsFromFindings(findings, els.type, "type");
-    renderExplorer(findings);
-  } else if (bestResult && Array.isArray(bestResult.failures)) {
-    // color/contrast audit
-    showSection("contrast");
-    renderRunSummary({
-      timestamp: bestResult.timestamp,
-      href: bestResult.href,
-      mode: "contrast",
-      env: bestResult.env,
-      findings: [],
-      lists: null,
-      headings: null,
-      inIframe: bestResult?.env?.inIframe
-    });
-    els.sevBadges.innerHTML = `<span class="badge info">failures: ${bestResult.failuresCount ?? bestResult.failures.length}</span><span class="badge low">scanned: ${bestResult.scanned ?? "—"}</span>`;
-    renderContrast(bestResult);
-  } else if (action === "tabWalk" && bestResult && Array.isArray(bestResult.events)) {
-    // keystrokes audit
-    showSection("tabwalk");
-    renderRunSummary({
-      timestamp: bestResult.timestamp,
-      href: bestResult.href,
-      mode: "tabWalk",
-      env: bestResult.env,
-      findings: [],
-      lists: null,
-      headings: null,
-      inIframe: bestResult?.env?.inIframe
-    });
-    els.sevBadges.innerHTML = `<span class="badge info">events: ${bestResult.events.length}</span><span class="badge low">walked: ${bestResult.walked ?? "—"}/${bestResult.totalFocusables ?? "—"}</span>`;
-    renderTabWalk(bestResult);
-  } else {
-    showSection("none");
-    // renderRecord already rendered observe/watch summaries
-  }
 
   // History/diff (only if we have findings)
   const key = `snap::${originFrom(url)}::${detectEnv(url)}::${bestEntry?.frameUrl || ""}`;
@@ -1107,6 +1146,10 @@ function applyDensity(isCompact) {
   document.body.classList.toggle("compact", !!isCompact);
 }
 
+function applyTheme(light) {
+  document.documentElement.setAttribute("data-theme", light ? "light" : "dark");
+}
+
 function setVersionBadge() {
   try {
     const badge = document.getElementById("versionBadge");
@@ -1117,12 +1160,50 @@ function setVersionBadge() {
   } catch {}
 }
 
+async function loadProfiles() {
+  const { customProfiles = {}, activeProfiles } = await storageGet(["customProfiles", "activeProfiles"]);
+  // Merge custom profiles into registry (custom override builtins with same id)
+  profileState.profiles = { ...BUILTIN_PROFILES, ...customProfiles };
+  if (Array.isArray(activeProfiles)) {
+    profileState.active = activeProfiles.filter(id => id in profileState.profiles);
+  }
+  renderProfileSelect();
+}
+
+async function saveActiveProfiles() {
+  await storageSet({ activeProfiles: profileState.active });
+}
+
+async function saveCustomProfiles() {
+  const custom = {};
+  for (const [id, p] of Object.entries(profileState.profiles)) {
+    if (!(id in BUILTIN_PROFILES)) custom[id] = p;
+  }
+  await storageSet({ customProfiles: custom });
+}
+
+function renderProfileSelect() {
+  if (!els.profileSelect) return;
+  els.profileSelect.innerHTML = "";
+  for (const [id, p] of Object.entries(profileState.profiles)) {
+    const o = document.createElement("option");
+    o.value = id;
+    o.textContent = p.label || id;
+    o.selected = profileState.active.includes(id);
+    els.profileSelect.appendChild(o);
+  }
+}
+
 async function loadUiPrefs() {
   const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
   const compact = !!uiPrefs.compact;
   if (els.density) els.density.checked = compact;
   applyDensity(compact);
+  const light = uiPrefs.theme === "light" || (uiPrefs.theme == null && window.matchMedia("(prefers-color-scheme: light)").matches);
+  if (els.themeToggle) els.themeToggle.checked = light;
+  applyTheme(light);
   if (els.wcagLevel && uiPrefs.wcagLevel) els.wcagLevel.value = uiPrefs.wcagLevel;
+  await loadProfiles();
 }
 
 // --- wire up ---
@@ -1134,6 +1215,13 @@ els.refreshFrames.addEventListener("click", refreshFrames);
 els.target.addEventListener("change", () => {
   els.frameSelect.disabled = els.target.value !== "manual";
 });
+
+if (els.profileSelect) {
+  els.profileSelect.addEventListener("change", () => {
+    profileState.active = [...els.profileSelect.selectedOptions].map(o => o.value);
+    saveActiveProfiles();
+  });
+}
 
 
 if (els.copyInspectedUrl) {
@@ -1324,6 +1412,16 @@ if (els.density) {
     applyDensity(compact);
     const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
     uiPrefs.compact = compact;
+    await storageSet({ uiPrefs });
+  });
+}
+
+if (els.themeToggle) {
+  els.themeToggle.addEventListener("change", async () => {
+    const light = !!els.themeToggle.checked;
+    applyTheme(light);
+    const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
+    uiPrefs.theme = light ? "light" : "dark";
     await storageSet({ uiPrefs });
   });
 }

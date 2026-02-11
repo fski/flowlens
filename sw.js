@@ -58,7 +58,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     }
 
     if (msg.type === "RUN_AUDIT") {
-      const { tabId, action, target, match, alsoConsole, wcagLevel } = msg;
+      const { tabId, action, target, match, modeHints, appMarkers, alsoConsole, wcagLevel } = msg;
 
       const frames = await chrome.webNavigation.getAllFrames({ tabId });
       const frameUrlById = new Map((frames || []).map(f => [f.frameId, f.url || ""]));
@@ -94,13 +94,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           const r = await chrome.scripting.executeScript({
             target: { tabId, frameIds: [frameId] },
             world: "MAIN",
-            func: async (action, alsoConsole, wcagLevel) => {
+            func: async (action, alsoConsole, wcagLevel, modeHints, appMarkers) => {
               const api = window.A11YFlowAudit;
               if (!api) return { ok: false, reason: "NO_API" };
 
+              const runCfg = { strict: true, wcagLevel };
+              if (modeHints) runCfg.modeHints = modeHints;
+              if (appMarkers) runCfg.appMarkers = appMarkers;
+
               const res = await (async () => {
-                if (action === "run") return api.run?.({ strict: true, wcagLevel });
-                if (action === "observe") return api.observe?.({ seconds: 12, runConfig: { strict: true, wcagLevel } });
+                if (action === "run") return api.run?.(runCfg);
+                if (action === "observe") return api.observe?.({ seconds: 12, runConfig: runCfg });
                 if (action === "watch") return api.watch?.({ seconds: 40 });
                 if (action === "tabWalk") return api.tabWalk?.({ steps: 80 });
                 if (action === "contrast") return api.contrastScan?.({ limit: 250, wcagLevel });
@@ -115,7 +119,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
               return { ok: true, result: res };
             },
-            args: [action, !!alsoConsole, wcagLevel || "2.1-AA"]
+            args: [action, !!alsoConsole, wcagLevel || "2.1-AA", modeHints || null, appMarkers || null]
           });
 
           // chrome.scripting.executeScript returns an array (even for single frame)
