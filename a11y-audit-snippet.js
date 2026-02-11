@@ -1472,13 +1472,13 @@
       scanned: nodes.length,
       failuresCount: failures.length,
       failures,
-      samples: samples.slice(0, 30)
+      samples
     };
     api.lastContrast = res;
 
     console.groupCollapsed(`🎚️ A11YFlowAudit.contrastScan — failures=${failures.length}/${nodes.length}`);
     console.table(failures.slice(0, 120));
-    console.log("Samples (first 30):", res.samples);
+    console.log("Samples:", res.samples);
     console.log("Raw:", res);
     console.groupEnd();
 

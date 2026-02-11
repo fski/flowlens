@@ -58,11 +58,14 @@ const els = {
   contrastTbody: document.querySelector("#contrastTable tbody"),
   tabWalkSection: document.getElementById("tabWalkSection"),
   tabTbody: document.querySelector("#tabTable tbody"),
+  contrastShowAll: document.getElementById("contrastShowAll"),
+  contrastTitle: document.getElementById("contrastTitle"),
+  copyJsonRaw: document.getElementById("copyJsonRaw"),
 };
 
 const ORDER = { high: 3, medium: 2, low: 1, info: 0 };
 
-const state = { top: [], explorer: [], records: [], byId: {}, currentId: null, currentFindings: [], lastResult: null, bestFrameId: 0, _toastTimer: null, running: false, _progressInterval: null, contrastData: [], tabData: [] };
+const state = { top: [], explorer: [], records: [], byId: {}, currentId: null, currentFindings: [], lastResult: null, bestFrameId: 0, _toastTimer: null, running: false, _progressInterval: null, contrastData: [], contrastSamples: [], tabData: [] };
 
 // --- MFE Profile Registry ---
 // Each profile defines detection heuristics for one microfrontend product.
@@ -804,18 +807,29 @@ function applyExplorerFilters(findings) {
 }
 
 function renderContrast(res) {
-  const raw = Array.isArray(res?.failures) ? res.failures : [];
-  state.contrastData = raw;
-  const failures = applySortState(raw, 'contrast');
+  state.contrastData = Array.isArray(res?.failures) ? res.failures : [];
+  state.contrastSamples = Array.isArray(res?.samples) ? res.samples : [];
+  if (els.contrastShowAll) els.contrastShowAll.checked = false;
+  updateContrastView();
+}
+
+function updateContrastView() {
+  const showAll = els.contrastShowAll && els.contrastShowAll.checked;
+  const data = showAll ? state.contrastSamples : state.contrastData;
+  const sorted = applySortState(data, 'contrast');
+  if (els.contrastTitle) {
+    els.contrastTitle.textContent = showAll ? 'Color audit — All samples' : 'Color audit — Contrast failures';
+  }
   if (VT.contrast) {
-    VT.contrast.setData(failures);
+    VT.contrast.setData(sorted);
     return;
   }
-  // fallback (should not happen)
   const tbody = els.contrastTbody;
   if (!tbody) return;
-  tbody.innerHTML = failures.slice(0, 200).map((f) => `
-    <tr class="trow" tabindex="0">
+  tbody.innerHTML = sorted.slice(0, 200).map((f) => {
+    const pass = f.ratio >= f.required;
+    return `
+    <tr class="trow${pass ? ' contrastPass' : ''}" tabindex="0">
       <td>${escapeHtml(String(f.ratio ?? ""))}</td>
       <td>${escapeHtml(String(f.required ?? ""))}</td>
       <td>${f.largeText ? "yes" : "no"}</td>
@@ -824,8 +838,8 @@ function renderContrast(res) {
       <td>${escapeHtml(f.testId ?? "")}</td>
       <td>${cellHtml(f.path, 60)}</td>
       <td>${cellHtml(f.note, 50)}</td>
-    </tr>
-  `).join("");
+    </tr>`;
+  }).join("");
 }
 
 
@@ -1289,6 +1303,13 @@ els.downloadJson.addEventListener("click", () => {
 
 els.copyMd.addEventListener("click", copyMarkdown);
 
+if (els.copyJsonRaw) {
+  els.copyJsonRaw.addEventListener("click", async () => {
+    await copyText(els.json.textContent || "");
+    toast("Copied raw JSON");
+  });
+}
+
 // --- Results view controls ---
 if (els.viewSelect) {
   els.viewSelect.addEventListener("change", () => {
@@ -1454,6 +1475,10 @@ if (els.wcagLevel) {
     uiPrefs.wcagLevel = els.wcagLevel.value;
     await storageSet({ uiPrefs });
   });
+}
+
+if (els.contrastShowAll) {
+  els.contrastShowAll.addEventListener("change", updateContrastView);
 }
 
 
@@ -1641,10 +1666,7 @@ function initSortableHeaders() {
     {
       id: 'contrast',
       thead: document.querySelector('#contrastTable thead'),
-      render: () => {
-        const sorted = applySortState(state.contrastData, 'contrast');
-        if (VT.contrast) VT.contrast.setData(sorted);
-      },
+      render: () => updateContrastView(),
     },
     {
       id: 'tab',
@@ -1711,8 +1733,10 @@ function initVirtualTables() {
       wrapEl: contrastWrap,
       tbodyEl: els.contrastTbody,
       colCount: 8,
-      rowRenderer: (f) => `
-        <tr class="trow" tabindex="0">
+      rowRenderer: (f) => {
+        const pass = f.ratio >= f.required;
+        return `
+        <tr class="trow${pass ? ' contrastPass' : ''}" tabindex="0">
           <td>${escapeHtml(String(f.ratio ?? ""))}</td>
           <td>${escapeHtml(String(f.required ?? ""))}</td>
           <td>${f.largeText ? "yes" : "no"}</td>
@@ -1722,7 +1746,8 @@ function initVirtualTables() {
           <td>${cellHtml(f.path, 60)}</td>
           <td>${cellHtml(f.note, 50)}</td>
         </tr>
-      `,
+      `;
+      },
       estimateRowHeight: 33,
       overscan: 10,
     });

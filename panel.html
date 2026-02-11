@@ -38,16 +38,17 @@
       <section class="toolbar" aria-label="Audit controls">
         <div class="row">
           <div class="group">
-            <button class="btn primary" data-action="run" title="R — Strict WCAG audit">Audit</button>
-            <button class="btn" data-action="observe" title="O — Re-run checks every ~1s for 12s">Observe</button>
-            <button class="btn" data-action="watch" title="W — Monitor loaders and focus for 40s">Watch</button>
-            <button class="btn" data-action="tabWalk" title="T — Walk 80 focusable elements">Tab order</button>
-            <button class="btn" data-action="contrast" title="C — Check contrast on up to 250 text nodes">Contrast</button>
+            <button class="btn primary" data-action="run" title="Strict WCAG audit"><kbd>R</kbd> Audit</button>
+            <button class="btn" data-action="observe" title="Re-run checks every ~1s for 12s"><kbd>O</kbd> Observe</button>
+            <button class="btn" data-action="watch" title="Monitor loaders and focus for 40s"><kbd>W</kbd> Watch</button>
+            <button class="btn" data-action="tabWalk" title="Walk 80 focusable elements"><kbd>T</kbd> Tab order</button>
+            <button class="btn" data-action="contrast" title="Check contrast on up to 250 text nodes"><kbd>C</kbd> Contrast</button>
           </div>
         </div>
 
         <div class="row spread">
           <div class="group">
+            <span class="mutedLabel">Export</span>
             <button class="btn secondary" id="copyJson" title="Copy results as JSON">JSON</button>
             <button class="btn secondary" id="downloadJson" title="Download results as JSON file">Download</button>
             <button class="btn secondary" id="copyMd" title="Copy results as Markdown">Markdown</button>
@@ -60,29 +61,42 @@
             <button class="btn" id="presetFocus" title="TabWalk + Run — keyboard focus check">Focus</button>
           </div>
         </div>
+      </section>
 
-        <div class="row">
-          <div class="group toggles" role="group" aria-label="Options">
-            <span class="mutedLabel">MFE Profiles</span>
-            <div id="profileSelect" class="profilePills" role="group" aria-label="Active MFE profiles"></div>
-            <label class="switch"><input id="alsoConsole" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Log to console</span></label>
-            <label class="switch"><input id="pinFrame" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Pin frame</span></label>
-
-            <label class="switch"><input id="density" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Compact</span></label>
-            <label class="switch"><input id="themeToggle" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Light theme</span></label>
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="group">
-            <span class="mutedLabel">WCAG Level</span>
-            <label class="sr-only" for="wcagLevel">WCAG compliance level</label>
-            <select id="wcagLevel" aria-label="WCAG compliance level">
-              <option value="2.1-AA">WCAG 2.1 AA</option>
-              <option value="2.1-AAA">WCAG 2.1 AAA</option>
-              <option value="2.2-AA">WCAG 2.2 AA</option>
-              <option value="2.2-AAA">WCAG 2.2 AAA</option>
-            </select>
+      <section class="card" id="settingsSection">
+        <button class="sectionToggle" type="button" aria-expanded="false" data-collapse="settingsBody">
+          <span class="outToggleIcon">&#x25B6;</span> <svg class="si" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="2"/><path d="M8 1v2m0 10v2M1 8h2m10 0h2M3.05 3.05l1.41 1.41m7.08 7.08l1.41 1.41M12.95 3.05l-1.41 1.41M4.46 11.54l-1.41 1.41"/></svg> Settings
+        </button>
+        <div id="settingsBody" class="sectionBody collapsed">
+          <div class="settingsGrid">
+            <div class="settingsGroup">
+              <span class="settingsLabel">Profiles</span>
+              <div id="profileSelect" class="profilePills" role="group" aria-label="Active MFE profiles"></div>
+            </div>
+            <div class="settingsGroup">
+              <span class="settingsLabel">Display</span>
+              <div class="settingsToggles">
+                <label class="switch"><input id="density" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Compact</span></label>
+                <label class="switch"><input id="themeToggle" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Light theme</span></label>
+              </div>
+            </div>
+            <div class="settingsGroup">
+              <span class="settingsLabel">Audit config</span>
+              <div class="settingsToggles">
+                <label class="switch"><input id="alsoConsole" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Log to console</span></label>
+                <label class="switch"><input id="pinFrame" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Pin frame</span></label>
+              </div>
+            </div>
+            <div class="settingsGroup">
+              <span class="settingsLabel">WCAG Level</span>
+              <label class="sr-only" for="wcagLevel">WCAG compliance level</label>
+              <select id="wcagLevel" aria-label="WCAG compliance level">
+                <option value="2.1-AA">WCAG 2.1 AA</option>
+                <option value="2.1-AAA">WCAG 2.1 AAA</option>
+                <option value="2.2-AA">WCAG 2.2 AA</option>
+                <option value="2.2-AAA">WCAG 2.2 AAA</option>
+              </select>
+            </div>
           </div>
         </div>
       </section>
@@ -128,7 +142,7 @@
 
       <section class="card" id="resultsCard">
         <button class="sectionToggle" type="button" aria-expanded="true" data-collapse="resultsBody">
-          <span class="outToggleIcon">&#x25B6;</span> Results
+          <span class="outToggleIcon">&#x25B6;</span> <svg class="si" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 11V8m4 3V5m4 6V3"/></svg> Results
         </button>
         <div id="resultsBody" class="sectionBody">
           <div id="runSummary" class="kvs">(no results yet)</div>
@@ -138,7 +152,7 @@
 
       <section class="tableWrap" id="findingsSection">
         <button class="sectionToggle" type="button" aria-expanded="true" data-collapse="topTableInner">
-          <span class="outToggleIcon">&#x25B6;</span> Top issues
+          <span class="outToggleIcon">&#x25B6;</span> <svg class="si" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2L1.5 13h13L8 2z"/><path d="M8 6.5v3m0 2v.5"/></svg> Top issues
         </button>
         <div id="topTableInner" class="sectionBody">
           <table class="tbl" id="topTable">
@@ -155,7 +169,7 @@
 
       <section class="card" id="explorerSection">
         <button class="sectionToggle" type="button" aria-expanded="true" data-collapse="explorerBody">
-          <span class="outToggleIcon">&#x25B6;</span> All findings
+          <span class="outToggleIcon">&#x25B6;</span> <svg class="si" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="6.5" cy="6.5" r="4"/><path d="M10 10l4 4"/></svg> All findings
         </button>
         <div id="explorerBody" class="sectionBody">
           <div class="filters">
@@ -190,13 +204,16 @@
       </section>
 
       <section class="out">
-        <button class="outToggle" id="jsonToggle" type="button" aria-expanded="false">
-          <span class="outToggleIcon">&#x25B6;</span> Raw JSON
-        </button>
+        <div class="outHeader">
+          <button class="outToggle" id="jsonToggle" type="button" aria-expanded="false">
+            <span class="outToggleIcon">&#x25B6;</span> <svg class="si" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4L1 8l4 4m6-8l4 4-4 4"/></svg> Raw JSON
+          </button>
+          <button class="btn xs" id="copyJsonRaw" type="button" aria-label="Copy raw JSON">Copy</button>
+        </div>
         <pre id="json" class="collapsed">(no results yet)</pre>
       </section>
       <section class="tableWrap vscroll" id="contrastSection" hidden>
-        <div class="tableTitle">Color audit — Contrast failures</div>
+        <div class="tableTitle"><svg class="si" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5A5.5 5.5 0 0 1 8 13.5z" fill="currentColor" stroke="none"/></svg> <span id="contrastTitle">Color audit — Contrast failures</span><label class="switch switchSm"><input id="contrastShowAll" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Show all</span></label></div>
         <table class="tbl" id="contrastTable">
           <caption class="sr-only">Contrast failures</caption>
           <thead>
@@ -209,7 +226,7 @@
       </section>
 
       <section class="tableWrap vscroll" id="tabWalkSection" hidden>
-        <div class="tableTitle">Keystrokes — TabWalk events</div>
+        <div class="tableTitle"><svg class="si" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="14" height="10" rx="2"/><path d="M4 7h1m2 0h1m2 0h1M5 10h6"/></svg> Keystrokes — TabWalk events</div>
         <table class="tbl" id="tabTable">
           <caption class="sr-only">TabWalk events</caption>
           <thead>
