@@ -647,18 +647,71 @@
     return false;
   };
 
-  const hasInlineKeyboardHandler = (el) =>
-    !!(el?.hasAttribute?.("onkeydown") || el?.hasAttribute?.("onkeyup") || el?.hasAttribute?.("onkeypress"));
+  const inlineKeyboardAttributes = ["onkeydown", "onkeyup", "onkeypress"];
 
-  const hasAncestorKeyboardHandler = (el, maxDepth = 3) => {
+  const extractActivationKeys = (handlerCode) => {
+    const src = String(handlerCode || "").toLowerCase();
+    const keys = [];
+    if (!src) return keys;
+    if (/\benter\b|key\s*===\s*['"]enter['"]|keycode\s*===\s*13|which\s*===\s*13/.test(src)) keys.push("Enter");
+    if (/\bspace\b|key\s*===\s*['"] ['"]|keycode\s*===\s*32|which\s*===\s*32/.test(src)) keys.push("Space");
+    return [...new Set(keys)];
+  };
+
+  const getInlineKeyboardMeta = (el) => {
+    if (!isEl(el)) return { hasHandler: false, activationKeys: [] };
+    let hasHandler = false;
+    const activation = new Set();
+    for (const attr of inlineKeyboardAttributes) {
+      const code = el.getAttribute(attr);
+      if (!code) continue;
+      hasHandler = true;
+      extractActivationKeys(code).forEach(k => activation.add(k));
+    }
+    return { hasHandler, activationKeys: [...activation] };
+  };
+
+  const getAncestorKeyboardMeta = (el, maxDepth = 3) => {
     let node = el?.parentElement || null;
     let depth = 0;
     while (node && depth < maxDepth) {
-      if (hasInlineKeyboardHandler(node)) return true;
+      const meta = getInlineKeyboardMeta(node);
+      if (meta.hasHandler) return { hasHandler: true, distance: depth + 1, activationKeys: meta.activationKeys };
       node = node.parentElement;
       depth++;
     }
-    return false;
+    return { hasHandler: false, distance: null, activationKeys: [] };
+  };
+
+  const getGlobalKeyboardMeta = () => {
+    const activation = new Set();
+    let hasHandler = false;
+    [doc.body, doc.documentElement].forEach(node => {
+      if (!isEl(node)) return;
+      const meta = getInlineKeyboardMeta(node);
+      if (!meta.hasHandler) return;
+      hasHandler = true;
+      meta.activationKeys.forEach(k => activation.add(k));
+    });
+    if (typeof w.onkeydown === "function" || typeof w.onkeyup === "function" || typeof w.onkeypress === "function") {
+      hasHandler = true;
+    }
+    return { hasHandler, activationKeys: [...activation] };
+  };
+
+  const hasInlineKeyboardHandler = (el) => getInlineKeyboardMeta(el).hasHandler;
+
+  const hasAncestorKeyboardHandler = (el, maxDepth = 3) => getAncestorKeyboardMeta(el, maxDepth).hasHandler;
+
+  const getAncestorClickMeta = (el, maxDepth = 3) => {
+    let node = el?.parentElement || null;
+    let depth = 0;
+    while (node && depth < maxDepth) {
+      if (node.hasAttribute?.("onclick")) return { hasHandler: true, distance: depth + 1 };
+      node = node.parentElement;
+      depth++;
+    }
+    return { hasHandler: false, distance: null };
   };
 
   const hasPointerCursor = (el) => {
@@ -1243,54 +1296,111 @@
       if (isNativeInteractiveControl(el)) return;
 
       const role = (el.getAttribute("role") || "").toLowerCase();
-      const hasClickHint = el.hasAttribute("onclick") || hasPointerCursor(el) || role === "button" || role === "link";
+      const clickSelf = el.hasAttribute("onclick");
+      const clickAncestor = getAncestorClickMeta(el, 3);
+      const hasClickHint = clickSelf || clickAncestor.hasHandler || hasPointerCursor(el) || role === "button" || role === "link";
       if (!hasClickHint) return;
 
+      const clickHandlerScope = clickSelf ? "self" : (clickAncestor.hasHandler ? "ancestor" : "delegated");
       const tabIndex = el.getAttribute("tabindex");
       const keyboardReachable = isKeyboardReachable(el);
-      const hasInlineKey = hasInlineKeyboardHandler(el);
-      const hasAncestorKey = hasAncestorKeyboardHandler(el, 3);
-      const hasKeyboardHint = hasInlineKey || hasAncestorKey;
+      const selfKeyMeta = getInlineKeyboardMeta(el);
+      const ancestorKeyMeta = getAncestorKeyboardMeta(el, 3);
+      const globalKeyMeta = getGlobalKeyboardMeta();
+      const hasKeyHandlerSelf = selfKeyMeta.hasHandler;
+      const hasKeyHandlerAncestor = ancestorKeyMeta.hasHandler;
+      const hasKeyHandlerGlobal = globalKeyMeta.hasHandler;
+      const selfHasActivation = selfKeyMeta.activationKeys.includes("Enter") || selfKeyMeta.activationKeys.includes("Space");
+      const keydownScope = hasKeyHandlerSelf
+        ? "self"
+        : hasKeyHandlerAncestor
+          ? "ancestor"
+          : hasKeyHandlerGlobal
+            ? "global"
+            : "none";
+      const activationKeysObserved = keydownScope === "self"
+        ? selfKeyMeta.activationKeys
+        : keydownScope === "ancestor"
+          ? ancestorKeyMeta.activationKeys
+          : keydownScope === "global"
+            ? globalKeyMeta.activationKeys
+            : [];
 
       if (!keyboardReachable) {
-        add(findings, {
-          type: "CLICK_WITHOUT_KEYBOARD",
-          el,
-          severity: role === "button" || role === "link" ? "high" : "medium",
-          wcag: "2.1.1",
-          confidence: (role === "button" || role === "link") ? "strict" : "heuristic",
-          note: `${el.tagName.toLowerCase()} is clickable but not keyboard reachable (missing valid tabindex/native focus behavior).`,
-          extra: {
-            role: role || null,
-            tabIndex,
-            keyboardReachable,
-            hasInlineKey,
-            hasAncestorKey,
-            hasClickHint,
-          },
-        });
-        return;
-      }
-
-      if ((role === "button" || role === "link") && !hasKeyboardHint) {
         add(findings, {
           type: "CLICK_WITHOUT_KEYBOARD",
           el,
           severity: "low",
           wcag: "2.1.1",
           confidence: "advisory",
-          note: "Custom role control is focusable, but keyboard activation handler was not detected on element/near ancestor. Verify delegated key handling.",
+          note: "Clickable custom control is not keyboard reachable. Verify tabindex/focus order and keyboard activation manually.",
           extra: {
-            role,
+            role: role || null,
             tabIndex,
+            hasClickHandler: hasClickHint,
+            clickHandlerScope,
             keyboardReachable,
-            hasInlineKey,
-            hasAncestorKey,
-            hasClickHint,
+            hasKeyHandlerSelf,
+            hasKeyHandlerAncestor,
+            keyHandlerScope: keydownScope,
+            handlerDistance: ancestorKeyMeta.distance,
+            activationKeysObserved,
+            activationUnproven: true,
           },
-          fix: "Verify Enter/Space activates this control. If keyboard handling is delegated, this advisory can be ignored."
+          fix: "Make this control keyboard reachable (tabindex=0 when appropriate) and ensure Enter/Space activation."
         });
+        return;
       }
+
+      if (selfHasActivation) return;
+
+      if (hasKeyHandlerAncestor || hasKeyHandlerGlobal) {
+        add(findings, {
+          type: "CLICK_WITHOUT_KEYBOARD",
+          el,
+          severity: "low",
+          wcag: "2.1.1",
+          confidence: "advisory",
+          note: "Keyboard handling appears to be delegated on ancestor/global scope. Activation for this element is not proven.",
+          extra: {
+            role: role || null,
+            tabIndex,
+            hasClickHandler: hasClickHint,
+            clickHandlerScope,
+            keyboardReachable,
+            hasKeyHandlerSelf,
+            hasKeyHandlerAncestor,
+            keyHandlerScope: keydownScope,
+            handlerDistance: ancestorKeyMeta.distance,
+            activationKeysObserved,
+            activationUnproven: true,
+          },
+          fix: "Verify Enter/Space activates this control. Keep delegated handlers tied to explicit target checks."
+        });
+        return;
+      }
+
+      add(findings, {
+        type: "CLICK_WITHOUT_KEYBOARD",
+        el,
+        severity: role === "button" || role === "link" ? "high" : "medium",
+        wcag: "2.1.1",
+        confidence: "strict",
+        note: "Clickable custom control is focusable but no keyboard activation handler was detected.",
+        extra: {
+          role: role || null,
+          tabIndex,
+          hasClickHandler: hasClickHint,
+          clickHandlerScope,
+          keyboardReachable,
+          hasKeyHandlerSelf,
+          hasKeyHandlerAncestor,
+          keyHandlerScope: "none",
+          handlerDistance: null,
+          activationKeysObserved: [],
+          activationUnproven: false,
+        },
+      });
     });
 
     // 4.1.2: aria-hidden="true" containing focusable elements

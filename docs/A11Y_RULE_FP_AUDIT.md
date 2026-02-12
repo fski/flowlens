@@ -37,12 +37,15 @@
 - Rule: `CLICK_WITHOUT_KEYBOARD`
 - Root cause: broad click-role detection without reachability/actionability checks.
 - Change:
-  - Adds preconditions: skip hidden/inert/disabled/native controls.
-  - Distinguishes strict failures (`role=button/link` not keyboard reachable) from advisory checks (focusable custom role without detectable key handler).
-  - Adds evidence: `tabIndex`, `keyboardReachable`, `hasInlineKey`, `hasAncestorKey`, `hasClickHint`.
+  - Keeps native controls out of scope and evaluates only custom actionable controls.
+  - Emits `strict` only when the control is keyboard reachable, clickable, and has no self keyboard activation evidence.
+  - Treats ancestor/global key handling as unproven delegation and emits advisory (never strict).
+  - Adds evidence: `hasClickHandler`, `clickHandlerScope`, `hasKeyHandlerSelf`, `hasKeyHandlerAncestor`, `keyHandlerScope`, `handlerDistance`, `activationKeysObserved`, `activationUnproven`, `tabIndex`, `keyboardReachable`.
 - Fixture test:
-  - `#badKeyboardButton` should flag strict/high.
-  - `#delegatedButton` should not flag due delegated key handler.
+  - `#badKeyboardFocusable` should flag strict/high.
+  - `#badKeyboardButton` should flag advisory (not keyboard reachable).
+  - `#ancestorDelegatedButton` should flag advisory with `keyHandlerScope=ancestor`.
+  - `#selfHandledButton` should not flag.
 
 ### Fix C: aria-hidden focusable precision
 - Rule: `ARIA_HIDDEN_FOCUSABLE`
@@ -105,7 +108,7 @@
      ```
   5. Confirm expected counts:
      - `FOCUS_VISIBLE_SUPPRESSED`: 1
-     - `CLICK_WITHOUT_KEYBOARD`: 1
+     - `CLICK_WITHOUT_KEYBOARD`: 3
      - `ARIA_HIDDEN_FOCUSABLE`: 1
      - `TOUCH_TARGET_TOO_SMALL`: 1
      - `DUPLICATE_MAIN_LANDMARK`: 1
@@ -115,6 +118,11 @@
      - If `ARIA_HIDDEN_FOCUSABLE` appears during the transition window, it must be `confidence=advisory` with `extra.duringTransition=true`.
   7. Cross-origin edge manual check:
      - Run inside cross-origin iframe context and confirm `IFRAME_CROSS_ORIGIN` appears as `info`.
+  8. Slice C keyboard guardrail expectations:
+     - `#badKeyboardFocusable` => `CLICK_WITHOUT_KEYBOARD` strict.
+     - `#badKeyboardButton` => `CLICK_WITHOUT_KEYBOARD` advisory.
+     - `#ancestorDelegatedButton` / `#delegatedButton` => advisory with `extra.activationUnproven=true`.
+     - `#selfHandledButton` and `#nativeKeyboardButton` => no `CLICK_WITHOUT_KEYBOARD`.
 
 ## 5) Verification Checklist
 
