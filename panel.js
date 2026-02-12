@@ -10,6 +10,7 @@ const els = {
   target: document.getElementById("target"),
   refreshFrames: document.getElementById("refreshFrames"),
   frameSelect: document.getElementById("frameSelect"),
+  frameSelectWrap: document.getElementById("frameSelectWrap"),
   copyFrameUrl: document.getElementById("copyFrameUrl"),
   settingsPanelToggle: document.getElementById("settingsPanelToggle"),
   settingsSection: document.getElementById("settingsSection"),
@@ -19,6 +20,7 @@ const els = {
   density: document.getElementById("density"),
   themeToggle: document.getElementById("themeToggle"),
   wcagLevel: document.getElementById("wcagLevel"),
+  targetingSummary: document.getElementById("targetingSummary"),
 
   exportAnchor: document.getElementById("exportAnchor"),
   exportToggle: document.getElementById("exportToggle"),
@@ -26,33 +28,30 @@ const els = {
   copyJson: document.getElementById("copyJson"),
   downloadJson: document.getElementById("downloadJson"),
   copyMd: document.getElementById("copyMd"),
+  sessionExportMenuLabel: document.getElementById("sessionExportMenuLabel"),
+  exportSessionJsonMenu: document.getElementById("exportSessionJsonMenu"),
+  exportSessionMdMenu: document.getElementById("exportSessionMdMenu"),
   copyMdHint: document.getElementById("copyMdHint"),
   sessionStart: document.getElementById("sessionStart"),
   sessionMark: document.getElementById("sessionMark"),
   sessionEnd: document.getElementById("sessionEnd"),
-  sessionExportJson: document.getElementById("sessionExportJson"),
-  sessionExportMd: document.getElementById("sessionExportMd"),
-  sessionMdHint: document.getElementById("sessionMdHint"),
-  sessionMeta: document.getElementById("sessionMeta"),
-  sessionStatus: document.getElementById("sessionStatus"),
-  sessionBanner: document.getElementById("sessionBanner"),
+  lastStatusLine: document.getElementById("lastStatusLine"),
 
   presetQuick: document.getElementById("presetQuick"),
   presetRelease: document.getElementById("presetRelease"),
   presetFocus: document.getElementById("presetFocus"),
+  quickStartToggle: document.getElementById("quickStartToggle"),
+  quickStartMenu: document.getElementById("quickStartMenu"),
   runCurrentMode: document.getElementById("runCurrentMode"),
 
   json: document.getElementById("json"),
   inspectedUrl: document.getElementById("inspectedUrl"),
-  copyInspectedUrl: document.getElementById("copyInspectedUrl"),
   brandEnv: document.getElementById("brandEnv"),
-  copyDetected: document.getElementById("copyDetected"),
   usedFrames: document.getElementById("usedFrames"),
   diff: document.getElementById("diff"),
 
   runSummary: document.getElementById("runSummary"),
   sevBadges: document.getElementById("sevBadges"),
-  topTableBody: document.querySelector("#topTable tbody"),
   topCount: document.getElementById("topCount"),
   allCount: document.getElementById("allCount"),
   statsRow: document.getElementById("statsRow"),
@@ -70,10 +69,7 @@ const els = {
   allTableBody: document.querySelector("#allTable tbody"),
 
   toast: document.getElementById("toast"),
-  viewSelect: document.getElementById("viewSelect"),
-  clearHistory: document.getElementById("clearHistory"),
   rerunCurrent: document.getElementById("rerunCurrent"),
-  currentModeText: document.getElementById("currentModeText"),
   runIcon: document.getElementById("runIcon"),
   runLabel: document.getElementById("runLabel"),
   progressWrap: document.getElementById("progressWrap"),
@@ -93,7 +89,6 @@ const els = {
 const ORDER = { high: 3, medium: 2, low: 1, info: 0 };
 
 const state = {
-  top: [],
   explorer: [],
   records: [],
   byId: {},
@@ -110,7 +105,12 @@ const state = {
   tabData: [],
   activeMode: "run",
   pinnedFrameId: null,
-  topSeverityFilter: "",
+  prioritizedFilter: false,
+  lastDiffSummary: "—",
+  lastUsedFramesSummary: "—",
+  lastPersistentStatus: { status: "IDLE", reason: "-", detail: "" },
+  lastSelectionReason: "—",
+  hasPersistentStatus: false,
 };
 
 /**
@@ -158,6 +158,13 @@ const SCOPE_LABELS = {
   all: "All frames",
 };
 
+const SCOPE_SUMMARY_LABELS = {
+  primary: "Primary frame",
+  host: "Host page",
+  embedded: "Embedded",
+  all: "All frames",
+};
+
 const SCOPE_TOOLTIPS = {
   primary: "Scan only the most relevant frame detected on this page.",
   host: "Scan the top-level page and ignore embedded frames.",
@@ -185,6 +192,7 @@ const sessionState = {
   current: null,
   inFlight: false,
   lastArchiveId: null,
+  lastEndedSession: null,
   lastMarkStep: null,
   captureSlowTimer: null,
   captureSlow: false,
@@ -448,11 +456,11 @@ function toast(message) {
 
 const DURATIONS = { watch: 40, observe: 12, tabWalk: 5, contrast: 3, run: 2 };
 const PROGRESS_LABELS = {
-  run: "Scanning...",
-  contrast: "Checking contrast...",
-  tabWalk: "Walking focusables...",
-  watch: "Monitoring...",
-  observe: "Observing...",
+  run: "Scanning…",
+  contrast: "Checking contrast…",
+  tabWalk: "Walking focusables…",
+  watch: "Monitoring…",
+  observe: "Observing…",
 };
 
 function setProgressA11y(bar, percent, valueText) {
@@ -545,6 +553,10 @@ async function _runSingle(action, opts) {
 function setRunButtonBusy(busy) {
   if (!els.runCurrentMode) return;
   els.runCurrentMode.classList.toggle("running", !!busy);
+  if (els.quickStartToggle) {
+    els.quickStartToggle.disabled = !!busy || !!sessionState.inFlight;
+    if (busy) setQuickStartMenuOpen(false);
+  }
   if (els.runIcon) {
     if (busy) els.runIcon.innerHTML = '<span class="spinner" aria-hidden="true"></span>';
     else els.runIcon.textContent = "▶";
@@ -557,6 +569,10 @@ function setRunButtonBusy(busy) {
 
 async function _lockedPreset(actions) {
   if (state.running) return;
+  if (sessionState.inFlight) {
+    toast("Step capture in progress");
+    return;
+  }
   state.running = true;
   const toolbar = document.querySelector('.toolbar');
   let lastSuccessAction = null;
@@ -587,7 +603,7 @@ function setSettingsPanelOpen(open, { restoreFocus = false } = {}) {
 
 function exportMenuItems() {
   if (!els.exportMenu) return [];
-  return [...els.exportMenu.querySelectorAll(".emItem")];
+  return [...els.exportMenu.querySelectorAll(".emItem")].filter(item => !item.hidden);
 }
 
 function setExportMenuOpen(open, { restoreFocus = false } = {}) {
@@ -597,6 +613,20 @@ function setExportMenuOpen(open, { restoreFocus = false } = {}) {
   els.exportMenu.classList.toggle("open", isOpen);
   els.exportToggle.setAttribute("aria-expanded", String(isOpen));
   if (!isOpen && restoreFocus) els.exportToggle.focus();
+}
+
+function quickStartMenuItems() {
+  if (!els.quickStartMenu) return [];
+  return [...els.quickStartMenu.querySelectorAll(".emItem")];
+}
+
+function setQuickStartMenuOpen(open, { restoreFocus = false } = {}) {
+  if (!els.quickStartMenu || !els.quickStartToggle) return;
+  const isOpen = !!open;
+  els.quickStartMenu.hidden = !isOpen;
+  els.quickStartMenu.classList.toggle("open", isOpen);
+  els.quickStartToggle.setAttribute("aria-expanded", String(isOpen));
+  if (!isOpen && restoreFocus) els.quickStartToggle.focus();
 }
 
 async function copyText(text) {
@@ -707,11 +737,12 @@ function recordLabel(rec) {
 
 function setPressed(action) {
   if (action) state.activeMode = action;
-  if (els.currentModeText) els.currentModeText.textContent = state.activeMode || "run";
-  // Update mode selector buttons aria-pressed
+  // Update mode selector buttons aria-checked
   document.querySelectorAll("button[data-action]").forEach(btn => {
-    btn.setAttribute("aria-pressed", String(btn.dataset.action === (state.activeMode || "run")));
-    btn.classList.toggle("active", btn.dataset.action === (state.activeMode || "run"));
+    const selected = btn.dataset.action === (state.activeMode || "run");
+    btn.setAttribute("aria-checked", String(selected));
+    btn.setAttribute("tabindex", selected ? "0" : "-1");
+    btn.classList.toggle("active", selected);
   });
   // Update run button label
   const label = runButtonLabel(state.activeMode || "run");
@@ -733,12 +764,14 @@ function showMode(mode) {
 
 function updateResultsVisibility(forceValue = null) {
   const hasResults = typeof forceValue === "boolean" ? forceValue : state.records.length > 0;
+  const hasSessionExport = !!(sessionState.current || sessionState.lastEndedSession);
   if (els.emptyState) els.emptyState.hidden = hasResults;
   if (els.resultsZone) {
-    els.resultsZone.hidden = false;
+    els.resultsZone.hidden = !hasResults;
     els.resultsZone.classList.toggle("visible", !!hasResults);
   }
-  if (els.exportAnchor) els.exportAnchor.hidden = !hasResults;
+  if (els.exportAnchor) els.exportAnchor.hidden = !(hasResults || hasSessionExport);
+  if (els.rerunCurrent) els.rerunCurrent.hidden = !hasResults || !!sessionState.current;
 }
 
 function updateTopCount(total = 0, shown = total) {
@@ -932,7 +965,6 @@ function renderRecord(rec) {
 
   // default reset
   els.sevBadges.innerHTML = "";
-  els.topTableBody.innerHTML = "";
   els.allTableBody.innerHTML = "";
   if (els.topFilterChips) els.topFilterChips.innerHTML = "";
   if (els.topBlockingAlert) els.topBlockingAlert.hidden = true;
@@ -943,7 +975,7 @@ function renderRecord(rec) {
   showMode(mode);
 
   if (mode === "run") {
-    renderRunSummary(bestResult);
+    renderRunSummary(bestResult, rec);
     const findings = Array.isArray(bestResult?.findings) ? bestResult.findings : [];
     state.currentFindings = findings;
     buildOptionsFromFindings(findings, els.prod, "product");
@@ -1057,6 +1089,78 @@ function asNumber(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function normalizeFindingConfidence(confidence) {
+  const c = String(confidence || "").toLowerCase();
+  if (c === "strict" || c === "heuristic" || c === "advisory") return c;
+  return "strict";
+}
+
+function isRunFindingBlocking(finding) {
+  const severity = normalizeWs(finding?.severity, 12);
+  if (severity !== "high" && severity !== "medium") return false;
+  const confidence = normalizeFindingConfidence(finding?.confidence);
+  if (confidence === "advisory") return false;
+  if (severity === "high") return true;
+  return confidence === "strict";
+}
+
+function summarizeRunFindings(findings = []) {
+  let strictHigh = 0;
+  let strictMedium = 0;
+  let heuristicHigh = 0;
+  let heuristicMedium = 0;
+  let advisoryHigh = 0;
+  let advisoryMedium = 0;
+  let low = 0;
+  let info = 0;
+
+  for (const f of findings) {
+    const severity = normalizeWs(f?.severity, 12);
+    const confidence = normalizeFindingConfidence(f?.confidence);
+    if (severity === "high") {
+      if (confidence === "strict") strictHigh++;
+      else if (confidence === "heuristic") heuristicHigh++;
+      else advisoryHigh++;
+      continue;
+    }
+    if (severity === "medium") {
+      if (confidence === "strict") strictMedium++;
+      else if (confidence === "heuristic") heuristicMedium++;
+      else advisoryMedium++;
+      continue;
+    }
+    if (severity === "low") low++;
+    else info++;
+  }
+
+  const blockingCount = strictHigh + strictMedium + heuristicHigh;
+  const summaryScore = Number((
+    (strictHigh * 5) +
+    (strictMedium * 3) +
+    (heuristicHigh * 1.5) +
+    (heuristicMedium * 0.5) +
+    (low * 0.2) +
+    (info * 0.05)
+  ).toFixed(2));
+
+  return {
+    blockingCount,
+    summaryScore,
+    primaryCounts: {
+      findings: findings.length,
+      blockingFindings: blockingCount,
+      strictHigh,
+      strictMedium,
+      heuristicHigh,
+      heuristicMedium,
+      advisoryHigh,
+      advisoryMedium,
+      low,
+      info,
+    },
+  };
+}
+
 function normalizeResultForExport(result, explicitType = null) {
   const type = explicitType || inferResultType(result);
   const raw = result && typeof result === "object" ? result : {};
@@ -1095,22 +1199,24 @@ function normalizeResultForExport(result, explicitType = null) {
     };
   }
   if (type === "observe") {
-    const findings = Array.isArray(raw.findings) ? raw.findings.length : 0;
+    const findingsArr = Array.isArray(raw.findings) ? raw.findings : [];
     const snapshots = Array.isArray(raw.snapshots) ? raw.snapshots.length : 0;
+    const findingSummary = summarizeRunFindings(findingsArr);
     return {
       type,
-      blockingCount: findings,
-      summaryScore: findings + snapshots,
-      primaryCounts: { findings, snapshots },
+      blockingCount: findingSummary.blockingCount,
+      summaryScore: Number((findingSummary.summaryScore + (snapshots * 0.1)).toFixed(2)),
+      primaryCounts: { ...findingSummary.primaryCounts, snapshots },
       raw
     };
   }
-  const findings = Array.isArray(raw.findings) ? raw.findings.length : 0;
+  const findingsArr = Array.isArray(raw.findings) ? raw.findings : [];
+  const findingSummary = summarizeRunFindings(findingsArr);
   return {
     type: "run",
-    blockingCount: findings,
-    summaryScore: findings,
-    primaryCounts: { findings },
+    blockingCount: findingSummary.blockingCount,
+    summaryScore: findingSummary.summaryScore,
+    primaryCounts: findingSummary.primaryCounts,
     raw
   };
 }
@@ -1264,6 +1370,84 @@ function reasonDetail(reasonCode) {
   return MARK_REASON_DETAILS[reasonCode] || "status recorded";
 }
 
+function normalizeReasonLabel(reasonCode = "-") {
+  const code = String(reasonCode || "-").toLowerCase();
+  if (code.includes("no_scope_match")) return "NO_SCOPE_MATCH";
+  if (code.includes("transport")) return "TRANSPORT";
+  if (code.includes("parse")) return "PARSE";
+  if (code.includes("quota")) return "QUOTA";
+  if (code.includes("raw:capped")) return "RAW_CAPPED";
+  if (code.includes("limit")) return "LIMIT";
+  if (code === "-") return "—";
+  return String(reasonCode || "—").toUpperCase();
+}
+
+function isMeaningfulSelectionReason(reason = "") {
+  const normalized = normalizeWs(reason, 80);
+  if (!normalized || normalized === "—") return false;
+  const defaultReasons = new Set([
+    "scope_primary_scored_best",
+    "auto",
+    "auto-best",
+    "default",
+    "best_match",
+  ]);
+  return !defaultReasons.has(normalized);
+}
+
+function setPersistentStatus(status = "IDLE", reason = "-", detail = "") {
+  const normalized = String(status || "IDLE").toUpperCase();
+  const reasonLabel = normalizeReasonLabel(reason);
+  state.lastPersistentStatus = { status: normalized, reason: reasonLabel, detail: String(detail || "") };
+  if (!els.lastStatusLine) return;
+  const isIdle = normalized === "IDLE";
+  if (!isIdle) state.hasPersistentStatus = true;
+  const shouldShow = !isIdle || state.hasPersistentStatus;
+  els.lastStatusLine.hidden = !shouldShow;
+  if (!shouldShow) return;
+  els.lastStatusLine.classList.remove("ok", "partial", "failed");
+  if (normalized === "OK") els.lastStatusLine.classList.add("ok");
+  else if (normalized === "PARTIAL") els.lastStatusLine.classList.add("partial");
+  else if (normalized === "FAILED") els.lastStatusLine.classList.add("failed");
+  const reasonPart = reasonLabel && reasonLabel !== "—" ? ` • ${reasonLabel}` : "";
+  const tail = detail ? ` • ${detail}` : "";
+  els.lastStatusLine.textContent = `Last status: ${normalized}${reasonPart}${tail}`;
+}
+
+function setRunTelemetry({ usedFrames, diff } = {}) {
+  if (typeof usedFrames === "string") state.lastUsedFramesSummary = usedFrames;
+  if (typeof diff === "string") state.lastDiffSummary = diff;
+  if (els.usedFrames) els.usedFrames.textContent = state.lastUsedFramesSummary;
+  if (els.diff) els.diff.textContent = state.lastDiffSummary;
+}
+
+function getSelectedFrameLabel() {
+  if (!els.frameSelect) return "Auto";
+  const selected = els.frameSelect.selectedOptions?.[0];
+  if (!selected) return "Auto";
+  return txt(selected.textContent || selected.value || "Auto", 56);
+}
+
+function updateTargetingSummary(selectionReason = null) {
+  if (!els.targetingSummary) return;
+  const scope = getScopeValue();
+  const scopeLabel = SCOPE_SUMMARY_LABELS[scope] || SCOPE_LABELS[scope] || scope;
+  const frameLabel = getSelectedFrameLabel();
+  const pinned = els.pinFrame?.checked ? "On" : "Off";
+  const reasonRaw = selectionReason || state.lastSelectionReason || "";
+  const frameCount = Number(els.frameSelect?.options?.length || 0);
+  const shouldShowFrame = !!els.pinFrame?.checked || (scope === "embedded" && frameCount > 1);
+  const meaningfulReason = isMeaningfulSelectionReason(reasonRaw) ? reasonRaw : "";
+  const bits = [`Target: ${scopeLabel}`];
+  if (shouldShowFrame && frameLabel && frameLabel !== "Auto") {
+    bits.push(`Frame: ${frameLabel}${pinned === "On" ? " (pinned)" : ""}`);
+  } else if (pinned === "On") {
+    bits.push("Pin: On");
+  }
+  if (meaningfulReason) bits.push(`Reason: ${meaningfulReason}`);
+  els.targetingSummary.textContent = bits.join(" • ");
+}
+
 function flashInlineHint(el, text = "Copied \u2713", ms = 1500) {
   if (!el) return;
   el.textContent = text;
@@ -1330,6 +1514,7 @@ function setLastMarkStatus(status, reasonCode = "-") {
     reasonCode: code.slice(0, 48),
     at: nowIso(),
   };
+  setPersistentStatus(status, code, reasonDetail(code));
 }
 
 function formatElapsedHms(startIso, endIso = null) {
@@ -1343,6 +1528,8 @@ function formatElapsedHms(startIso, endIso = null) {
 }
 
 function ensureSessionHudTicker() {
+  const hasHudSurface = !!(els.sessionMeta || els.sessionStatus);
+  if (!hasHudSurface) return;
   const hasSession = !!sessionState.current;
   if (hasSession && !sessionState.hudTimer) {
     sessionState.hudTimer = window.setInterval(() => {
@@ -1404,30 +1591,54 @@ function renderSessionHud() {
 
 function updateSessionButtons() {
   const hasSession = !!sessionState.current;
+  const hasExportableSession = !!(sessionState.current || sessionState.lastEndedSession);
+  const hasArchivedSession = !sessionState.current && !!sessionState.lastEndedSession;
   const inFlight = !!sessionState.inFlight;
+  const panelBusy = inFlight || state.running;
   ensureSessionHudTicker();
-  if (els.sessionBanner) els.sessionBanner.hidden = !hasSession && !inFlight;
-  // Quick-start row session toggle
   if (els.sessionStart) {
-    els.sessionStart.disabled = inFlight;
+    els.sessionStart.disabled = panelBusy || hasSession;
+    els.sessionStart.hidden = hasSession;
     els.sessionStart.classList.toggle("on", hasSession);
     els.sessionStart.textContent = hasSession ? "\u25F7 Session active" : "\u25F7 Start session";
     els.sessionStart.title = hasSession ? "Session is active" : "Start capture session";
   }
   if (els.sessionMark) {
-    els.sessionMark.disabled = !hasSession || inFlight;
+    els.sessionMark.disabled = !hasSession || panelBusy;
     els.sessionMark.hidden = !hasSession;
-    els.sessionMark.classList.toggle("primary", hasSession && !inFlight);
-    els.sessionMark.classList.toggle("secondary", !hasSession || inFlight);
+    els.sessionMark.classList.toggle("primary", hasSession && !panelBusy);
+    els.sessionMark.classList.toggle("secondary", !hasSession || panelBusy);
     els.sessionMark.textContent = inFlight ? "Capturing…" : "Mark step";
   }
+  if (els.runCurrentMode) {
+    els.runCurrentMode.classList.toggle("sessionActive", hasSession && !inFlight);
+    els.runCurrentMode.classList.remove("secondaryAction");
+    els.runCurrentMode.classList.toggle("tertiaryAction", hasSession);
+  }
   if (els.sessionEnd) {
-    els.sessionEnd.disabled = !hasSession || inFlight;
+    els.sessionEnd.disabled = !hasSession || panelBusy;
     els.sessionEnd.hidden = !hasSession;
   }
-  if (els.runCurrentMode) els.runCurrentMode.classList.toggle("sessionActive", hasSession && !inFlight);
-  if (els.sessionExportJson) els.sessionExportJson.disabled = !hasSession;
-  if (els.sessionExportMd) els.sessionExportMd.disabled = !hasSession;
+  if (els.sessionExportMenuLabel) els.sessionExportMenuLabel.hidden = !hasExportableSession;
+  if (els.exportSessionJsonMenu) {
+    els.exportSessionJsonMenu.hidden = !hasExportableSession;
+    const desc = els.exportSessionJsonMenu.querySelector(".dd");
+    if (desc) desc.textContent = hasSession ? "Active session" : "Last ended session";
+  }
+  if (els.exportSessionMdMenu) {
+    els.exportSessionMdMenu.hidden = !hasExportableSession;
+    const desc = els.exportSessionMdMenu.querySelector(".dd");
+    if (desc) desc.textContent = hasSession ? "Active session" : "Last ended session";
+  }
+  if (els.rerunCurrent) {
+    els.rerunCurrent.hidden = !(state.records.length > 0) || hasSession;
+    els.rerunCurrent.disabled = panelBusy;
+  }
+  if (els.exportAnchor) els.exportAnchor.hidden = !((state.records.length > 0) || hasExportableSession);
+  if (els.quickStartToggle) {
+    els.quickStartToggle.disabled = panelBusy;
+    if (panelBusy) setQuickStartMenuOpen(false);
+  }
   renderSessionHud();
 }
 
@@ -1673,11 +1884,12 @@ function runSignatureEntries(snapshot, rawAppendix = null) {
       normalizeWs(f?.note, 80),
     ].join("|");
     const severity = normalizeWs(f?.severity, 12);
+    const confidence = normalizeFindingConfidence(f?.confidence);
     out.push({
       sig,
-      blocking: severity === "high" || severity === "medium",
+      blocking: isRunFindingBlocking(f),
       wcag: f?.wcag || null,
-      confidence: f?.confidence || null,
+      confidence,
       level: f?.level || null,
       severity: severity || null,
       label: f?.type || "run_finding",
@@ -1799,11 +2011,12 @@ function observeSignatureEntries(snapshot, rawAppendix = null) {
       normalizeWs(f?.note, 80),
     ].join("|");
     const severity = normalizeWs(f?.severity, 12);
+    const confidence = normalizeFindingConfidence(f?.confidence);
     out.push({
       sig,
-      blocking: severity === "high" || severity === "medium",
+      blocking: isRunFindingBlocking(f),
       wcag: f?.wcag || null,
-      confidence: f?.confidence || "heuristic",
+      confidence,
       level: f?.level || null,
       severity: severity || null,
       label: f?.type || "observe_finding",
@@ -1818,11 +2031,11 @@ function observeSignatureEntries(snapshot, rawAppendix = null) {
   }
   out.push({
     sig: ["observe", frameKey, "trend", `peak:${bucketNumber(peak, 5)}`, `jumps:${bucketNumber(jumps, 1)}`].join("|"),
-    blocking: jumps > 0,
+    blocking: false,
     wcag: null,
-    confidence: "heuristic",
+    confidence: "advisory",
     level: null,
-    severity: jumps > 0 ? "medium" : "info",
+    severity: "info",
     label: "trend",
   });
   return out;
@@ -2204,8 +2417,8 @@ function buildMarkdown({ inspectedUrl, best, perFrame, usedFrameIds, envTag }) {
 function truncateMiddle(s, max = 80) {
   const str = String(s ?? "");
   if (str.length <= max) return str;
-  const keep = Math.max(10, Math.floor((max - 3) / 2));
-  return str.slice(0, keep) + "..." + str.slice(-keep);
+  const keep = Math.max(10, Math.floor((max - 1) / 2));
+  return str.slice(0, keep) + "…" + str.slice(-keep);
 }
 
 function cellHtml(value, maxLen = 60) {
@@ -2226,61 +2439,38 @@ function actionIsWatch(resultObj) {
 
 function renderTopFilterMeta(findings = [], shown = []) {
   const counts = countBySeverity(findings);
+  const summary = summarizeRunFindings(findings);
+  const blocking = Number(summary?.primaryCounts?.blockingFindings || (counts.high + counts.medium));
   if (els.topFilterChips) {
-    const sevOrder = [
-      { key: "high", label: "High", short: "high" },
-      { key: "medium", label: "Med", short: "medium" },
-      { key: "low", label: "Low", short: "low" },
-      { key: "info", label: "Info", short: "info" },
-    ];
-    els.topFilterChips.innerHTML = sevOrder.map(({ key, label, short }) => {
-      const active = state.topSeverityFilter === key;
-      return `<button class="fChip${active ? ` active a-${short}` : ""}" type="button" data-sev="${short}" aria-pressed="${active ? "true" : "false"}">${label} <span class="ct">${escapeHtml(String(counts[key] ?? 0))}</span></button>`;
-    }).join("");
+    els.topFilterChips.innerHTML = `
+      <button class="fChip${state.prioritizedFilter ? " active a-high" : ""}" type="button" data-filter="prioritized" aria-pressed="${state.prioritizedFilter ? "true" : "false"}">
+        Prioritized
+        <span class="ct">${escapeHtml(String(blocking))}</span>
+      </button>
+      <button class="fChip${!state.prioritizedFilter ? " active a-info" : ""}" type="button" data-filter="all" aria-pressed="${!state.prioritizedFilter ? "true" : "false"}">
+        All findings
+        <span class="ct">${escapeHtml(String(findings.length))}</span>
+      </button>`;
   }
   if (els.topBlockingAlert) {
-    const blocking = Number(counts.high || 0);
     els.topBlockingAlert.hidden = blocking <= 0;
-    els.topBlockingAlert.textContent = `${blocking} blocking issue${blocking === 1 ? "" : "s"} need attention \u2192`;
+    els.topBlockingAlert.textContent = `${blocking} blocking issue${blocking === 1 ? "" : "s"} in prioritized view`;
   }
   updateTopCount(findings.length, shown.length);
 }
 
 function renderTopFindingsTable(findings = []) {
-  const topRaw = topFindings(findings, 30);
-  const severity = state.topSeverityFilter || "";
-  const filteredRaw = severity ? topRaw.filter(f => String(f?.severity || "") === severity) : topRaw;
-  const top = applySortState(filteredRaw, 'top');
-  renderTopFilterMeta(topRaw, top);
-  if (!top.length) {
-    const emptyText = topRaw.length ? "No issues in this severity filter" : "\u2714 No accessibility issues found";
-    els.topTableBody.innerHTML = '<tr><td colspan="9"><div class="successState">&#x2714; No accessibility issues found</div></td></tr>';
-    els.topTableBody.querySelector(".successState").textContent = emptyText;
-    state.top = top;
-    return;
-  }
-  els.topTableBody.innerHTML = top.map((f, idx) => `
-    <tr data-idx="${idx}" class="trow" tabindex="0">
-      <td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span></td>
-      <td>${escapeHtml(f.product ?? "")}</td>
-      <td>${escapeHtml(f.type ?? "")}</td>
-      <td>${escapeHtml(f.wcag ?? "")}</td>
-      <td>${cellHtml(f.name, 50)}</td>
-      <td>${escapeHtml(f.role ?? "")}</td>
-      <td>${escapeHtml(f.testId ?? "")}</td>
-      <td>${cellHtml(f.note, 60)}</td>
-      <td class="fixCol">${cellHtml(f.fix, 60)}</td>
-    </tr>
-  `).join("");
-  state.top = top;
+  const shown = state.prioritizedFilter
+    ? findings.filter(f => isRunFindingBlocking(f))
+    : findings;
+  renderTopFilterMeta(findings, shown);
 }
 
-function renderRunSummary(r) {
+function renderRunSummary(r, rec = null) {
   if (!r) {
-    state.topSeverityFilter = "";
+    state.prioritizedFilter = false;
     els.runSummary.innerHTML = '<div class="emptyGuide">Pick a mode and hit <kbd>Run Audit</kbd>, or use a quick start preset.</div>';
     els.sevBadges.innerHTML = "";
-    els.topTableBody.innerHTML = "";
     if (els.topFilterChips) els.topFilterChips.innerHTML = "";
     if (els.topBlockingAlert) {
       els.topBlockingAlert.hidden = true;
@@ -2293,14 +2483,24 @@ function renderRunSummary(r) {
 
   const mode = r?.mode ?? "";
   const findings = Array.isArray(r?.findings) ? r.findings : [];
-  const headingsCount = Array.isArray(r?.headings) ? r.headings.length : null;
+  const summary = summarizeRunFindings(findings);
+  const strictSignal = asNumber(summary?.primaryCounts?.strictHigh, 0) + asNumber(summary?.primaryCounts?.strictMedium, 0);
+  const heuristicSignal = asNumber(summary?.primaryCounts?.heuristicHigh, 0) + asNumber(summary?.primaryCounts?.heuristicMedium, 0);
+  const advisorySignal = asNumber(summary?.primaryCounts?.advisoryHigh, 0) + asNumber(summary?.primaryCounts?.advisoryMedium, 0);
+  const frameLabel = rec?.best?.frameId != null ? `#${rec.best.frameId}` : "auto";
+  const scopeLabel = SCOPE_LABELS[getScopeValue()] || getScopeValue();
+  const diffSummary = state.lastDiffSummary || "—";
   const ts = r.timestamp ? new Date(r.timestamp).toLocaleTimeString() : "";
 
   els.runSummary.innerHTML = `
     <div class="runStats">
-      <span class="runStat"><b>${findings.length}</b> findings</span>
-      <span class="runStat">mode: <b>${escapeHtml(mode || "auto")}</b></span>
-      ${headingsCount !== null ? `<span class="runStat"><b>${headingsCount}</b> headings</span>` : ""}
+      <span class="runStat"><b>${asNumber(summary?.primaryCounts?.blockingFindings, 0)}</b> blocking</span>
+      <span class="runStat">strict <b>${strictSignal}</b></span>
+      <span class="runStat">heuristic <b>${heuristicSignal}</b></span>
+      <span class="runStat">advisory <b>${advisorySignal}</b></span>
+      <span class="runStat">changes <b>${escapeHtml(diffSummary)}</b></span>
+      <span class="runStat">scope <b>${escapeHtml(scopeLabel)}</b> • frame <b>${escapeHtml(frameLabel)}</b></span>
+      <span class="runStat">mode <b>${escapeHtml(mode || "auto")}</b></span>
       ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
     </div>
   `;
@@ -2327,6 +2527,9 @@ function applyExplorerFilters(findings) {
   const unique = !!els.unique.checked;
 
   let list = Array.isArray(findings) ? findings : [];
+  if (state.prioritizedFilter) {
+    list = list.filter(f => isRunFindingBlocking(f));
+  }
   if (sev) list = list.filter(f => f.severity === sev);
   if (prod) list = list.filter(f => f.product === prod);
   if (type) list = list.filter(f => f.type === type);
@@ -2381,7 +2584,7 @@ function updateContrastView() {
   tbody.innerHTML = sorted.slice(0, 200).map((f) => {
     const pass = f.ratio >= f.required;
     return `
-    <tr class="trow${pass ? ' contrastPass' : ''}" tabindex="0">
+    <tr class="trow${pass ? ' contrastPass' : ''}">
       <td>${escapeHtml(String(f.ratio ?? ""))}</td>
       <td>${escapeHtml(String(f.required ?? ""))}</td>
       <td>${f.largeText ? "yes" : "no"}</td>
@@ -2407,7 +2610,7 @@ function renderTabWalk(res) {
   const tbody = els.tabTbody;
   if (!tbody) return;
   tbody.innerHTML = events.slice(0, 200).map((e) => `
-    <tr class="trow" tabindex="0">
+    <tr class="trow">
       <td>${escapeHtml(String(e.i ?? ""))}</td>
       <td>${escapeHtml(String(e.type ?? ""))}</td>
       <td>${escapeHtml(String(e.tabIndex ?? ""))}</td>
@@ -2428,7 +2631,7 @@ function renderExplorer(findings) {
   } else {
     // fallback
     els.allTableBody.innerHTML = filtered.slice(0, 200).map((f, idx) => `
-      <tr class="trow" tabindex="0" data-i="${idx}">
+      <tr class="trow" data-i="${idx}">
         <td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span></td>
         <td>${escapeHtml(f.product ?? "")}</td>
         <td>${escapeHtml(f.type ?? "")}</td>
@@ -2437,7 +2640,7 @@ function renderExplorer(findings) {
         <td>${escapeHtml(f.testId ?? "")}</td>
         <td>${cellHtml(f.path, 60)}</td>
         <td>${cellHtml(f.note, 50)}</td>
-        <td class="fixCol">${cellHtml(f.fix, 50)}</td>
+        <td class="fixCol">${cellHtml(f.fix, 50)} <button class="rowAct" type="button" data-i="${idx}" aria-label="Highlight finding ${idx + 1}">Highlight</button></td>
       </tr>
     `).join("");
   }
@@ -2523,6 +2726,7 @@ function refreshInspectedUrl(retries = 3) {
       if (found) els.frameSelect.value = wanted;
     }
     updateScopeUi();
+    updateTargetingSummary();
     resolve();
   });
   });
@@ -2540,7 +2744,10 @@ function updateScopeUi() {
     els.target.value = scope;
     els.target.title = SCOPE_TOOLTIPS[scope] || "";
   }
-  if (els.frameSelect) els.frameSelect.disabled = !els.pinFrame?.checked;
+  const showFrameSelect = !!els.pinFrame?.checked;
+  if (els.frameSelectWrap) els.frameSelectWrap.hidden = !showFrameSelect;
+  if (els.frameSelect) els.frameSelect.disabled = !showFrameSelect;
+  updateTargetingSummary();
 }
 
 async function refreshFrames() {
@@ -2571,6 +2778,7 @@ async function refreshFrames() {
     }
   }
   updateScopeUi();
+  updateTargetingSummary();
   if (stalePinned) await setPinnedFrameIfNeeded();
 }
 
@@ -2645,6 +2853,7 @@ async function setPinnedFrameIfNeeded() {
     state.pinnedFrameId = null;
   }
   await storageSet({ pinnedFrames });
+  updateTargetingSummary();
 }
 
 async function highlightFinding(finding) {
@@ -2687,8 +2896,8 @@ function diffSnapshots(prev, next) {
 async function runAction(action, opts = {}) {
   state.activeMode = action;
   setPressed(action);
-  els.usedFrames.textContent = "Running…";
-  els.diff.textContent = "—";
+  setRunTelemetry({ usedFrames: "Running…", diff: "—" });
+  setPersistentStatus("RUNNING", action.toUpperCase(), "Execution in progress");
 
   const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
   const envTag = `${originFrom(url) || "—"} • ${detectEnv(url)}`;
@@ -2716,8 +2925,8 @@ async function runAction(action, opts = {}) {
     const failed = { ok: false, action, error: String(err?.message || err) };
     state.lastResult = failed;
     els.json.textContent = pretty(failed);
-    els.usedFrames.textContent = "—";
-    els.diff.textContent = "(run failed)";
+    setRunTelemetry({ usedFrames: "—", diff: "(run failed)" });
+    setPersistentStatus("FAILED", "TRANSPORT", "Run transport failure");
     console.error("RUN_AUDIT transport failure", err);
     toast(`${action} failed`);
     return false;
@@ -2727,12 +2936,15 @@ async function runAction(action, opts = {}) {
   els.json.textContent = pretty(r);
   if (!r?.ok) {
     const noScope = r?.reason === "NO_SCOPE_MATCH" || r?.error === "NO_SCOPE_MATCH";
-    els.usedFrames.textContent = "—";
-    els.diff.textContent = noScope ? "(no frame matches selected scope)" : "(run failed)";
+    setRunTelemetry({ usedFrames: "—", diff: noScope ? "(no frame matches selected scope)" : "(run failed)" });
+    setPersistentStatus("FAILED", noScope ? "NO_SCOPE_MATCH" : "BACKEND", noScope ? "No frame matches selected scope" : "Run failed");
     console.error("RUN_AUDIT backend failure", r);
     toast(noScope ? "No frame matches selected scope" : `${action} failed`);
     return false;
   }
+
+  state.lastSelectionReason = r?.bestEntry?.selectionReason || r?.selectionReason || state.lastSelectionReason;
+  updateTargetingSummary(state.lastSelectionReason);
 
   // store result record for quick switching
   const url0 = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
@@ -2754,7 +2966,7 @@ async function runAction(action, opts = {}) {
     console.warn("Record rendered but history persistence failed");
   }
 
-  els.usedFrames.textContent = (r?.usedFrameIds || []).join(", ") || "—";
+  setRunTelemetry({ usedFrames: (r?.usedFrameIds || []).join(", ") || "—" });
 
   const bestEntry = rec.best || null;
   state.bestFrameId = bestEntry?.frameId ?? 0;
@@ -2773,16 +2985,17 @@ async function runAction(action, opts = {}) {
   };
   if (findings.length) {
     const d = diffSnapshots(prev, snapshot);
-    els.diff.textContent = d.text;
+    setRunTelemetry({ diff: d.text });
     await saveHistorySnapshot({ key, snapshot });
   } else {
-    els.diff.textContent = "(no findings snapshot)";
+    setRunTelemetry({ diff: "(no findings snapshot)" });
   }
 
   const _fc = findings.length;
   const _cc = bestResult?.failuresCount ?? bestResult?.failures?.length;
   const _ec = bestResult?.events?.length;
   const detail = _fc ? ` — ${_fc} findings` : _cc != null ? ` — ${_cc} failures` : _ec != null ? ` — ${_ec} events` : "";
+  setPersistentStatus("OK", action.toUpperCase(), `${_fc || _cc || _ec || 0} issues`);
   toast(`${modeLabel(action)} done${detail}`);
   return true;
 }
@@ -2814,6 +3027,7 @@ async function startSession() {
   sessionState.lastMarkStep = null;
   await persistActiveSessionBestEffort(sessionState.current);
   updateSessionButtons();
+  setPersistentStatus("OK", "SESSION_STARTED", "Session active");
   toast("Session started");
   return true;
 }
@@ -2823,6 +3037,7 @@ async function endSession() {
     toast("No active session");
     return false;
   }
+  const exportableEndedSession = compactSessionForExport(normalizeLoadedSession(sessionState.current));
   const previousEndedAt = sessionState.current.endedAt || null;
   sessionState.current.endedAt = nowIso();
   const archived = await archiveSessionBestEffort(compactSessionForExport(sessionState.current));
@@ -2833,9 +3048,11 @@ async function endSession() {
     toast("Archive failed — session kept active");
     return false;
   }
+  sessionState.lastEndedSession = exportableEndedSession;
   sessionState.current = null;
   sessionState.lastMarkStep = null;
   updateSessionButtons();
+  setPersistentStatus("OK", "SESSION_ENDED", "Session archived");
   toast("Session ended");
   return true;
 }
@@ -2843,6 +3060,10 @@ async function endSession() {
 async function captureStepOptionC(label = null) {
   if (!sessionState.current) {
     toast("Start a session first");
+    return false;
+  }
+  if (state.running) {
+    toast("Wait for current run to finish");
     return false;
   }
   if ((sessionState.current.steps?.length || 0) >= MAX_STEPS) {
@@ -2862,7 +3083,7 @@ async function captureStepOptionC(label = null) {
     renderSessionHud();
   }, CAPTURE_SLOW_MS);
   updateSessionButtons();
-  els.usedFrames.textContent = "Capturing step…";
+  setRunTelemetry({ usedFrames: "Capturing step…" });
   const t0 = performance.now();
   try {
     const activeMode = getActiveModeForSessionCapture();
@@ -2916,6 +3137,8 @@ async function captureStepOptionC(label = null) {
       usedFrameIds: Array.isArray(r?.run?.usedFrameIds) ? [...r.run.usedFrameIds] : [],
       frameKeyVersion: asNumber(r?.run?.frameKeyVersion, 1),
     });
+    state.lastSelectionReason = runSnapshot?.targeting?.selectionReason || state.lastSelectionReason;
+    updateTargetingSummary(state.lastSelectionReason);
     const activeSnapshot = activeMode !== "run" ? toModeSnapshot(r.active, activeMode, capturedAt, {
       ...baseTargeting,
       scope: r?.active?.scope || baseTargeting.scope,
@@ -2992,7 +3215,7 @@ async function captureStepOptionC(label = null) {
       estimatedBytes,
     });
 
-    els.diff.textContent = step.diffs?.consolidated?.text || "—";
+    setRunTelemetry({ diff: step.diffs?.consolidated?.text || "—" });
     const baselineFindings = asNumber(runSnapshot?.best?.normalized?.primaryCounts?.findings, 0);
     const activeFailed = activeMode !== "run" && (!r?.active?.ok || !activeSnapshot?.best);
     const activeReasonCode = activeMode === "run"
@@ -3033,12 +3256,13 @@ function downloadText(name, text, mime = "text/plain") {
 }
 
 async function exportSessionJson() {
-  if (!sessionState.current) {
+  const session = sessionState.current || sessionState.lastEndedSession;
+  if (!session) {
     toast("No active session");
     return false;
   }
   try {
-    const payload = compactSessionForExport(normalizeLoadedSession(sessionState.current));
+    const payload = compactSessionForExport(normalizeLoadedSession(session));
     if (!payload || typeof payload !== "object") {
       toast("Session JSON export failed");
       return false;
@@ -3055,12 +3279,13 @@ async function exportSessionJson() {
 }
 
 async function exportSessionMarkdown() {
-  if (!sessionState.current) {
+  const session = sessionState.current || sessionState.lastEndedSession;
+  if (!session) {
     toast("No active session");
     return false;
   }
   try {
-    const payload = compactSessionForExport(normalizeLoadedSession(sessionState.current));
+    const payload = compactSessionForExport(normalizeLoadedSession(session));
     if (!payload || typeof payload !== "object") {
       toast("Session Markdown export failed");
       return false;
@@ -3178,6 +3403,7 @@ async function loadUiPrefs() {
   const light = uiPrefs.theme === "light" || (uiPrefs.theme == null && window.matchMedia("(prefers-color-scheme: light)").matches);
   if (els.themeToggle) els.themeToggle.checked = light;
   applyTheme(light);
+  if (els.alsoConsole) els.alsoConsole.checked = !!uiPrefs.alsoConsole;
   if (els.wcagLevel && uiPrefs.wcagLevel) els.wcagLevel.value = uiPrefs.wcagLevel;
   await loadProfiles();
 }
@@ -3188,6 +3414,25 @@ document.querySelectorAll("button[data-action]").forEach(btn => {
   btn.addEventListener("click", () => {
     setPressed(btn.dataset.action);
     showMode(btn.dataset.action);
+  });
+  btn.addEventListener("keydown", (e) => {
+    const key = e.key;
+    if (!["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp", "Home", "End"].includes(key)) return;
+    const modeBtns = [...document.querySelectorAll("button[data-action][role='radio']")];
+    if (!modeBtns.length) return;
+    const currentIdx = modeBtns.findIndex(node => node === btn);
+    if (currentIdx < 0) return;
+    let nextIdx = currentIdx;
+    if (key === "Home") nextIdx = 0;
+    else if (key === "End") nextIdx = modeBtns.length - 1;
+    else if (key === "ArrowRight" || key === "ArrowDown") nextIdx = (currentIdx + 1) % modeBtns.length;
+    else if (key === "ArrowLeft" || key === "ArrowUp") nextIdx = (currentIdx - 1 + modeBtns.length) % modeBtns.length;
+    const nextBtn = modeBtns[nextIdx];
+    if (!nextBtn) return;
+    e.preventDefault();
+    setPressed(nextBtn.dataset.action);
+    showMode(nextBtn.dataset.action);
+    nextBtn.focus();
   });
 });
 
@@ -3241,6 +3486,51 @@ if (els.exportToggle && els.exportMenu) {
   });
 }
 
+if (els.quickStartToggle && els.quickStartMenu) {
+  els.quickStartToggle.addEventListener("click", () => {
+    setQuickStartMenuOpen(els.quickStartMenu.hidden);
+  });
+  els.quickStartToggle.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      setQuickStartMenuOpen(true);
+      const first = quickStartMenuItems().find(item => !item.disabled);
+      if (first) first.focus();
+      return;
+    }
+    if (e.key === "Escape" && !els.quickStartMenu.hidden) {
+      e.preventDefault();
+      setQuickStartMenuOpen(false, { restoreFocus: true });
+    }
+  });
+  els.quickStartMenu.addEventListener("keydown", (e) => {
+    const items = quickStartMenuItems().filter(item => !item.disabled);
+    if (!items.length) return;
+    const currentIdx = items.findIndex(item => item === document.activeElement);
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setQuickStartMenuOpen(false, { restoreFocus: true });
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      items[(currentIdx + 1 + items.length) % items.length].focus();
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      items[(currentIdx - 1 + items.length) % items.length].focus();
+      return;
+    }
+    if (e.key === "Tab") setQuickStartMenuOpen(false);
+  });
+  document.addEventListener("click", (e) => {
+    const target = e.target;
+    if (els.quickStartToggle.contains(target) || els.quickStartMenu.contains(target)) return;
+    setQuickStartMenuOpen(false);
+  });
+}
+
 if (els.settingsPanelToggle && els.settingsSection) {
   els.settingsPanelToggle.addEventListener("click", () => {
     setSettingsPanelOpen(els.settingsSection.hidden);
@@ -3264,8 +3554,15 @@ els.target.addEventListener("change", () => {
   updateScopeUi();
 });
 if (els.pinFrame) {
-  els.pinFrame.addEventListener("change", () => {
+  els.pinFrame.addEventListener("change", async () => {
     updateScopeUi();
+    await setPinnedFrameIfNeeded();
+  });
+}
+if (els.frameSelect) {
+  els.frameSelect.addEventListener("change", async () => {
+    if (!els.pinFrame?.checked) return;
+    await setPinnedFrameIfNeeded();
   });
 }
 
@@ -3318,10 +3615,25 @@ els.copyMd.addEventListener("click", async () => {
   await copyMarkdown();
   setExportMenuOpen(false);
 });
+if (els.exportSessionJsonMenu) {
+  els.exportSessionJsonMenu.addEventListener("click", async () => {
+    await exportSessionJson();
+    setExportMenuOpen(false);
+  });
+}
+if (els.exportSessionMdMenu) {
+  els.exportSessionMdMenu.addEventListener("click", async () => {
+    await exportSessionMarkdown();
+    setExportMenuOpen(false);
+  });
+}
 if (els.sessionStart) {
   els.sessionStart.addEventListener("click", () => {
-    if (sessionState.current) endSession();
-    else startSession();
+    if (sessionState.current) {
+      toast("Session already active");
+      return;
+    }
+    startSession();
   });
 }
 if (els.sessionMark) els.sessionMark.addEventListener("click", () => captureStepOptionC());
@@ -3395,6 +3707,7 @@ document.addEventListener("click", (e) => {
 
 // Keyboard navigation for table rows (Enter/Space to activate)
 document.addEventListener("keydown", (e) => {
+  if (e.target && e.target.closest("button, a, input, select, textarea")) return;
   if (e.key !== "Enter" && e.key !== " ") return;
   const tr = e.target.closest("tr.trow");
   if (!tr) return;
@@ -3403,29 +3716,6 @@ document.addEventListener("keydown", (e) => {
 });
 
 // --- DELEGATED_TABLE_CLICKS ---
-if (els.topTableBody && !els.topTableBody.__bound) {
-  els.topTableBody.__bound = true;
-  els.topTableBody.__selected = null;
-  els.topTableBody.addEventListener("click", async (e) => {
-    try {
-      const tr = e?.target?.closest ? e.target.closest("tr.trow") : null;
-      if (!tr) return;
-
-      if (els.topTableBody.__selected) els.topTableBody.__selected.classList.remove("isSelected");
-      tr.classList.add("isSelected");
-      els.topTableBody.__selected = tr;
-
-      const idx = Number(tr.getAttribute("data-idx"));
-      const finding = Number.isFinite(idx) ? state.top[idx] : null;
-      if (!finding) return;
-
-      await highlightFinding(finding);
-    } catch (err) {
-      console.warn("Top table click failed", err);
-      toast("Could not highlight element");
-    }
-  });
-}
 
 if (els.allTableBody && !els.allTableBody.__bound) {
   els.allTableBody.__bound = true;
@@ -3451,17 +3741,18 @@ if (els.allTableBody && !els.allTableBody.__bound) {
   });
 }
 
-if (els.presetQuick) els.presetQuick.addEventListener("click", () => { presetQuick(); });
-if (els.presetRelease) els.presetRelease.addEventListener("click", () => { presetRelease(); });
-if (els.presetFocus) els.presetFocus.addEventListener("click", () => { presetFocus(); });
+if (els.presetQuick) els.presetQuick.addEventListener("click", () => { setQuickStartMenuOpen(false); presetQuick(); });
+if (els.presetRelease) els.presetRelease.addEventListener("click", () => { setQuickStartMenuOpen(false); presetRelease(); });
+if (els.presetFocus) els.presetFocus.addEventListener("click", () => { setQuickStartMenuOpen(false); presetFocus(); });
 
 if (els.topFilterChips) {
   els.topFilterChips.addEventListener("click", (e) => {
-    const chip = e.target.closest(".fChip[data-sev]");
+    const chip = e.target.closest(".fChip[data-filter]");
     if (!chip) return;
-    const next = String(chip.dataset.sev || "");
-    state.topSeverityFilter = state.topSeverityFilter === next ? "" : next;
+    const next = String(chip.dataset.filter || "all");
+    state.prioritizedFilter = next === "prioritized";
     renderTopFindingsTable(state.currentFindings || []);
+    renderExplorer(state.currentFindings || []);
   });
 }
 
@@ -3503,6 +3794,14 @@ if (els.wcagLevel) {
   });
 }
 
+if (els.alsoConsole) {
+  els.alsoConsole.addEventListener("change", async () => {
+    const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
+    uiPrefs.alsoConsole = !!els.alsoConsole.checked;
+    await storageSet({ uiPrefs });
+  });
+}
+
 if (els.contrastShowAll) {
   els.contrastShowAll.addEventListener("change", updateContrastView);
 }
@@ -3535,7 +3834,6 @@ window.addEventListener("keydown", (e) => {
 
 // --- Column visibility ---
 const TABLE_COLS = {
-  topTable: ['sev', 'product', 'type', 'wcag', 'name', 'role', 'testId', 'note', 'fix'],
   allTable: ['sev', 'product', 'type', 'wcag', 'name', 'testId', 'path', 'note', 'fix'],
   contrastTable: ['ratio', 'req', 'large', 'text', 'tag', 'testId', 'path', 'note'],
   tabTable: ['i', 'type', 'tabIndex', 'name', 'path', 'note'],
@@ -3640,7 +3938,6 @@ function initColToggles() {
     applyColStyles();
 
     const placements = [
-      { tableId: 'topTable', selector: '#findingsSection .sectionToggle', sibling: true },
       { tableId: 'allTable', selector: '#explorerSection .sectionToggle', sibling: true },
       { tableId: 'contrastTable', selector: '#contrastSection .tableTitle' },
       { tableId: 'tabTable', selector: '#tabWalkSection .tableTitle' },
@@ -3660,11 +3957,6 @@ function initColToggles() {
 
 function initSortableHeaders() {
   const tables = [
-    {
-      id: 'top',
-      thead: document.querySelector('#topTable thead'),
-      render: () => renderTopFindingsTable(state.currentFindings),
-    },
     {
       id: 'explorer',
       thead: document.querySelector('#allTable thead'),
@@ -3716,7 +4008,7 @@ function initVirtualTables() {
       tbodyEl: els.allTableBody,
       colCount: 9,
       rowRenderer: (f, idx) => `
-        <tr class="trow" tabindex="0" data-i="${idx}">
+        <tr class="trow" data-i="${idx}">
           <td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span></td>
           <td>${escapeHtml(f.product ?? "")}</td>
           <td>${escapeHtml(f.type ?? "")}</td>
@@ -3725,7 +4017,7 @@ function initVirtualTables() {
           <td>${escapeHtml(f.testId ?? "")}</td>
           <td>${cellHtml(f.path, 60)}</td>
           <td>${cellHtml(f.note, 50)}</td>
-          <td class="fixCol">${cellHtml(f.fix, 50)}</td>
+          <td class="fixCol">${cellHtml(f.fix, 50)} <button class="rowAct" type="button" data-i="${idx}" aria-label="Highlight finding ${idx + 1}">Highlight</button></td>
         </tr>
       `,
       estimateRowHeight: 33,
@@ -3743,7 +4035,7 @@ function initVirtualTables() {
       rowRenderer: (f) => {
         const pass = f.ratio >= f.required;
         return `
-        <tr class="trow${pass ? ' contrastPass' : ''}" tabindex="0">
+        <tr class="trow${pass ? ' contrastPass' : ''}">
           <td>${escapeHtml(String(f.ratio ?? ""))}</td>
           <td>${escapeHtml(String(f.required ?? ""))}</td>
           <td>${f.largeText ? "yes" : "no"}</td>
@@ -3768,7 +4060,7 @@ function initVirtualTables() {
       tbodyEl: els.tabTbody,
       colCount: 6,
       rowRenderer: (e) => `
-        <tr class="trow" tabindex="0">
+        <tr class="trow">
           <td>${escapeHtml(String(e.i ?? ""))}</td>
           <td>${escapeHtml(String(e.type ?? ""))}</td>
           <td>${escapeHtml(String(e.tabIndex ?? ""))}</td>

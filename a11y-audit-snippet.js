@@ -182,10 +182,10 @@
     FOCUS_VISIBLE_SUPPRESSED: 'Add a visible :focus-visible style (e.g., outline: 2px solid #005fcc; outline-offset: 2px) or use box-shadow for the focus indicator.',
     NO_SKIP_NAV: 'Add a visually hidden skip link as the first focusable element: <a href="#main" class="skip-link">Skip to main content</a>.',
     MISSING_AUTOCOMPLETE: 'Add the appropriate autocomplete attribute (e.g., autocomplete="email") to help browsers autofill this field.',
-    CLICK_WITHOUT_KEYBOARD: (f) => `Add tabindex="0" and a keydown handler for Enter/Space to this ${f.tag?.toLowerCase() || 'element'}, or replace with a <button>.`,
+    CLICK_WITHOUT_KEYBOARD: (f) => `Ensure this ${f.tag?.toLowerCase() || 'element'} is keyboard reachable and activates on Enter/Space. If handling is delegated, verify behavior manually.`,
     ARIA_HIDDEN_FOCUSABLE: 'Add tabindex="-1" to focusable elements inside aria-hidden="true", or remove aria-hidden from the container.',
     ARIA_REQUIRED_ATTR_MISSING: (f) => `Add ${f.extra?.attr}="..." to this role="${f.extra?.role}" element as required by the ARIA spec.`,
-    TOUCH_TARGET_TOO_SMALL: 'Increase the clickable area to at least 24x24px (WCAG 2.2 AA 2.5.8) using padding, min-width/min-height, or a larger hit area.',
+    TOUCH_TARGET_TOO_SMALL: 'Verify effective hit-area is at least 24x24px (WCAG 2.2 AA 2.5.8). Increase padding/min-size, or confirm a larger wrapper hit target exists.',
     TABLE_NO_HEADERS: 'Add <th scope="col"> for column headers and <th scope="row"> for row headers.',
     LABEL_NOT_IN_NAME: 'Ensure the aria-label includes the visible text. E.g., if button says "Search", use aria-label="Search products" not "Find items".',
     MISSING_LANG: 'Add lang="en" (or the appropriate language code) to the <html> element.',
@@ -241,7 +241,7 @@
       wcag: "2.5.8",
       wcagVersion: "2.2",
       level: "AA",
-      confidence: "strict",
+      confidence: "heuristic",
       run: null,
     },
     CLICK_WITHOUT_KEYBOARD: {
@@ -263,6 +263,20 @@
       wcag: "3.2.6",
       level: "A",
       confidence: "advisory",
+      run: null,
+    },
+    ARIA_HIDDEN_FOCUSABLE: {
+      id: "ARIA_HIDDEN_FOCUSABLE",
+      wcag: "4.1.2",
+      level: "A",
+      confidence: "strict",
+      run: null,
+    },
+    IFRAME_MISSING_TITLE: {
+      id: "IFRAME_MISSING_TITLE",
+      wcag: "4.1.2",
+      level: "A",
+      confidence: "strict",
       run: null,
     },
   };
@@ -322,25 +336,116 @@
   };
 
   RULE_REGISTRY.FOCUS_VISIBLE_SUPPRESSED.run = ({ findings }) => {
-    doc.querySelectorAll("a[href],button,[role='button'],[role='link'],[tabindex='0']").forEach(el => {
-      if (isHidden(el)) return;
+    const focusHints = (() => {
+      const hints = [];
+      let scannedRules = 0;
+      let inaccessibleSheets = 0;
+
+      const hasVisibleIndicator = (styleDecl) => {
+        const outlineStyle = (styleDecl?.outlineStyle || "").toLowerCase();
+        const outlineWidth = parseFloat(styleDecl?.outlineWidth) || 0;
+        if (outlineStyle && outlineStyle !== "none" && outlineWidth > 0) return true;
+        if ((styleDecl?.boxShadow || "").toLowerCase() !== "none" && !!styleDecl?.boxShadow) return true;
+        const borderStyle = (styleDecl?.borderStyle || "").toLowerCase();
+        const borderWidth = parseFloat(styleDecl?.borderWidth) || 0;
+        if (borderStyle && borderStyle !== "none" && borderWidth > 0) return true;
+        return /(underline|overline|line-through)/.test((styleDecl?.textDecorationLine || "").toLowerCase());
+      };
+
+      const addSelectorHint = (selector, styleDecl) => {
+        if (!selector || /::/.test(selector)) return;
+        if (!/:(focus-visible|focus)(?![-\w])/i.test(selector)) return;
+        const baseSelector = selector
+          .replace(/:(focus-visible|focus)(?![-\w])/gi, "")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (!baseSelector) return;
+        hints.push({
+          baseSelector,
+          rawSelector: selector.trim().slice(0, 200),
+          hasIndicator: hasVisibleIndicator(styleDecl),
+        });
+      };
+
+      const walkRules = (rules) => {
+        if (!rules) return;
+        for (const rule of rules) {
+          scannedRules++;
+          if (scannedRules > 4000) break;
+          if (rule?.type === CSSRule.STYLE_RULE) {
+            const selectors = String(rule.selectorText || "").split(",").map(s => s.trim()).filter(Boolean);
+            selectors.forEach(sel => addSelectorHint(sel, rule.style));
+            continue;
+          }
+          if (rule?.cssRules && (rule.type === CSSRule.MEDIA_RULE || rule.type === CSSRule.SUPPORTS_RULE || rule.type === CSSRule.LAYER_BLOCK_RULE)) {
+            walkRules(rule.cssRules);
+          }
+        }
+      };
+
+      for (const sheet of [...doc.styleSheets]) {
+        try {
+          if (sheet?.cssRules) walkRules(sheet.cssRules);
+        } catch {
+          inaccessibleSheets++;
+        }
+      }
+
+      return { hints, scannedRules, inaccessibleSheets };
+    })();
+
+    const candidates = [...doc.querySelectorAll("a[href],button,[role='button'],[role='link'],[tabindex],input:not([type='hidden']),select,textarea")]
+      .filter(isEl)
+      .slice(0, 220);
+
+    candidates.forEach(el => {
+      if (isHidden(el) || hasInertAncestor(el)) return;
+      if (!isKeyboardReachable(el)) return;
       try {
         const cs = w.getComputedStyle(el);
         const outlineStyle = cs.outlineStyle;
         const outlineWidth = parseFloat(cs.outlineWidth) || 0;
-        const hasOutline = outlineStyle !== "none" && outlineWidth > 0;
-        if (!hasOutline) {
-          const boxShadow = cs.boxShadow;
-          const hasBoxShadowFocus = boxShadow && boxShadow !== "none";
-          if (!hasBoxShadowFocus) {
-            add(findings, {
-              type: "FOCUS_VISIBLE_SUPPRESSED",
-              el,
-              severity: "low",
-              note: "outline:none without visible box-shadow replacement. Verify :focus-visible styles exist."
-            });
+        const hasOutlineAtRest = outlineStyle !== "none" && outlineWidth > 0;
+        const boxShadow = cs.boxShadow;
+        const hasBoxShadowAtRest = boxShadow && boxShadow !== "none";
+        const hasIndicatorAtRest = hasOutlineAtRest || hasBoxShadowAtRest;
+        if (hasIndicatorAtRest) return;
+
+        let matchedFocusRules = 0;
+        let matchedIndicatorRules = 0;
+        let matcherErrors = 0;
+        for (const hint of focusHints.hints) {
+          try {
+            if (el.matches(hint.baseSelector)) {
+              matchedFocusRules++;
+              if (hint.hasIndicator) matchedIndicatorRules++;
+            }
+          } catch {
+            matcherErrors++;
           }
         }
+
+        if (matchedIndicatorRules > 0) return;
+
+        add(findings, {
+          type: "FOCUS_VISIBLE_SUPPRESSED",
+          el,
+          severity: "low",
+          confidence: "advisory",
+          note: "No visible focus indicator detected at rest and no matching :focus/:focus-visible indicator rule found. Verify manually.",
+          extra: {
+            outlineStyle: outlineStyle || null,
+            outlineWidth,
+            boxShadow: boxShadow === "none" ? "none" : "set",
+            keyboardReachable: true,
+            matchedFocusRules,
+            matchedIndicatorRules,
+            scannedFocusRules: focusHints.scannedRules,
+            inaccessibleStylesheets: focusHints.inaccessibleSheets,
+            matcherErrors,
+          },
+          fix: "Verify a visible :focus-visible style exists for this control. If focus style is delegated or injected at runtime, this finding can be ignored."
+        });
       } catch {}
     });
   };
@@ -516,6 +621,110 @@
     if (ti === null) return 0;
     const v = parseInt(ti, 10);
     return Number.isFinite(v) ? v : 0;
+  };
+
+  const INTERACTIVE_ROLES = new Set([
+    "button", "link", "checkbox", "switch", "radio", "menuitem", "menuitemcheckbox",
+    "menuitemradio", "option", "tab", "textbox", "combobox", "slider", "spinbutton"
+  ]);
+
+  const isNativeInteractiveControl = (el) => {
+    if (!isEl(el)) return false;
+    const tag = el.tagName;
+    if (tag === "BUTTON") return true;
+    if (tag === "A" && el.hasAttribute("href")) return true;
+    if (tag === "SUMMARY") return true;
+    if (tag === "INPUT") return (el.getAttribute("type") || "").toLowerCase() !== "hidden";
+    return tag === "TEXTAREA" || tag === "SELECT";
+  };
+
+  const hasInertAncestor = (el) => {
+    let node = el;
+    while (isEl(node) && node !== doc.documentElement) {
+      if (node.inert || node.hasAttribute?.("inert")) return true;
+      node = node.parentElement;
+    }
+    return false;
+  };
+
+  const hasInlineKeyboardHandler = (el) =>
+    !!(el?.hasAttribute?.("onkeydown") || el?.hasAttribute?.("onkeyup") || el?.hasAttribute?.("onkeypress"));
+
+  const hasAncestorKeyboardHandler = (el, maxDepth = 3) => {
+    let node = el?.parentElement || null;
+    let depth = 0;
+    while (node && depth < maxDepth) {
+      if (hasInlineKeyboardHandler(node)) return true;
+      node = node.parentElement;
+      depth++;
+    }
+    return false;
+  };
+
+  const hasPointerCursor = (el) => {
+    try {
+      return w.getComputedStyle(el).cursor === "pointer";
+    } catch {
+      return false;
+    }
+  };
+
+  const hasInteractiveRole = (el) => INTERACTIVE_ROLES.has((el?.getAttribute?.("role") || "").toLowerCase());
+
+  const isKeyboardReachable = (el) => {
+    if (!isFocusable(el) || hasInertAncestor(el)) return false;
+    if (isNativeInteractiveControl(el)) return true;
+    const ti = el.getAttribute("tabindex");
+    if (ti !== null) {
+      const v = parseInt(ti, 10);
+      return Number.isFinite(v) ? v >= 0 : false;
+    }
+    return false;
+  };
+
+  const isLikelyActionable = (el) => {
+    if (!isEl(el)) return false;
+    if (isNativeInteractiveControl(el)) return true;
+    if (hasInteractiveRole(el)) return true;
+    if (el.hasAttribute("onclick")) return true;
+    return hasPointerCursor(el);
+  };
+
+  const isLikelyFocusSentinel = (el) => {
+    if (!isEl(el)) return false;
+    const attrSig = `${el.id || ""} ${(el.className || "").toString()} ${el.getAttribute("data-testid") || ""}`.toLowerCase();
+    if (el.hasAttribute("data-focus-guard")) return true;
+    if (/(focus-guard|focusguard|sentinel|focus-trap-guard|trap-focus)/.test(attrSig)) return true;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 2 && r.height <= 2 && !getAccName(el) && !hasInteractiveRole(el) && !el.hasAttribute("onclick")) return true;
+    return false;
+  };
+
+  const isInlineTextLinkException = (el) => {
+    if (!isEl(el) || el.tagName !== "A" || !el.hasAttribute("href")) return false;
+    const role = (el.getAttribute("role") || "").toLowerCase();
+    if (role && role !== "link") return false;
+    let cs;
+    try { cs = w.getComputedStyle(el); } catch { return false; }
+    if (!cs || cs.display !== "inline") return false;
+    const ownText = txt(el.textContent, 120);
+    if (ownText.length < 2) return false;
+    const p = el.parentElement;
+    if (!p) return false;
+    const parentText = txt(p.textContent, 240);
+    if (!parentText) return false;
+    return ownText.length < parentText.length;
+  };
+
+  const hasLargerInteractiveAncestor = (el) => {
+    const parentInteractive = el.parentElement?.closest?.("button,a[href],[role='button'],[role='link'],label");
+    if (!parentInteractive || parentInteractive === el || !isEl(parentInteractive)) return false;
+    try {
+      const r = parentInteractive.getBoundingClientRect();
+      return r.width >= 24 && r.height >= 24;
+    } catch {
+      return false;
+    }
   };
 
   const computeTabOrder = () => {
@@ -968,25 +1177,91 @@
       }
     });
 
-    // 2.1.1 Keyboard: clickable non-interactive elements without keyboard access
-    doc.querySelectorAll("[onclick],div[role='button'],span[role='button'],div[role='link'],span[role='link']").forEach(el => {
-      if (isHidden(el)) return;
-      const tag = el.tagName;
-      if (["BUTTON","A","INPUT","TEXTAREA","SELECT"].includes(tag)) return;
-      const ti = el.getAttribute("tabindex");
-      if (ti === null || parseInt(ti, 10) < 0) {
-        add(findings, { type: "CLICK_WITHOUT_KEYBOARD", el, severity: "high", wcag: "2.1.1", note: `${tag.toLowerCase()} with click/role but no tabindex — not keyboard accessible.` });
+    // 2.1.1 Keyboard: clickable custom controls missing reliable keyboard support
+    doc.querySelectorAll("[onclick],[role='button'],[role='link']").forEach(el => {
+      if (isHidden(el) || hasInertAncestor(el)) return;
+      if ((el.getAttribute("aria-hidden") || "").toLowerCase() === "true") return;
+      if ((el.getAttribute("aria-disabled") || "").toLowerCase() === "true") return;
+      if (el.hasAttribute("disabled")) return;
+      if (isNativeInteractiveControl(el)) return;
+
+      const role = (el.getAttribute("role") || "").toLowerCase();
+      const hasClickHint = el.hasAttribute("onclick") || hasPointerCursor(el) || role === "button" || role === "link";
+      if (!hasClickHint) return;
+
+      const tabIndex = el.getAttribute("tabindex");
+      const keyboardReachable = isKeyboardReachable(el);
+      const hasInlineKey = hasInlineKeyboardHandler(el);
+      const hasAncestorKey = hasAncestorKeyboardHandler(el, 3);
+      const hasKeyboardHint = hasInlineKey || hasAncestorKey;
+
+      if (!keyboardReachable) {
+        add(findings, {
+          type: "CLICK_WITHOUT_KEYBOARD",
+          el,
+          severity: role === "button" || role === "link" ? "high" : "medium",
+          wcag: "2.1.1",
+          confidence: (role === "button" || role === "link") ? "strict" : "heuristic",
+          note: `${el.tagName.toLowerCase()} is clickable but not keyboard reachable (missing valid tabindex/native focus behavior).`,
+          extra: {
+            role: role || null,
+            tabIndex,
+            keyboardReachable,
+            hasInlineKey,
+            hasAncestorKey,
+            hasClickHint,
+          },
+        });
+        return;
+      }
+
+      if ((role === "button" || role === "link") && !hasKeyboardHint) {
+        add(findings, {
+          type: "CLICK_WITHOUT_KEYBOARD",
+          el,
+          severity: "low",
+          wcag: "2.1.1",
+          confidence: "advisory",
+          note: "Custom role control is focusable, but keyboard activation handler was not detected on element/near ancestor. Verify delegated key handling.",
+          extra: {
+            role,
+            tabIndex,
+            keyboardReachable,
+            hasInlineKey,
+            hasAncestorKey,
+            hasClickHint,
+          },
+          fix: "Verify Enter/Space activates this control. If keyboard handling is delegated, this advisory can be ignored."
+        });
       }
     });
 
     // 4.1.2: aria-hidden="true" containing focusable elements
     doc.querySelectorAll("[aria-hidden='true']").forEach(container => {
+      if (container.parentElement?.closest?.("[aria-hidden='true']")) return;
       if (isHidden(container)) return;
+      if (hasInertAncestor(container)) return;
       container.querySelectorAll(focusableSelector).forEach(el => {
-        if (isHidden(el)) return;
+        if (isHidden(el) || hasInertAncestor(el)) return;
+        if (isLikelyFocusSentinel(el)) return;
+        if (!isKeyboardReachable(el)) return;
+        if (!isLikelyActionable(el)) return;
         const ti = el.getAttribute("tabindex");
         if (ti !== null && parseInt(ti, 10) < 0) return;
-        add(findings, { type: "ARIA_HIDDEN_FOCUSABLE", el, severity: "high", wcag: "4.1.2", note: "Focusable inside aria-hidden=true — keyboard reachable but invisible to screen readers." });
+        add(findings, {
+          type: "ARIA_HIDDEN_FOCUSABLE",
+          el,
+          severity: "high",
+          wcag: "4.1.2",
+          confidence: "strict",
+          note: "Keyboard-reachable actionable element exists inside aria-hidden=true content.",
+          extra: {
+            tabIndex: ti,
+            keyboardReachable: true,
+            actionable: true,
+            containerPath: cssPath(container),
+          }
+        });
       });
     });
 
@@ -1010,10 +1285,34 @@
 
     // 2.5.8 Target Size (Minimum): interactive elements smaller than 24x24px
     doc.querySelectorAll("button,a[href],[role='button'],[role='link'],input:not([type='hidden']),select,textarea").forEach(el => {
-      if (isHidden(el)) return;
+      if (isHidden(el) || hasInertAncestor(el)) return;
+      if ((el.getAttribute("aria-disabled") || "").toLowerCase() === "true") return;
+      if (el.hasAttribute("disabled")) return;
+      const hasProxyTarget = hasLargerInteractiveAncestor(el);
+      if (hasProxyTarget) return;
+      if (!isLikelyActionable(el) && !isNativeInteractiveControl(el)) return;
       const r = el.getBoundingClientRect();
-      if (r.width > 0 && r.height > 0 && (r.width < 24 || r.height < 24)) {
-        add(findings, { type: "TOUCH_TARGET_TOO_SMALL", el, severity: "low", note: `Size ${Math.round(r.width)}x${Math.round(r.height)}px — min 24x24px (WCAG 2.2 AA).`, extra: { width: Math.round(r.width), height: Math.round(r.height) } });
+      const width = Math.round(r.width);
+      const height = Math.round(r.height);
+      if (width > 0 && height > 0 && (width < 24 || height < 24)) {
+        const inlineTextLink = isInlineTextLinkException(el);
+        if (inlineTextLink) return;
+        let display = null;
+        try { display = w.getComputedStyle(el).display; } catch {}
+        add(findings, {
+          type: "TOUCH_TARGET_TOO_SMALL",
+          el,
+          severity: "low",
+          note: `Size ${width}x${height}px is below 24x24px. Verify target size/hit area meets WCAG 2.2.`,
+          extra: {
+            width,
+            height,
+            display,
+            inlineTextLinkException: inlineTextLink,
+            proxyTargetAncestor: hasProxyTarget,
+          },
+          fix: "Verify clickable hit-area is at least 24x24px. If hit-area is expanded by wrapper/pseudo-element, this finding may be ignored."
+        });
       }
     });
 
@@ -1139,9 +1438,25 @@
     // 4.1.2: Iframes missing title
     doc.querySelectorAll("iframe").forEach(iframe => {
       if (isHidden(iframe)) return;
-      if (!iframe.getAttribute("title")) {
-        add(findings, { type: "IFRAME_MISSING_TITLE", severity: "medium", wcag: "4.1.2", el: iframe,
-          note: "Iframe has no title attribute. Screen readers need iframe titles." });
+      if ((iframe.getAttribute("aria-hidden") || "").toLowerCase() === "true") return;
+      const role = (iframe.getAttribute("role") || "").toLowerCase();
+      if (role === "presentation" || role === "none") return;
+      const title = (iframe.getAttribute("title") || "").trim();
+      if (!title) {
+        add(findings, {
+          type: "IFRAME_MISSING_TITLE",
+          severity: "medium",
+          wcag: "4.1.2",
+          el: iframe,
+          confidence: "strict",
+          note: "Iframe is exposed to assistive tech but has no title attribute.",
+          extra: {
+            src: txt(iframe.getAttribute("src"), 140) || null,
+            role: role || null,
+            ariaHidden: false,
+            titlePresent: false,
+          }
+        });
       }
     });
 

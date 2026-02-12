@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A11Y FlowLens FP Fixtures</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; line-height: 1.45; }
+    header, section { margin-bottom: 24px; }
+    .skip-link { position: absolute; left: -9999px; top: auto; }
+    .skip-link:focus-visible { left: 12px; top: 12px; padding: 8px 10px; background: #0a3d91; color: #fff; border-radius: 6px; }
+    .good-focus:focus-visible { outline: 3px solid #005fcc; outline-offset: 2px; }
+    .bad-focus { outline: none; }
+    .small-icon-btn { width: 16px; height: 16px; padding: 0; }
+    .focus-sentinel { width: 1px; height: 1px; overflow: hidden; }
+    .mfe-shell { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    iframe { width: 260px; height: 70px; border: 1px solid #9aa4b2; margin-right: 8px; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+  <header>
+    <nav aria-label="Primary navigation">
+      <a href="#main">Jump to fixtures</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <h1>FlowLens A11Y FP Fixture Page</h1>
+    <p>Use this page to validate false-positive reductions in <code>a11y-audit-snippet.js</code>.</p>
+
+    <section id="focus-visible-fixture">
+      <h2>Focus Visible Fixture</h2>
+      <button class="good-focus">Good focus-visible rule (should pass)</button>
+      <button id="badFocusButton" class="bad-focus" style="outline:none">No focus indicator (should flag advisory)</button>
+    </section>
+
+    <section id="keyboard-fixture">
+      <h2>Keyboard Interaction Fixture</h2>
+      <div
+        id="delegationHost"
+        onclick="if(event.target?.dataset?.action==='fire'){window.__delegatedClicks=(window.__delegatedClicks||0)+1;}"
+        onkeydown="if((event.key==='Enter'||event.key===' ')&&event.target?.dataset?.action==='fire'){event.preventDefault();window.__delegatedKeys=(window.__delegatedKeys||0)+1;}"
+      >
+        <div id="delegatedButton" role="button" tabindex="0" data-action="fire">
+          Delegated custom button (should not flag)
+        </div>
+      </div>
+      <div id="badKeyboardButton" role="button" onclick="void 0">
+        Clickable role button without keyboard reachability (should flag strict)
+      </div>
+    </section>
+
+    <section id="aria-hidden-fixture">
+      <h2>aria-hidden / Modal Fixture</h2>
+      <div aria-hidden="true">
+        <div class="focus-sentinel" tabindex="0" data-focus-guard="true"></div>
+      </div>
+      <div aria-hidden="true">
+        <button id="badAriaHiddenButton">Actionable control in aria-hidden container (should flag strict)</button>
+      </div>
+    </section>
+
+    <section id="touch-target-fixture">
+      <h2>Touch Target Fixture</h2>
+      <p>
+        Inline text link exception:
+        <a id="inlineTextLink" href="#inline-destination">documentation link</a>
+        should not be flagged for target size in this fixture.
+      </p>
+      <button id="tinyIconButton" class="small-icon-btn" aria-label="Close">×</button>
+    </section>
+
+    <section id="mfe-landmark-fixture">
+      <h2>Microfrontend Duplicate Landmark Fixture</h2>
+      <div class="mfe-shell">
+        <main aria-label="MFE One"><h3>MFE One</h3></main>
+        <main aria-label="MFE Two"><h3>MFE Two</h3></main>
+      </div>
+    </section>
+
+    <section id="iframe-fixture">
+      <h2>Iframe Title Fixture</h2>
+      <iframe title="Accessible embedded content" srcdoc="<p>titled iframe</p>"></iframe>
+      <iframe id="iframeMissingTitle" srcdoc="<p>missing title</p>"></iframe>
+      <iframe role="presentation" srcdoc="<p>presentation iframe</p>"></iframe>
+      <iframe aria-hidden="true" srcdoc="<p>aria hidden iframe</p>"></iframe>
+    </section>
+  </main>
+</body>
+</html>
