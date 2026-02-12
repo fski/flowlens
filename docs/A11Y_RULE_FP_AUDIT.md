@@ -51,10 +51,13 @@
   - Flags only keyboard-reachable actionable elements.
   - Exempts likely focus sentinels (`data-focus-guard`, sentinel signatures, 1x1 guards).
   - Avoids duplicates from nested `aria-hidden` containers.
-  - Adds evidence: `containerPath`, `tabIndex`, `keyboardReachable`, `actionable`.
+  - During `observe()` transition ticks, downgrades otherwise-ambiguous hits to advisory (`duringTransition=true`) to avoid transition-window strict noise.
+  - Adds evidence: `containerPath`, `focusableChildPath`, `containerRole`, `ariaHiddenValue`, `inertPresent`, `focusableType`, `reachabilityReason`, `duringTransition`, `tabIndex`, `keyboardReachable`, `actionable`.
 - Fixture test:
   - `#badAriaHiddenButton` should flag strict/high.
+  - `#inertAriaHiddenButton` should not flag strict (inert removes keyboard reachability).
   - `.focus-sentinel[data-focus-guard]` should not flag.
+  - `#overlay-transition-fixture` driven via `observe()` should not produce strict transition-only noise.
 
 ### Fix D: Touch target severity/precision guardrails
 - Rule: `TOUCH_TARGET_TOO_SMALL`
@@ -107,7 +110,10 @@
      - `TOUCH_TARGET_TOO_SMALL`: 1
      - `DUPLICATE_MAIN_LANDMARK`: 1
      - `IFRAME_MISSING_TITLE`: 1
-  6. Cross-origin edge manual check:
+  6. Slice A transition fixture expectation:
+     - Trigger overlay fixture and run `A11YFlowAudit.observe({ seconds: 2, intervalMs: 300 })`.
+     - If `ARIA_HIDDEN_FOCUSABLE` appears during the transition window, it must be `confidence=advisory` with `extra.duringTransition=true`.
+  7. Cross-origin edge manual check:
      - Run inside cross-origin iframe context and confirm `IFRAME_CROSS_ORIGIN` appears as `info`.
 
 ## 5) Verification Checklist

@@ -727,6 +727,59 @@
     }
   };
 
+  const parseCssTimeMaxSeconds = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return 0;
+    const parts = raw.split(",").map(s => s.trim()).filter(Boolean);
+    let max = 0;
+    for (const part of parts) {
+      const lower = part.toLowerCase();
+      if (lower.endsWith("ms")) {
+        const n = parseFloat(lower);
+        if (Number.isFinite(n)) max = Math.max(max, n / 1000);
+        continue;
+      }
+      if (lower.endsWith("s")) {
+        const n = parseFloat(lower);
+        if (Number.isFinite(n)) max = Math.max(max, n);
+      }
+    }
+    return max;
+  };
+
+  const isLikelyTransitioning = (el) => {
+    if (!isEl(el)) return false;
+    try {
+      const cs = w.getComputedStyle(el);
+      const transitionSec = parseCssTimeMaxSeconds(cs.transitionDuration);
+      const animationSec = parseCssTimeMaxSeconds(cs.animationDuration);
+      if (transitionSec > 0) return true;
+      if (animationSec > 0 && (cs.animationName || "").toLowerCase() !== "none") return true;
+    } catch {}
+    return false;
+  };
+
+  const keyboardReachabilityReason = (el) => {
+    if (!isEl(el)) return "not_reachable";
+    if (isNativeInteractiveControl(el)) return "native";
+    const ti = el.getAttribute("tabindex");
+    if (ti !== null) {
+      const v = parseInt(ti, 10);
+      if (Number.isFinite(v) && v >= 0) return "tabindex";
+    }
+    return "implicit_or_unknown";
+  };
+
+  const focusableTypeForEvidence = (el) => {
+    if (!isEl(el)) return "unknown";
+    if (isNativeInteractiveControl(el)) return `native:${el.tagName.toLowerCase()}`;
+    const role = (el.getAttribute("role") || "").toLowerCase();
+    if (role) return `role:${role}`;
+    const ti = el.getAttribute("tabindex");
+    if (ti !== null) return `tabindex:${ti}`;
+    return el.tagName.toLowerCase();
+  };
+
   const computeTabOrder = () => {
     const all = [...doc.querySelectorAll(focusableSelector)].filter(isFocusable);
     const pos = all.filter(el => getTabIndex(el) > 0).sort((a,b) => getTabIndex(a) - getTabIndex(b));
@@ -818,6 +871,10 @@
       mode: cfg.mode ?? detectMode(),
       maxRows: cfg.maxRows ?? 140,
       wcagLevel: cfg.wcagLevel ?? "2.1-AA"
+    };
+    const transitionCtx = {
+      duringTransition: !!cfg.duringTransition,
+      source: cfg.transitionSource || "none",
     };
 
     const [wcagVersionStr, wcagConformance] = config.wcagLevel.split("-");
@@ -1237,29 +1294,50 @@
     });
 
     // 4.1.2: aria-hidden="true" containing focusable elements
+    const seenAriaHiddenFocusable = new Set();
     doc.querySelectorAll("[aria-hidden='true']").forEach(container => {
       if (container.parentElement?.closest?.("[aria-hidden='true']")) return;
       if (isHidden(container)) return;
       if (hasInertAncestor(container)) return;
+      const containerPath = cssPath(container);
+      const containerRole = container.getAttribute("role") || null;
+      const ariaHiddenValue = container.getAttribute("aria-hidden");
+      const inertPresent = !!(container.inert || container.hasAttribute("inert"));
+      const containerTransitioning = transitionCtx.duringTransition || isLikelyTransitioning(container);
       container.querySelectorAll(focusableSelector).forEach(el => {
         if (isHidden(el) || hasInertAncestor(el)) return;
         if (isLikelyFocusSentinel(el)) return;
+        const childPath = cssPath(el);
+        const dedupeKey = `${containerPath}=>${childPath}`;
+        if (seenAriaHiddenFocusable.has(dedupeKey)) return;
+        seenAriaHiddenFocusable.add(dedupeKey);
         if (!isKeyboardReachable(el)) return;
         if (!isLikelyActionable(el)) return;
         const ti = el.getAttribute("tabindex");
         if (ti !== null && parseInt(ti, 10) < 0) return;
+        const strictViolation = !containerTransitioning && !inertPresent;
         add(findings, {
           type: "ARIA_HIDDEN_FOCUSABLE",
           el,
-          severity: "high",
+          severity: strictViolation ? "high" : "low",
           wcag: "4.1.2",
-          confidence: "strict",
-          note: "Keyboard-reachable actionable element exists inside aria-hidden=true content.",
+          confidence: strictViolation ? "strict" : "advisory",
+          note: strictViolation
+            ? "Keyboard-reachable actionable element exists inside aria-hidden=true content."
+            : "Focusable element found in aria-hidden container during transition-like state; verify final focus state.",
           extra: {
+            containerPath,
+            focusableChildPath: childPath,
+            containerRole,
+            ariaHiddenValue,
+            inertPresent,
+            focusableType: focusableTypeForEvidence(el),
+            reachabilityReason: keyboardReachabilityReason(el),
             tabIndex: ti,
             keyboardReachable: true,
             actionable: true,
-            containerPath: cssPath(container),
+            duringTransition: containerTransitioning,
+            transitionSource: transitionCtx.source,
           }
         });
       });
@@ -1614,9 +1692,26 @@
         resolve(result);
       };
 
+      const totalTicks = Math.max(1, Math.ceil((seconds * 1000) / intervalMs));
       const tick = () => {
-        const r = run(runConfig);
-        snapshots.push({ t: +(performance.now() - startedAt).toFixed(0), count: r.findings.length, mode: r.mode });
+        const tickIndex = snapshots.length;
+        const inTransitionWindow = tickIndex <= 1;
+        const tickConfig = {
+          ...(runConfig || {}),
+          transitionSource: "observe",
+          transitionTickIndex: tickIndex,
+          transitionTickCount: totalTicks,
+          duringTransition: (runConfig && Object.prototype.hasOwnProperty.call(runConfig, "duringTransition"))
+            ? !!runConfig.duringTransition
+            : inTransitionWindow,
+        };
+        const r = run(tickConfig);
+        snapshots.push({
+          t: +(performance.now() - startedAt).toFixed(0),
+          count: r.findings.length,
+          mode: r.mode,
+          duringTransition: !!tickConfig.duringTransition,
+        });
         merged.push(...r.findings);
       };
 
