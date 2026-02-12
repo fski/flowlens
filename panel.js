@@ -1233,11 +1233,39 @@ function normalizeWs(s, max = 120) {
   return String(s || "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, max);
 }
 
+function normalizeIdentityText(s, max = 120) {
+  return normalizeWs(s, max * 2)
+    .replace(/\b[0-9a-f]{8}-[0-9a-f-]{13,}\b/gi, "#")
+    .replace(/\b[0-9a-f]{12,}\b/gi, "#")
+    .replace(/\b\d{2,}\b/g, "#")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
+}
+
 function normalizePathForSig(path, max = 140) {
   return normalizeWs(path, max)
     .replace(/nth-child\(\d+\)/g, "nth-child(*)")
     .replace(/\b[0-9a-f]{8,}\b/gi, "#")
     .replace(/\b\d{2,}\b/g, "#");
+}
+
+function pathHashForSig(path) {
+  const normalized = normalizePathForSig(path, 220);
+  return fnv1aHash8(normalized || "path:none");
+}
+
+function pathLooksWeak(path) {
+  const normalized = normalizePathForSig(path, 220);
+  if (!normalized) return true;
+  const depth = normalized.split(">").length;
+  return depth < 2 || /nth-child\(\*\)/.test(normalized);
+}
+
+function qualityWeight(signatureQuality) {
+  if (signatureQuality === "high") return 2;
+  if (signatureQuality === "medium") return 1;
+  return 0;
 }
 
 function normalizeRouteSegment(seg) {
@@ -1868,25 +1896,52 @@ function runSignatureEntries(snapshot, rawAppendix = null) {
   const findings = resolveSnapshotRaw(snapshot, rawAppendix)?.findings;
   if (!Array.isArray(findings)) return out;
   for (const f of findings) {
+    const testIdNorm = normalizeIdentityText(f?.testId, 60);
+    const roleNorm = normalizeIdentityText(f?.role, 20);
+    const nameNorm = normalizeIdentityText(f?.name, 80);
+    const noteNorm = normalizeIdentityText(f?.note, 80);
+    const typeNorm = normalizeIdentityText(f?.type, 40);
+    const wcagNorm = normalizeIdentityText(f?.wcag, 24);
+    const levelNorm = normalizeIdentityText(f?.level, 12);
+    const confidenceNorm = normalizeIdentityText(f?.confidence, 16);
+    const severityNorm = normalizeIdentityText(f?.severity, 10);
+    const productNorm = normalizeIdentityText(f?.product, 30);
+    const pathHash = pathHashForSig(f?.path);
+    const weakPath = pathLooksWeak(f?.path);
+    const signatureQuality = testIdNorm ? "high" : (weakPath ? "low" : "medium");
+    const weakSig = signatureQuality === "low"
+      ? [
+        "run:weak",
+        frameKey,
+        typeNorm || "type:none",
+        wcagNorm || "wcag:none",
+        severityNorm || "sev:none",
+        roleNorm || "role:none",
+        nameNorm || "name:none",
+        noteNorm || "note:none",
+      ].join("|")
+      : null;
     const sig = [
       "run",
       frameKey,
-      normalizeWs(f?.type, 40),
-      normalizeWs(f?.wcag, 24),
-      normalizeWs(f?.level, 12),
-      normalizeWs(f?.confidence, 16),
-      normalizeWs(f?.severity, 10),
-      normalizeWs(f?.product, 30),
-      normalizeWs(f?.testId, 60),
-      normalizeWs(f?.role, 20),
-      normalizePathForSig(f?.path, 120),
-      normalizeWs(f?.name, 80),
-      normalizeWs(f?.note, 80),
+      typeNorm,
+      wcagNorm,
+      levelNorm,
+      confidenceNorm,
+      severityNorm,
+      productNorm,
+      `testid:${testIdNorm || "none"}`,
+      `role:${roleNorm || "none"}`,
+      `pathh:${pathHash}`,
+      nameNorm,
+      noteNorm,
     ].join("|");
     const severity = normalizeWs(f?.severity, 12);
     const confidence = normalizeFindingConfidence(f?.confidence);
     out.push({
       sig,
+      weakSig,
+      signatureQuality,
       blocking: isRunFindingBlocking(f),
       wcag: f?.wcag || null,
       confidence,
@@ -1907,16 +1962,18 @@ function contrastSignatureEntries(snapshot, rawAppendix = null) {
     const sig = [
       "contrast",
       frameKey,
-      normalizeWs(f?.wcag || "1.4.3", 24),
+      normalizeIdentityText(f?.wcag || "1.4.3", 24),
       `ratio:${bucketNumber(asNumber(f?.ratio, 0) * 10, 2)}`,
       `required:${bucketNumber(asNumber(f?.required, 0) * 10, 2)}`,
-      normalizeWs(f?.tag, 16),
-      normalizeWs(f?.testId, 60),
-      normalizePathForSig(f?.path, 120),
-      normalizeWs(f?.text, 60),
+      normalizeIdentityText(f?.tag, 16),
+      `testid:${normalizeIdentityText(f?.testId, 60) || "none"}`,
+      `pathh:${pathHashForSig(f?.path)}`,
+      normalizeIdentityText(f?.text, 60),
     ].join("|");
     out.push({
       sig,
+      weakSig: null,
+      signatureQuality: normalizeIdentityText(f?.testId, 60) ? "high" : "medium",
       blocking: true,
       wcag: f?.wcag || "1.4.3",
       confidence: f?.confidence || "heuristic",
@@ -1937,15 +1994,17 @@ function tabWalkSignatureEntries(snapshot, rawAppendix = null) {
     const sig = [
       "tabwalk",
       frameKey,
-      normalizeWs(e?.type, 40),
-      normalizePathForSig(e?.path, 120),
-      normalizeWs(e?.name, 80),
-      normalizeWs(e?.note, 80),
+      normalizeIdentityText(e?.type, 40),
+      `pathh:${pathHashForSig(e?.path)}`,
+      normalizeIdentityText(e?.name, 80),
+      normalizeIdentityText(e?.note, 80),
       `tabi:${bucketNumber(asNumber(e?.tabIndex, 0), 1)}`,
     ].join("|");
     const type = normalizeWs(e?.type, 40);
     out.push({
       sig,
+      weakSig: null,
+      signatureQuality: pathLooksWeak(e?.path) ? "low" : "medium",
       blocking: TAB_BLOCKING_TYPES.has(type),
       wcag: null,
       confidence: "heuristic",
@@ -1972,6 +2031,8 @@ function watchSignatureEntries(snapshot, rawAppendix = null) {
     ].join("|");
     out.push({
       sig,
+      weakSig: null,
+      signatureQuality: "high",
       blocking: true,
       wcag: null,
       confidence: "heuristic",
@@ -1984,6 +2045,8 @@ function watchSignatureEntries(snapshot, rawAppendix = null) {
   if (focusLossCount > 0) {
     out.push({
       sig: ["watch", frameKey, "focus_loss", `v:${bucketNumber(focusLossCount, 1)}`].join("|"),
+      weakSig: null,
+      signatureQuality: "high",
       blocking: true,
       wcag: null,
       confidence: "heuristic",
@@ -2001,19 +2064,40 @@ function observeSignatureEntries(snapshot, rawAppendix = null) {
   const raw = resolveSnapshotRaw(snapshot, rawAppendix) || {};
   const findings = Array.isArray(raw?.findings) ? raw.findings : [];
   for (const f of findings) {
+    const typeNorm = normalizeIdentityText(f?.type, 40);
+    const wcagNorm = normalizeIdentityText(f?.wcag, 24);
+    const severityNorm = normalizeIdentityText(f?.severity, 10);
+    const noteNorm = normalizeIdentityText(f?.note, 80);
+    const testIdNorm = normalizeIdentityText(f?.testId, 60);
+    const pathHash = pathHashForSig(f?.path);
+    const weakPath = pathLooksWeak(f?.path);
+    const signatureQuality = testIdNorm ? "high" : (weakPath ? "low" : "medium");
+    const weakSig = signatureQuality === "low"
+      ? [
+        "observe:weak",
+        frameKey,
+        typeNorm || "type:none",
+        wcagNorm || "wcag:none",
+        severityNorm || "sev:none",
+        noteNorm || "note:none",
+      ].join("|")
+      : null;
     const sig = [
       "observe",
       frameKey,
-      normalizeWs(f?.type, 40),
-      normalizeWs(f?.wcag, 24),
-      normalizeWs(f?.severity, 10),
-      normalizePathForSig(f?.path, 120),
-      normalizeWs(f?.note, 80),
+      typeNorm,
+      wcagNorm,
+      severityNorm,
+      `testid:${testIdNorm || "none"}`,
+      `pathh:${pathHash}`,
+      noteNorm,
     ].join("|");
     const severity = normalizeWs(f?.severity, 12);
     const confidence = normalizeFindingConfidence(f?.confidence);
     out.push({
       sig,
+      weakSig,
+      signatureQuality,
       blocking: isRunFindingBlocking(f),
       wcag: f?.wcag || null,
       confidence,
@@ -2031,6 +2115,8 @@ function observeSignatureEntries(snapshot, rawAppendix = null) {
   }
   out.push({
     sig: ["observe", frameKey, "trend", `peak:${bucketNumber(peak, 5)}`, `jumps:${bucketNumber(jumps, 1)}`].join("|"),
+    weakSig: null,
+    signatureQuality: "high",
     blocking: false,
     wcag: null,
     confidence: "advisory",
@@ -2064,6 +2150,8 @@ function buildModeSignatureBundle(snapshot, rawAppendix = null) {
       level: e.level || null,
       severity: e.severity || null,
       label: e.label || snapshot.mode,
+      weakSignature: e.weakSig || null,
+      signatureQuality: e.signatureQuality || "medium",
     });
   }
   return {
@@ -2102,25 +2190,56 @@ function summarizeDiff({ added, fixed, persisting, countsDelta, blockingAdded, b
 function diffModeBundles(prevBundle, nextBundle) {
   const prevSet = prevBundle?.set || new Set();
   const nextSet = nextBundle?.set || new Set();
-  let added = 0;
-  let fixed = 0;
+  const matchedPrev = new Set();
+  const matchedNext = new Set();
   let persisting = 0;
+
   for (const sig of nextSet) {
-    if (prevSet.has(sig)) persisting += 1;
-    else added += 1;
+    if (prevSet.has(sig)) {
+      matchedPrev.add(sig);
+      matchedNext.add(sig);
+      persisting += 1;
+    }
   }
+
+  const prevWeakBuckets = new Map();
   for (const sig of prevSet) {
-    if (!nextSet.has(sig)) fixed += 1;
+    if (matchedPrev.has(sig)) continue;
+    const weak = prevBundle?.metaBySig?.get(sig)?.weakSignature;
+    if (!weak) continue;
+    if (!prevWeakBuckets.has(weak)) prevWeakBuckets.set(weak, []);
+    prevWeakBuckets.get(weak).push(sig);
   }
+
+  let weakMatched = 0;
+  for (const sig of nextSet) {
+    if (matchedNext.has(sig)) continue;
+    const weak = nextBundle?.metaBySig?.get(sig)?.weakSignature;
+    if (!weak) continue;
+    const bucket = prevWeakBuckets.get(weak);
+    if (!bucket || !bucket.length) continue;
+    const prevSig = bucket.pop();
+    matchedPrev.add(prevSig);
+    matchedNext.add(sig);
+    persisting += 1;
+    weakMatched += 1;
+  }
+
+  let added = 0;
+  for (const sig of nextSet) if (!matchedNext.has(sig)) added += 1;
+  let fixed = 0;
+  for (const sig of prevSet) if (!matchedPrev.has(sig)) fixed += 1;
+
   let blockingAdded = 0;
   let blockingFixed = 0;
-  for (const sig of nextSet) if (!prevSet.has(sig) && nextBundle.blockingSet.has(sig)) blockingAdded += 1;
-  for (const sig of prevSet) if (!nextSet.has(sig) && prevBundle.blockingSet.has(sig)) blockingFixed += 1;
+  for (const sig of nextSet) if (!matchedNext.has(sig) && nextBundle.blockingSet.has(sig)) blockingAdded += 1;
+  for (const sig of prevSet) if (!matchedPrev.has(sig) && prevBundle.blockingSet.has(sig)) blockingFixed += 1;
   const countsDelta = computeCountsDelta(nextBundle.counts, prevBundle.counts);
   return {
     added,
     fixed,
     persisting,
+    weakMatched,
     blockingAdded,
     blockingFixed,
     countsDelta,
@@ -2291,12 +2410,16 @@ function buildSessionMarkdown(session) {
         wcag: meta.wcag || "",
         level: meta.level || "",
         confidence: meta.confidence || "",
+        signatureQuality: meta.signatureQuality || "medium",
         label: meta.label || "",
         blockingWeight: severityWeight(meta.severity),
       };
       existing.lastSeenStep = step.index;
       existing.occurrences += 1;
       existing.blockingWeight = Math.max(existing.blockingWeight, severityWeight(meta.severity));
+      if (qualityWeight(meta.signatureQuality) > qualityWeight(existing.signatureQuality)) {
+        existing.signatureQuality = meta.signatureQuality;
+      }
       flowMap.set(sig, existing);
     }
   }
@@ -2304,6 +2427,7 @@ function buildSessionMarkdown(session) {
   const topBlocking = [...flowMap.values()]
     .sort((a, b) =>
       (b.blockingWeight - a.blockingWeight)
+      || (qualityWeight(b.signatureQuality) - qualityWeight(a.signatureQuality))
       || (b.occurrences - a.occurrences)
       || (a.firstSeenStep - b.firstSeenStep)
       || a.sig.localeCompare(b.sig)
@@ -2313,10 +2437,12 @@ function buildSessionMarkdown(session) {
   if (!topBlocking.length) {
     lines.push("- none");
   } else {
-    lines.push("| Blocking | Occurrences | First | Last | Label | WCAG | Level | Confidence | Signature |");
-    lines.push("| --- | ---: | ---: | ---: | --- | --- | --- | --- | --- |");
+    lines.push("| Blocking | Occurrences | First | Last | Quality | Label | WCAG | Level | Confidence | Signature |");
+    lines.push("| --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |");
     for (const x of topBlocking) {
-      lines.push(`| ${x.blockingWeight} | ${x.occurrences} | ${x.firstSeenStep} | ${x.lastSeenStep} | ${txt(x.label || "issue", 26)} | ${x.wcag || "—"} | ${x.level || "—"} | ${x.confidence || "—"} | \`${txt(x.sig, 90)}\` |`);
+      const quality = x.signatureQuality || "medium";
+      const qualityLabel = quality === "low" ? "low (may be unstable)" : quality;
+      lines.push(`| ${x.blockingWeight} | ${x.occurrences} | ${x.firstSeenStep} | ${x.lastSeenStep} | ${qualityLabel} | ${txt(x.label || "issue", 26)} | ${x.wcag || "—"} | ${x.level || "—"} | ${x.confidence || "—"} | \`${txt(x.sig, 90)}\` |`);
     }
   }
   lines.push("");

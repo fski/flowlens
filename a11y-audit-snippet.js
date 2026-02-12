@@ -647,18 +647,71 @@
     return false;
   };
 
-  const hasInlineKeyboardHandler = (el) =>
-    !!(el?.hasAttribute?.("onkeydown") || el?.hasAttribute?.("onkeyup") || el?.hasAttribute?.("onkeypress"));
+  const inlineKeyboardAttributes = ["onkeydown", "onkeyup", "onkeypress"];
 
-  const hasAncestorKeyboardHandler = (el, maxDepth = 3) => {
+  const extractActivationKeys = (handlerCode) => {
+    const src = String(handlerCode || "").toLowerCase();
+    const keys = [];
+    if (!src) return keys;
+    if (/\benter\b|key\s*===\s*['"]enter['"]|keycode\s*===\s*13|which\s*===\s*13/.test(src)) keys.push("Enter");
+    if (/\bspace\b|key\s*===\s*['"] ['"]|keycode\s*===\s*32|which\s*===\s*32/.test(src)) keys.push("Space");
+    return [...new Set(keys)];
+  };
+
+  const getInlineKeyboardMeta = (el) => {
+    if (!isEl(el)) return { hasHandler: false, activationKeys: [] };
+    let hasHandler = false;
+    const activation = new Set();
+    for (const attr of inlineKeyboardAttributes) {
+      const code = el.getAttribute(attr);
+      if (!code) continue;
+      hasHandler = true;
+      extractActivationKeys(code).forEach(k => activation.add(k));
+    }
+    return { hasHandler, activationKeys: [...activation] };
+  };
+
+  const getAncestorKeyboardMeta = (el, maxDepth = 3) => {
     let node = el?.parentElement || null;
     let depth = 0;
     while (node && depth < maxDepth) {
-      if (hasInlineKeyboardHandler(node)) return true;
+      const meta = getInlineKeyboardMeta(node);
+      if (meta.hasHandler) return { hasHandler: true, distance: depth + 1, activationKeys: meta.activationKeys };
       node = node.parentElement;
       depth++;
     }
-    return false;
+    return { hasHandler: false, distance: null, activationKeys: [] };
+  };
+
+  const getGlobalKeyboardMeta = () => {
+    const activation = new Set();
+    let hasHandler = false;
+    [doc.body, doc.documentElement].forEach(node => {
+      if (!isEl(node)) return;
+      const meta = getInlineKeyboardMeta(node);
+      if (!meta.hasHandler) return;
+      hasHandler = true;
+      meta.activationKeys.forEach(k => activation.add(k));
+    });
+    if (typeof w.onkeydown === "function" || typeof w.onkeyup === "function" || typeof w.onkeypress === "function") {
+      hasHandler = true;
+    }
+    return { hasHandler, activationKeys: [...activation] };
+  };
+
+  const hasInlineKeyboardHandler = (el) => getInlineKeyboardMeta(el).hasHandler;
+
+  const hasAncestorKeyboardHandler = (el, maxDepth = 3) => getAncestorKeyboardMeta(el, maxDepth).hasHandler;
+
+  const getAncestorClickMeta = (el, maxDepth = 3) => {
+    let node = el?.parentElement || null;
+    let depth = 0;
+    while (node && depth < maxDepth) {
+      if (node.hasAttribute?.("onclick")) return { hasHandler: true, distance: depth + 1 };
+      node = node.parentElement;
+      depth++;
+    }
+    return { hasHandler: false, distance: null };
   };
 
   const hasPointerCursor = (el) => {
@@ -725,6 +778,59 @@
     } catch {
       return false;
     }
+  };
+
+  const parseCssTimeMaxSeconds = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return 0;
+    const parts = raw.split(",").map(s => s.trim()).filter(Boolean);
+    let max = 0;
+    for (const part of parts) {
+      const lower = part.toLowerCase();
+      if (lower.endsWith("ms")) {
+        const n = parseFloat(lower);
+        if (Number.isFinite(n)) max = Math.max(max, n / 1000);
+        continue;
+      }
+      if (lower.endsWith("s")) {
+        const n = parseFloat(lower);
+        if (Number.isFinite(n)) max = Math.max(max, n);
+      }
+    }
+    return max;
+  };
+
+  const isLikelyTransitioning = (el) => {
+    if (!isEl(el)) return false;
+    try {
+      const cs = w.getComputedStyle(el);
+      const transitionSec = parseCssTimeMaxSeconds(cs.transitionDuration);
+      const animationSec = parseCssTimeMaxSeconds(cs.animationDuration);
+      if (transitionSec > 0) return true;
+      if (animationSec > 0 && (cs.animationName || "").toLowerCase() !== "none") return true;
+    } catch {}
+    return false;
+  };
+
+  const keyboardReachabilityReason = (el) => {
+    if (!isEl(el)) return "not_reachable";
+    if (isNativeInteractiveControl(el)) return "native";
+    const ti = el.getAttribute("tabindex");
+    if (ti !== null) {
+      const v = parseInt(ti, 10);
+      if (Number.isFinite(v) && v >= 0) return "tabindex";
+    }
+    return "implicit_or_unknown";
+  };
+
+  const focusableTypeForEvidence = (el) => {
+    if (!isEl(el)) return "unknown";
+    if (isNativeInteractiveControl(el)) return `native:${el.tagName.toLowerCase()}`;
+    const role = (el.getAttribute("role") || "").toLowerCase();
+    if (role) return `role:${role}`;
+    const ti = el.getAttribute("tabindex");
+    if (ti !== null) return `tabindex:${ti}`;
+    return el.tagName.toLowerCase();
   };
 
   const computeTabOrder = () => {
@@ -818,6 +924,10 @@
       mode: cfg.mode ?? detectMode(),
       maxRows: cfg.maxRows ?? 140,
       wcagLevel: cfg.wcagLevel ?? "2.1-AA"
+    };
+    const transitionCtx = {
+      duringTransition: !!cfg.duringTransition,
+      source: cfg.transitionSource || "none",
     };
 
     const [wcagVersionStr, wcagConformance] = config.wcagLevel.split("-");
@@ -1186,80 +1296,158 @@
       if (isNativeInteractiveControl(el)) return;
 
       const role = (el.getAttribute("role") || "").toLowerCase();
-      const hasClickHint = el.hasAttribute("onclick") || hasPointerCursor(el) || role === "button" || role === "link";
+      const clickSelf = el.hasAttribute("onclick");
+      const clickAncestor = getAncestorClickMeta(el, 3);
+      const hasClickHint = clickSelf || clickAncestor.hasHandler || hasPointerCursor(el) || role === "button" || role === "link";
       if (!hasClickHint) return;
 
+      const clickHandlerScope = clickSelf ? "self" : (clickAncestor.hasHandler ? "ancestor" : "delegated");
       const tabIndex = el.getAttribute("tabindex");
       const keyboardReachable = isKeyboardReachable(el);
-      const hasInlineKey = hasInlineKeyboardHandler(el);
-      const hasAncestorKey = hasAncestorKeyboardHandler(el, 3);
-      const hasKeyboardHint = hasInlineKey || hasAncestorKey;
+      const selfKeyMeta = getInlineKeyboardMeta(el);
+      const ancestorKeyMeta = getAncestorKeyboardMeta(el, 3);
+      const globalKeyMeta = getGlobalKeyboardMeta();
+      const hasKeyHandlerSelf = selfKeyMeta.hasHandler;
+      const hasKeyHandlerAncestor = ancestorKeyMeta.hasHandler;
+      const hasKeyHandlerGlobal = globalKeyMeta.hasHandler;
+      const selfHasActivation = selfKeyMeta.activationKeys.includes("Enter") || selfKeyMeta.activationKeys.includes("Space");
+      const keydownScope = hasKeyHandlerSelf
+        ? "self"
+        : hasKeyHandlerAncestor
+          ? "ancestor"
+          : hasKeyHandlerGlobal
+            ? "global"
+            : "none";
+      const activationKeysObserved = keydownScope === "self"
+        ? selfKeyMeta.activationKeys
+        : keydownScope === "ancestor"
+          ? ancestorKeyMeta.activationKeys
+          : keydownScope === "global"
+            ? globalKeyMeta.activationKeys
+            : [];
 
       if (!keyboardReachable) {
-        add(findings, {
-          type: "CLICK_WITHOUT_KEYBOARD",
-          el,
-          severity: role === "button" || role === "link" ? "high" : "medium",
-          wcag: "2.1.1",
-          confidence: (role === "button" || role === "link") ? "strict" : "heuristic",
-          note: `${el.tagName.toLowerCase()} is clickable but not keyboard reachable (missing valid tabindex/native focus behavior).`,
-          extra: {
-            role: role || null,
-            tabIndex,
-            keyboardReachable,
-            hasInlineKey,
-            hasAncestorKey,
-            hasClickHint,
-          },
-        });
-        return;
-      }
-
-      if ((role === "button" || role === "link") && !hasKeyboardHint) {
         add(findings, {
           type: "CLICK_WITHOUT_KEYBOARD",
           el,
           severity: "low",
           wcag: "2.1.1",
           confidence: "advisory",
-          note: "Custom role control is focusable, but keyboard activation handler was not detected on element/near ancestor. Verify delegated key handling.",
+          note: "Clickable custom control is not keyboard reachable. Verify tabindex/focus order and keyboard activation manually.",
           extra: {
-            role,
+            role: role || null,
             tabIndex,
+            hasClickHandler: hasClickHint,
+            clickHandlerScope,
             keyboardReachable,
-            hasInlineKey,
-            hasAncestorKey,
-            hasClickHint,
+            hasKeyHandlerSelf,
+            hasKeyHandlerAncestor,
+            keyHandlerScope: keydownScope,
+            handlerDistance: ancestorKeyMeta.distance,
+            activationKeysObserved,
+            activationUnproven: true,
           },
-          fix: "Verify Enter/Space activates this control. If keyboard handling is delegated, this advisory can be ignored."
+          fix: "Make this control keyboard reachable (tabindex=0 when appropriate) and ensure Enter/Space activation."
         });
+        return;
       }
+
+      if (selfHasActivation) return;
+
+      if (hasKeyHandlerAncestor || hasKeyHandlerGlobal) {
+        add(findings, {
+          type: "CLICK_WITHOUT_KEYBOARD",
+          el,
+          severity: "low",
+          wcag: "2.1.1",
+          confidence: "advisory",
+          note: "Keyboard handling appears to be delegated on ancestor/global scope. Activation for this element is not proven.",
+          extra: {
+            role: role || null,
+            tabIndex,
+            hasClickHandler: hasClickHint,
+            clickHandlerScope,
+            keyboardReachable,
+            hasKeyHandlerSelf,
+            hasKeyHandlerAncestor,
+            keyHandlerScope: keydownScope,
+            handlerDistance: ancestorKeyMeta.distance,
+            activationKeysObserved,
+            activationUnproven: true,
+          },
+          fix: "Verify Enter/Space activates this control. Keep delegated handlers tied to explicit target checks."
+        });
+        return;
+      }
+
+      add(findings, {
+        type: "CLICK_WITHOUT_KEYBOARD",
+        el,
+        severity: role === "button" || role === "link" ? "high" : "medium",
+        wcag: "2.1.1",
+        confidence: "strict",
+        note: "Clickable custom control is focusable but no keyboard activation handler was detected.",
+        extra: {
+          role: role || null,
+          tabIndex,
+          hasClickHandler: hasClickHint,
+          clickHandlerScope,
+          keyboardReachable,
+          hasKeyHandlerSelf,
+          hasKeyHandlerAncestor,
+          keyHandlerScope: "none",
+          handlerDistance: null,
+          activationKeysObserved: [],
+          activationUnproven: false,
+        },
+      });
     });
 
     // 4.1.2: aria-hidden="true" containing focusable elements
+    const seenAriaHiddenFocusable = new Set();
     doc.querySelectorAll("[aria-hidden='true']").forEach(container => {
       if (container.parentElement?.closest?.("[aria-hidden='true']")) return;
       if (isHidden(container)) return;
       if (hasInertAncestor(container)) return;
+      const containerPath = cssPath(container);
+      const containerRole = container.getAttribute("role") || null;
+      const ariaHiddenValue = container.getAttribute("aria-hidden");
+      const inertPresent = !!(container.inert || container.hasAttribute("inert"));
+      const containerTransitioning = transitionCtx.duringTransition || isLikelyTransitioning(container);
       container.querySelectorAll(focusableSelector).forEach(el => {
         if (isHidden(el) || hasInertAncestor(el)) return;
         if (isLikelyFocusSentinel(el)) return;
+        const childPath = cssPath(el);
+        const dedupeKey = `${containerPath}=>${childPath}`;
+        if (seenAriaHiddenFocusable.has(dedupeKey)) return;
+        seenAriaHiddenFocusable.add(dedupeKey);
         if (!isKeyboardReachable(el)) return;
         if (!isLikelyActionable(el)) return;
         const ti = el.getAttribute("tabindex");
         if (ti !== null && parseInt(ti, 10) < 0) return;
+        const strictViolation = !containerTransitioning && !inertPresent;
         add(findings, {
           type: "ARIA_HIDDEN_FOCUSABLE",
           el,
-          severity: "high",
+          severity: strictViolation ? "high" : "low",
           wcag: "4.1.2",
-          confidence: "strict",
-          note: "Keyboard-reachable actionable element exists inside aria-hidden=true content.",
+          confidence: strictViolation ? "strict" : "advisory",
+          note: strictViolation
+            ? "Keyboard-reachable actionable element exists inside aria-hidden=true content."
+            : "Focusable element found in aria-hidden container during transition-like state; verify final focus state.",
           extra: {
+            containerPath,
+            focusableChildPath: childPath,
+            containerRole,
+            ariaHiddenValue,
+            inertPresent,
+            focusableType: focusableTypeForEvidence(el),
+            reachabilityReason: keyboardReachabilityReason(el),
             tabIndex: ti,
             keyboardReachable: true,
             actionable: true,
-            containerPath: cssPath(container),
+            duringTransition: containerTransitioning,
+            transitionSource: transitionCtx.source,
           }
         });
       });
@@ -1614,9 +1802,26 @@
         resolve(result);
       };
 
+      const totalTicks = Math.max(1, Math.ceil((seconds * 1000) / intervalMs));
       const tick = () => {
-        const r = run(runConfig);
-        snapshots.push({ t: +(performance.now() - startedAt).toFixed(0), count: r.findings.length, mode: r.mode });
+        const tickIndex = snapshots.length;
+        const inTransitionWindow = tickIndex <= 1;
+        const tickConfig = {
+          ...(runConfig || {}),
+          transitionSource: "observe",
+          transitionTickIndex: tickIndex,
+          transitionTickCount: totalTicks,
+          duringTransition: (runConfig && Object.prototype.hasOwnProperty.call(runConfig, "duringTransition"))
+            ? !!runConfig.duringTransition
+            : inTransitionWindow,
+        };
+        const r = run(tickConfig);
+        snapshots.push({
+          t: +(performance.now() - startedAt).toFixed(0),
+          count: r.findings.length,
+          mode: r.mode,
+          duringTransition: !!tickConfig.duringTransition,
+        });
         merged.push(...r.findings);
       };
 

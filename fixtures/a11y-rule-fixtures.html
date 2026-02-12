@@ -38,18 +38,30 @@
 
     <section id="keyboard-fixture">
       <h2>Keyboard Interaction Fixture</h2>
+      <div id="badKeyboardFocusable" role="button" tabindex="0" onclick="void 0">
+        Focusable custom button without key handler (should flag strict)
+      </div>
       <div
         id="delegationHost"
         onclick="if(event.target?.dataset?.action==='fire'){window.__delegatedClicks=(window.__delegatedClicks||0)+1;}"
         onkeydown="if((event.key==='Enter'||event.key===' ')&&event.target?.dataset?.action==='fire'){event.preventDefault();window.__delegatedKeys=(window.__delegatedKeys||0)+1;}"
       >
         <div id="delegatedButton" role="button" tabindex="0" data-action="fire">
-          Delegated custom button (should not flag)
+          Delegated custom button (advisory; delegated activation unproven)
         </div>
       </div>
-      <div id="badKeyboardButton" role="button" onclick="void 0">
-        Clickable role button without keyboard reachability (should flag strict)
+      <div id="ancestorKeyboardHost" onkeydown="if(event.key==='Escape'){window.__ancestorEsc=(window.__ancestorEsc||0)+1;}">
+        <div id="ancestorDelegatedButton" role="button" tabindex="0" onclick="void 0">
+          Ancestor key handler unrelated to activation (should flag advisory)
+        </div>
       </div>
+      <div id="selfHandledButton" role="button" tabindex="0" onclick="void 0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.__selfHandled=(window.__selfHandled||0)+1;}">
+        Self-handled keyboard activation (should not flag)
+      </div>
+      <div id="badKeyboardButton" role="button" onclick="void 0">
+        Clickable role button without keyboard reachability (should flag advisory)
+      </div>
+      <button id="nativeKeyboardButton" type="button">Native button (should not flag)</button>
     </section>
 
     <section id="aria-hidden-fixture">
@@ -57,9 +69,38 @@
       <div aria-hidden="true">
         <div class="focus-sentinel" tabindex="0" data-focus-guard="true"></div>
       </div>
+      <div aria-hidden="true" inert>
+        <button id="inertAriaHiddenButton">Inert + aria-hidden button (should not be keyboard reachable)</button>
+      </div>
       <div aria-hidden="true">
         <button id="badAriaHiddenButton">Actionable control in aria-hidden container (should flag strict)</button>
       </div>
+    </section>
+
+    <section id="overlay-transition-fixture">
+      <h2>Overlay Transition Fixture</h2>
+      <button id="overlayOpenButton" type="button">Open overlay fixture</button>
+      <div id="overlayFixturePanel" aria-hidden="true" hidden style="transition: opacity 120ms ease;">
+        <button id="overlayFixtureAction" type="button">Overlay action</button>
+      </div>
+      <p>
+        For transition checks, click <em>Open overlay fixture</em> and run
+        <code>A11YFlowAudit.observe({ seconds: 2, intervalMs: 300 })</code>.
+      </p>
+    </section>
+
+    <section id="signature-stability-fixture">
+      <h2>Signature Stability Fixture</h2>
+      <p>Use this section for 3-step Flow sessions (baseline, reorder, post-reorder).</p>
+      <div id="sigStableZone">
+        <div id="sigStableStrong" data-testid="sig-strong-control" role="button" tabindex="0" onclick="void 0">
+          Stable control with strong identity
+        </div>
+        <div id="sigStableWeak" role="button" tabindex="0" onclick="void 0">
+          Weak identity control
+        </div>
+      </div>
+      <button id="insertSigSibling" type="button">Insert sibling before weak control</button>
     </section>
 
     <section id="touch-target-fixture">
@@ -88,5 +129,34 @@
       <iframe aria-hidden="true" srcdoc="<p>aria hidden iframe</p>"></iframe>
     </section>
   </main>
+  <script>
+    (() => {
+      const open = document.getElementById("overlayOpenButton");
+      const panel = document.getElementById("overlayFixturePanel");
+      const action = document.getElementById("overlayFixtureAction");
+      if (!open || !panel || !action) return;
+      open.addEventListener("click", () => {
+        panel.hidden = false;
+        panel.setAttribute("aria-hidden", "false");
+        action.focus({ preventScroll: true });
+        window.setTimeout(() => {
+          panel.setAttribute("aria-hidden", "true");
+          panel.hidden = true;
+          open.focus({ preventScroll: true });
+        }, 180);
+      });
+
+      const insertBtn = document.getElementById("insertSigSibling");
+      const weak = document.getElementById("sigStableWeak");
+      if (insertBtn && weak) {
+        insertBtn.addEventListener("click", () => {
+          const sibling = document.createElement("div");
+          sibling.textContent = "Inserted sibling (path churn simulation)";
+          sibling.setAttribute("data-temp-sibling", "true");
+          weak.parentElement.insertBefore(sibling, weak);
+        });
+      }
+    })();
+  </script>
 </body>
 </html>
