@@ -125,6 +125,24 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+.skipLink {
+  position: absolute;
+  top: -999px;
+  left: 8px;
+  z-index: 1000;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--tx);
+  border: 1px solid var(--infoB);
+  text-decoration: none;
+  font: 600 12px/1 var(--font-ui);
+}
+
+.skipLink:focus-visible {
+  top: 8px;
+}
+
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--brd2); border-radius: 4px; }
@@ -168,6 +186,47 @@ body {
   display: grid;
   gap: 12px;
   position: relative;
+}
+
+.contextCard {
+  display: grid;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.contextRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.inlineSwitch {
+  padding: 2px 4px;
+}
+
+.frameSelectWrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+.frameSelectWrap[hidden] {
+  display: none;
+}
+
+.contextSpacer {
+  flex: 1;
+  min-width: 8px;
+}
+
+.targetingSummary {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--brd0);
+  background: var(--raised);
+  color: var(--tx2);
+  font-size: 11px;
 }
 
 .top::before {
@@ -259,7 +318,7 @@ body {
   font-weight: 700;
   letter-spacing: 0.04em;
   text-decoration: none;
-  transition: all .12s;
+  transition: color .12s, background-color .12s, border-color .12s, box-shadow .12s, opacity .12s, transform .12s;
 }
 
 .authorBadge:hover {
@@ -317,7 +376,7 @@ body {
   color: var(--tx2);
   font: 600 12px/1 var(--font-ui);
   cursor: pointer;
-  transition: all .15s;
+  transition: color .15s, background-color .15s, border-color .15s, box-shadow .15s, opacity .15s, transform .15s;
 }
 
 .exportBtn:hover {
@@ -468,7 +527,7 @@ select:disabled { opacity: .5; cursor: not-allowed; }
   font: 600 13px/1 var(--font-ui);
   white-space: nowrap;
   cursor: pointer;
-  transition: all .15s;
+  transition: color .15s, background-color .15s, border-color .15s, box-shadow .15s, opacity .15s, transform .15s;
   outline: none;
 }
 
@@ -545,9 +604,56 @@ kbd {
   gap: 10px;
 }
 
-.auditBar .toolbarRow + .toolbarRow {
-  padding-top: 0;
-  border-top: 0;
+.modeCard {
+  padding: 8px 0 2px;
+}
+
+.modeSelector {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.modeInlineGroups {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.modeGroup {
+  display: grid;
+  gap: 6px;
+}
+
+.modeGroupInline {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px;
+  padding-right: 10px;
+  border-right: 1px solid var(--brd0);
+}
+
+.modeInlineGroups .modeGroupInline:last-child {
+  border-right: 0;
+  padding-right: 0;
+}
+
+.modeGroupTitle {
+  margin: 0;
+  font: 700 10px/1 var(--font-ui);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--tx2);
+}
+
+.modeGroupControls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .auditDiv {
@@ -555,36 +661,18 @@ kbd {
   background: var(--brd0);
 }
 
-.presetsRow {
+.quickStartRow {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  margin-left: auto;
 }
 
-.presetChip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 14px;
+.quickStartAnchor .quickStartBtn {
+  padding: 5px 12px;
   border-radius: 999px;
-  border: 1px solid var(--brd);
-  background: var(--raised);
-  color: var(--tx2);
-  font: 600 11px/1 var(--font-ui);
-  cursor: pointer;
-  transition: all .12s;
-}
-
-.presetChip .d {
-  color: var(--tx3);
-  font-weight: 400;
-}
-
-.presetChip:hover {
-  border-color: var(--priB);
-  color: var(--pri);
-  background: var(--priS);
+  font-size: 11px;
 }
 
 .sessionBtn {
@@ -598,7 +686,7 @@ kbd {
   color: var(--tx3);
   font: 500 11px/1 var(--font-ui);
   cursor: pointer;
-  transition: all .12s;
+  transition: color .12s, background-color .12s, border-color .12s, box-shadow .12s, opacity .12s, transform .12s;
 }
 
 .sessionBtn:hover {
@@ -625,31 +713,32 @@ kbd {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 14px;
-  border: 1px solid transparent;
+  padding: 7px 12px;
+  border: 1px solid var(--brd);
   border-radius: 6px;
-  background: transparent;
-  color: var(--tx3);
-  font: 500 12px/1 var(--font-ui);
+  background: var(--raised);
+  color: var(--tx2);
+  font: 600 11px/1 var(--font-ui);
   cursor: pointer;
-  transition: all .12s;
+  transition: color .12s, background-color .12s, border-color .12s, box-shadow .12s, opacity .12s, transform .12s;
 }
 
 .modeTab:hover {
-  color: var(--tx2);
-  background: var(--raised);
+  color: var(--tx);
+  border-color: var(--brd2);
 }
 
 .modeTab.active,
-.modeTab[aria-pressed="true"] {
+.modeTab[aria-checked="true"] {
   color: var(--tx);
   background: var(--emphasis);
-  border-color: var(--brd3);
+  border-color: var(--brd2);
   font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--brd3);
 }
 
 .modeTab.active::after,
-.modeTab[aria-pressed="true"]::after {
+.modeTab[aria-checked="true"]::after {
   content: "";
   position: absolute;
   bottom: -1px;
@@ -666,6 +755,10 @@ kbd {
   color: var(--tx3);
 }
 
+.modeTab:focus-visible {
+  box-shadow: 0 0 0 1px var(--bg), 0 0 0 4px var(--infoB);
+}
+
 .runBtn {
   display: inline-flex;
   align-items: center;
@@ -678,7 +771,8 @@ kbd {
   font: 700 12px/1 var(--font-ui);
   letter-spacing: .01em;
   box-shadow: var(--shSm), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  cursor: pointer;transition: all .18s;
+  cursor: pointer;
+  transition: color .18s, background-color .18s, border-color .18s, box-shadow .18s, opacity .18s, transform .18s, filter .18s;
 }
 
 .runBtn:hover {
@@ -701,6 +795,72 @@ kbd {
   box-shadow: none;
 }
 
+.runBtn.secondaryAction:not(.running) {
+  background: transparent;
+  border: 1px solid var(--brd2);
+  color: var(--tx2);
+  box-shadow: none;
+  padding: 7px 14px;
+}
+
+.runBtn.tertiaryAction:not(.running) {
+  background: transparent;
+  border: 1px solid var(--brd0);
+  color: var(--tx3);
+  box-shadow: none;
+  padding: 6px 10px;
+  font-weight: 600;
+}
+
+.actionBar {
+  position: sticky;
+  top: 8px;
+  z-index: 40;
+  padding: 10px 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.actionRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.actionTertiary {
+  border-color: var(--brd0);
+  color: var(--tx3);
+  background: transparent;
+}
+
+.lastStatusLine {
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--brd0);
+  background: var(--raised);
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.lastStatusLine.ok {
+  color: var(--green);
+  border-color: var(--okB);
+  background: var(--okS);
+}
+
+.lastStatusLine.partial {
+  color: var(--yellow);
+  border-color: var(--warnB);
+  background: var(--warnS);
+}
+
+.lastStatusLine.failed {
+  color: var(--red);
+  border-color: var(--dangerB);
+  background: var(--dangerS);
+}
+
 .runBtn .spinner {
   width: 12px;
   height: 12px;
@@ -711,7 +871,7 @@ kbd {
   animation: spin .8s linear infinite;
 }
 
-.toolbar.isRunning .presetChip,
+.toolbar.isRunning .quickStartBtn,
 .toolbar.isRunning .modeTab,
 .toolbar.isRunning .sessionBtn {
   pointer-events: none;
@@ -731,77 +891,6 @@ kbd {
   font-size: 11px;
 }
 .inlineHint.show { visibility: visible; }
-
-.sessionBanner {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  background: var(--infoS);
-  border: 1px solid var(--infoB);
-  border-radius: var(--radius-md);
-}
-
-.sessionBanner:not([hidden]) {
-  animation: fadeUp .22s ease-out;
-}
-
-.sessionDot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--cyan);
-  box-shadow: 0 0 8px var(--cyan);
-  animation: pulse 2s ease-in-out infinite;
-}
-
-.sessionLabel {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--cyan);
-}
-
-.sessionMeta {
-  min-width: 0;
-  color: var(--tx2);
-  font-size: 11px;
-}
-
-.sessionStatus {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--raised);
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.sessionStatus.ok {
-  color: var(--green);
-}
-
-.sessionStatus.partial {
-  color: var(--yellow);
-}
-
-.sessionStatus.failed {
-  color: var(--red);
-}
-
-.sessionStatus.running {
-  color: var(--tx2);
-}
-
-.sessionStatus.idle {
-  color: var(--tx3);
-}
-
-.sessionBannerSpacer {
-  width: 0;
-  flex: 1;
-}
 
 .switch {
   display: inline-flex;
@@ -832,7 +921,7 @@ kbd {
   background: var(--raised);
   border: 1px solid var(--brd2);
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
-  transition: all .18s;
+  transition: background-color .18s, border-color .18s, box-shadow .18s;
   flex-shrink: 0;
 }
 
@@ -846,7 +935,7 @@ kbd {
   border-radius: 50%;
   background: linear-gradient(135deg, var(--tx2), var(--tx3));
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-  transition: all .24s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  transition: transform .24s cubic-bezier(0.68, -0.55, 0.265, 1.55), background .24s cubic-bezier(0.68, -0.55, 0.265, 1.55);
 }
 
 .switch input:checked + .slider {
@@ -959,22 +1048,6 @@ kbd {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-#viewSelect {
-  flex: 1;
-  min-width: 160px;
-  max-width: 540px;
-  font-size: 12px;
-}
-
-#currentModeText {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--tx2);
-  background: var(--overlay);
-  border-radius: 4px;
-  padding: 4px 8px;
 }
 
 .status {
@@ -1149,7 +1222,7 @@ kbd {
 }
 
 #topTableInner .blockAlert {
-  margin: 10px 16px 0;
+  margin: 10px 0 0;
 }
 
 .filterChips {
@@ -1160,13 +1233,15 @@ kbd {
 
 #topTableInner .filterChips {
   margin-bottom: 0;
-  padding: 10px 16px;
+  padding: 10px 0 0;
 }
 
 .fChip {
   display: inline-flex;align-items: center;gap: 4px;padding: 3px 10px;border-radius: 9999px;
   background: transparent;border: 1px solid var(--brd0);color: var(--tx3);
-  font: 600 11px/1 var(--font-ui);cursor: pointer;transition: all .12s;
+  font: 600 11px/1 var(--font-ui);
+  cursor: pointer;
+  transition: color .12s, background-color .12s, border-color .12s, box-shadow .12s, opacity .12s, transform .12s;
 }
 
 .fChip .ct {
@@ -1176,6 +1251,10 @@ kbd {
 .fChip:hover {
   border-color: var(--brd2);
   color: var(--tx2);
+}
+
+.fChip:focus-visible {
+  box-shadow: 0 0 0 1px var(--bg), 0 0 0 4px var(--infoB);
 }
 
 .fChip.a-high {
@@ -1265,7 +1344,7 @@ button.badge:focus-visible {
 }
 
 #topTableInner .tableWrap {
-  margin-top: 8px;
+  margin-top: 0;
 }
 
 #explorerBody .tableWrap {
@@ -1376,6 +1455,26 @@ button.badge:focus-visible {
 
 .trow { cursor: pointer; }
 
+.rowAct {
+  margin-left: 6px;
+  padding: 2px 6px;
+  border: 1px solid var(--brd2);
+  border-radius: var(--radius-xs);
+  background: var(--raised);
+  color: var(--tx2);
+  font: 600 10px/1 var(--font-ui);
+  cursor: pointer;
+}
+
+.rowAct:hover {
+  color: var(--tx);
+  border-color: var(--infoB);
+}
+
+.rowAct:focus-visible {
+  box-shadow: 0 0 0 1px var(--bg), 0 0 0 3px var(--infoB);
+}
+
 .filters {
   display: flex;
   gap: 8px;
@@ -1430,7 +1529,7 @@ button.badge:focus-visible {
   color: var(--tx2);
   font-size: 11px;
   cursor: pointer;
-  transition: all .12s;
+  transition: color .12s, background-color .12s, border-color .12s, box-shadow .12s, opacity .12s, transform .12s;
   user-select: none;
 }
 
@@ -1492,6 +1591,7 @@ button.badge:focus-visible {
 .outHeader {
   display: flex;
   align-items: center;
+  gap: 8px;
 }
 
 .outHeader .outToggle {
@@ -1529,6 +1629,17 @@ button.badge:focus-visible {
   background: var(--surface);
   border: 1px solid var(--brd);
   border-radius: var(--radius-lg);
+}
+
+.emptyState.compact {
+  padding: 14px 16px;
+  text-align: left;
+}
+
+.emptyCompact {
+  color: var(--tx2);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .emptyIcon {
