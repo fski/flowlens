@@ -77,6 +77,20 @@
       </p>
     </section>
 
+    <section id="signature-stability-fixture">
+      <h2>Signature Stability Fixture</h2>
+      <p>Use this section for 3-step Flow sessions (baseline, reorder, post-reorder).</p>
+      <div id="sigStableZone">
+        <div id="sigStableStrong" data-testid="sig-strong-control" role="button" tabindex="0" onclick="void 0">
+          Stable control with strong identity
+        </div>
+        <div id="sigStableWeak" role="button" tabindex="0" onclick="void 0">
+          Weak identity control
+        </div>
+      </div>
+      <button id="insertSigSibling" type="button">Insert sibling before weak control</button>
+    </section>
+
     <section id="touch-target-fixture">
       <h2>Touch Target Fixture</h2>
       <p>
@@ -119,6 +133,17 @@
           open.focus({ preventScroll: true });
         }, 180);
       });
+
+      const insertBtn = document.getElementById("insertSigSibling");
+      const weak = document.getElementById("sigStableWeak");
+      if (insertBtn && weak) {
+        insertBtn.addEventListener("click", () => {
+          const sibling = document.createElement("div");
+          sibling.textContent = "Inserted sibling (path churn simulation)";
+          sibling.setAttribute("data-temp-sibling", "true");
+          weak.parentElement.insertBefore(sibling, weak);
+        });
+      }
     })();
   </script>
 </body>

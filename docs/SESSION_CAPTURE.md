@@ -52,10 +52,20 @@ Signatures are mode-aware and deterministic:
 - `watch`: verdict-first signatures plus focus-loss marker
 - `observe`: finding signatures plus trend marker (`peak/jumps`)
 
+Flow signature hardening:
+- Primary signatures always include `frameKey`.
+- Signature text normalization strips volatile UUID/number-like tokens before hashing.
+- Path identity uses normalized path hash (`pathh:*`) instead of raw CSS paths.
+- Findings without strong identity fields (e.g., no `testId` + weak path) receive:
+  - `signatureQuality: low`
+  - `weakSignature` fallback used only for Flow persistence matching (not Screen table identity).
+- `signatureQuality` values: `high | medium | low` (low is surfaced as “may be unstable” in Flow markdown summary).
+
 Diff output per mode and consolidated:
 - `added`
 - `fixed`
 - `persisting`
+- `weakMatched` (persisting matched via weak signature fallback)
 - `blockingAdded`
 - `blockingFixed`
 - `countsDelta`
@@ -134,6 +144,12 @@ Common reason codes:
 Raw cap behavior:
 - Capture continues with normalized summaries when raw appendix is capped.
 - `rawRef` may be omitted for new steps while diffs/export continue.
+
+Slice B fixture expectation:
+1. Capture 3 steps on `fixtures/a11y-rule-fixtures.html`.
+2. Use `#insertSigSibling` between steps 1 and 2.
+3. The strong-id control (`data-testid="sig-strong-control"`) should persist without churn.
+4. Weak-id findings may rely on `weakMatched`; low-quality signatures should appear as potentially unstable in markdown summary.
 
 Persistence/reset notes:
 - Active key: `session::active::<origin>::<env>`
