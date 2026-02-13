@@ -1565,6 +1565,8 @@ function renderSessionHud() {
     statusEl.title = `${status} (${reasonCode}) — ${reasonDetail(reasonCode)}`;
   }
   renderFlowSessionInfo();
+  renderFlowTimeline();
+  renderFlowCounters();
 }
 
 function renderFlowSessionInfo() {
@@ -1598,6 +1600,58 @@ function renderFlowSessionInfo() {
   `;
 }
 
+function renderFlowTimeline() {
+  const body = els.flowTimelineBody;
+  if (!body) return;
+  const sess = sessionState.current || sessionState.lastEndedSession;
+  const steps = Array.isArray(sess?.steps) ? sess.steps : [];
+  const tbody = body.querySelector("tbody");
+  if (!tbody) return;
+  if (!steps.length) {
+    tbody.innerHTML = "";
+    return;
+  }
+  tbody.innerHTML = steps.map(s => {
+    const d = s.diffs?.consolidated || {};
+    const route = s.routeHint || s.url || "—";
+    const shortRoute = route.length > 40 ? route.slice(-38) : route;
+    const mode = s.activeModeCaptured || "—";
+    const blockers = [];
+    if (d.blockingAdded) blockers.push(`+${d.blockingAdded} blocking`);
+    if (d.blockingFixed) blockers.push(`-${d.blockingFixed} blocking`);
+    return `<tr class="trow">
+      <td>${s.index}</td>
+      <td title="${escapeHtml(route)}">${escapeHtml(shortRoute)}</td>
+      <td>${escapeHtml(mode)}</td>
+      <td>${d.added ?? 0}</td>
+      <td>${d.fixed ?? 0}</td>
+      <td>${d.persisting ?? 0}</td>
+      <td>${escapeHtml(blockers.join(", ") || "—")}</td>
+    </tr>`;
+  }).join("");
+}
+
+function renderFlowCounters() {
+  const el = document.getElementById("flowCounterRow");
+  if (!el) return;
+  const sess = sessionState.current || sessionState.lastEndedSession;
+  const steps = Array.isArray(sess?.steps) ? sess.steps : [];
+  if (!steps.length) { el.hidden = true; return; }
+  let added = 0, fixed = 0, unresolved = 0;
+  for (const s of steps) {
+    const d = s.diffs?.consolidated || {};
+    added += d.added || 0;
+    fixed += d.fixed || 0;
+    unresolved += d.persisting || 0;
+  }
+  el.innerHTML = `
+    <div class="flowCounter"><span class="flowCounterValue">${added}</span><span class="flowCounterLabel">Added</span></div>
+    <div class="flowCounter"><span class="flowCounterValue">${fixed > 0 ? "-" : ""}${fixed}</span><span class="flowCounterLabel">Fixed</span></div>
+    <div class="flowCounter"><span class="flowCounterValue">${unresolved}</span><span class="flowCounterLabel">Unresolved</span></div>
+  `;
+  el.hidden = false;
+}
+
 function updateSessionButtons() {
   const hasSession = !!sessionState.current;
   const hasExportableSession = !!(sessionState.current || sessionState.lastEndedSession);
@@ -1611,7 +1665,7 @@ function updateSessionButtons() {
   }
   if (els.sessionMark) {
     els.sessionMark.disabled = !hasSession || panelBusy;
-    els.sessionMark.textContent = inFlight ? "Capturing\u2026" : "Mark step";
+    els.sessionMark.innerHTML = inFlight ? "Capturing\u2026" : 'Mark step <kbd class="keycap" aria-hidden="true">s</kbd>';
   }
   if (els.sessionEnd) {
     els.sessionEnd.disabled = !hasSession || panelBusy;
@@ -3744,15 +3798,6 @@ window.addEventListener("keydown", (e) => {
   if (key === "1") { showView("snap"); return; }
   if (key === "2") { showView("flow"); return; }
   if (key === "3") { showView("settings"); return; }
-
-  if (state.topTab === "snap") {
-    // Snap subtab switching
-    const snapSubs = { a: "run", c: "contrast", t: "tabWalk", o: "observe", w: "watch" };
-    const sub = snapSubs[key];
-    if (sub) { showView("snap", sub); return; }
-    // s = execute current snap CTA
-    if (key === "s") { _lockedPreset([state.activeMode || "run"]); return; }
-  }
 
   if (state.topTab === "flow") {
     // s = mark step (if session active), e = end session

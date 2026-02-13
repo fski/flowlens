@@ -697,12 +697,12 @@ kbd {
 .ctaBtn--pink   { background: var(--coral);  color: var(--bg); }
 .ctaBtn--outline {
   background: transparent;
-  border: 1px solid var(--tx3);
-  color: var(--tx);
+  border: 3px solid #2F2F2F;
+  color: #D2D2D2;
 }
 .ctaBtn--outline:hover {
-  border-color: var(--tx);
-  filter: none;
+  border-color: var(--tx3);
+  color: var(--tx);
 }
 
 .ctaBtn.running,
@@ -732,21 +732,52 @@ kbd {
   flex-wrap: wrap;
 }
 
+/* ═══ FLOW SESSION COUNTERS ═══ */
+.flowCounterRow {
+  display: flex;
+  background: #222222;
+  border-top: 2px solid var(--brd);
+  border-bottom: 2px solid var(--brd);
+}
+
+.flowCounterRow[hidden] { display: none; }
+
+.flowCounter {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+}
+
+.flowCounterValue {
+  padding: 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  font: 800 14px/1 var(--font-mono);
+  color: #D2D2D2;
+  min-width: 28px;
+  text-align: center;
+}
+
+.flowCounterLabel {
+  font: 400 11px/1 var(--font-mono);
+  color: var(--tx2);
+}
+
 /* ═══ FLOW RECORD BANNER / ACTIONS ═══ */
 .flowRecordingBanner {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px 16px;
-  background: var(--dangerS);
-  border: 1px solid var(--dangerB);
-  border-radius: 2px;
-  color: var(--red);
-  font: 700 12px/1 var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: .04em;
-  animation: pulse 2s ease-in-out infinite;
+  padding: 12px 8px;
+  background: #2F2F2F;
+  border: 0;
+  border-radius: 0;
+  color: var(--tx2);
+  font: 500 14px/1 var(--font-mono);
 }
 
 .flowRecordingBanner[hidden] { display: none; }
@@ -762,7 +793,14 @@ kbd {
 
 .recSpinner {
   display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 3px solid transparent;
+  border-top-color: var(--tx2);
+  border-radius: 50%;
   animation: spin 1.2s linear infinite;
+  vertical-align: middle;
+  font-size: 0;
 }
 
 .flowRecordActions {
@@ -775,6 +813,7 @@ kbd {
 
 .flowRecordActions .ctaBtn {
   flex: 1;
+  font-weight: 600;
 }
 
 /* ═══ ACCORDIONS ═══ */
