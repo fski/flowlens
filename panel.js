@@ -2958,8 +2958,16 @@ async function setPinnedFrameIfNeeded() {
 async function highlightFinding(finding) {
   if (!finding) return;
   const frameId = state.bestFrameId ?? 0;
-  await send({ type: "HIGHLIGHT", frameId, finding });
-  toast("Highlighted element");
+  try {
+    const res = await send({ type: "HIGHLIGHT", frameId, finding });
+    if (res?.found === false) {
+      toast("Element not found on page — DOM may have changed");
+    } else {
+      toast("Highlighted element");
+    }
+  } catch {
+    toast("Could not highlight — frame may be inaccessible");
+  }
 }
 
 async function saveHistorySnapshot({ key, snapshot }) {
