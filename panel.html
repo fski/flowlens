@@ -9,260 +9,479 @@
   <body>
     <a class="skipLink" href="#mainContent">Skip to main content</a>
     <main id="mainContent" class="wrap" role="main" tabindex="-1">
-      <header class="top headerBar">
+
+      <!-- ═══ HEADER ═══ -->
+      <header class="headerBar">
         <h1 class="h1">
           <span class="sr-only">FlowLens</span>
-          <span class="brandWordmark" aria-hidden="true">
-            <img class="brandLogo brandLogo--dark" src="icons/flowlens-wordmark-dark.svg" alt="" width="340" height="88" />
-            <img class="brandLogo brandLogo--light" src="icons/flowlens-wordmark-light.svg" alt="" width="340" height="88" />
-          </span>
-          <span class="versionBadge mono" id="versionBadge" data-version="3.0.0">v3.0.0</span>
-          <a class="authorBadge" href="https://fski.app" target="_blank" rel="noopener">by fski</a>
+          <svg class="brandLogo" aria-hidden="true" fill="none" height="16" viewBox="0 0 80 16" width="80" xmlns="http://www.w3.org/2000/svg"><g fill="currentColor"><path d="m28.6764 4.10003v1.44h-3.9058v2.16h3.6054v1.44h-3.6054v3.35997h-1.6224v-8.39997z"/><path d="m35.8224 12.5h-5.6484v-1.32h2.1632v-5.75997h-1.6825v-1.32h3.1246v7.07997h2.0431z"/><path d="m40.1441 12.62c-.6009 0-1.1337-.132-1.5984-.396-.4567-.272-.8172-.656-1.0816-1.152-.2564-.496-.3846-1.07997-.3846-1.75197s.1282-1.256.3846-1.752c.2644-.496.6249-.876 1.0816-1.14.4647-.272.9975-.408 1.5984-.408s1.1297.136 1.5864.408c.4647.264.8252.644 1.0816 1.14.2644.496.3966 1.08.3966 1.752s-.1322 1.25597-.3966 1.75197c-.2564.496-.6169.88-1.0816 1.152-.4567.264-.9855.396-1.5864.396zm0-1.32c.4967 0 .8893-.168 1.1778-.504.2964-.344.4446-.83597.4446-1.47597s-.1482-1.128-.4446-1.464c-.2885-.344-.6811-.516-1.1778-.516s-.8933.172-1.1898.516c-.2884.336-.4326.824-.4326 1.464s.1442 1.13197.4326 1.47597c.2965.336.6931.504 1.1898.504z"/><path d="m46.4007 12.5h-1.4301l-1.1056-6.35997h1.4421l.4447 3.12-.1443 1.43997h.1803l1.0215-3.29997h1.0816l1.0216 3.29997h.1802l-.1442-1.43997.4447-3.12h1.4421l-1.1056 6.35997h-1.4301l-.9134-2.99997h-.0601z"/><path d="m58.6222 12.5h-5.7085v-8.39997h1.6224v6.95997h4.0861z"/><path d="m65.8283 9.14003c0 .24-.0201.46-.0601.66h-4.6509c.0801.45597.2603.81997.5408 1.09197.2884.272.6569.408 1.1056.408.3605 0 .653-.068.8773-.204s.3886-.308.4927-.516h1.4422c-.1442.552-.4367 1.032-.8773 1.44-.4327.4-1.0576.6-1.8748.6-.6169 0-1.1617-.132-1.6344-.396-.4727-.272-.8413-.656-1.1057-1.152-.2564-.496-.3846-1.07997-.3846-1.75197s.1282-1.256.3846-1.752c.2644-.496.633-.876 1.1057-1.14.4727-.272 1.0175-.408 1.6344-.408.5849 0 1.1056.132 1.5623.396.4567.256.8092.62 1.0576 1.092.2564.472.3846 1.016.3846 1.632zm-1.4061-.36c-.0721-.448-.2484-.8-.5288-1.056s-.657-.384-1.1297-.384c-.4407 0-.8052.128-1.0936.384-.2804.248-.4607.6-.5408 1.056z"/><path d="m67.2657 12.5v-6.35997h1.2619l.1202.54h.0601c.1762-.208.4046-.368.685-.48.2804-.12.5728-.18.8773-.18.7611 0 1.362.24 1.8027.72.4406.472.6609 1.112.6609 1.92v3.83997h-1.4421v-3.83997c0-.432-.1082-.76-.3245-.984s-.5288-.336-.9374-.336c-.3765 0-.693.124-.9494.372-.2484.24-.3725.556-.3725.948v3.83997z"/><path d="m77.1758 12.62c-.5929 0-1.1097-.1-1.5503-.3-.4407-.208-.7772-.48-1.0095-.816-.2324-.344-.3606-.712-.3846-1.104h1.5022c.1522.6.653.9 1.5023.9.4166 0 .729-.056.9374-.168.2163-.112.3244-.276.3244-.492 0-.2-.1121-.34-.3365-.42-.2243-.088-.5848-.176-1.0816-.26397-.5528-.088-1.0135-.188-1.382-.3-.3686-.12-.6851-.32-.9494-.6-.2644-.28-.3966-.672-.3966-1.176 0-.352.1001-.668.3004-.948.2083-.28.5168-.5.9254-.66.4086-.168.9013-.252 1.4782-.252.8252 0 1.4822.188 1.9709.564.4888.368.7531.86.7932 1.476h-1.5022c-.0641-.232-.1963-.408-.3966-.528-.1923-.128-.5008-.192-.9254-.192-.3525 0-.6329.048-.8412.144-.2003.096-.3005.244-.3005.444 0 .224.1162.384.3485.48.2404.088.6169.168 1.1297.24.5528.088 1.0055.188 1.358.3.3525.104.657.292.9134.564.2644.264.3966.63997.3966 1.12797 0 .552-.2123 1.02-.637 1.404-.4246.384-1.1537.576-2.1872.576z"/></g><path d="m16.0238 1.66669c0 .92048-.7473 1.66667-1.6691 1.66667-.9219 0-1.6692-.74619-1.6692-1.66667 0-.920471.7473-1.6666633 1.6692-1.6666633.9218 0 1.6691.7461923 1.6691 1.6666633z" fill="#f35"/><path d="m1.33524 14.6667h1.33548v1.3333h-2.67072v-1.25h.00293405c-.00170077-.0275-.00293293-.0553-.00293405-.0833v-1.3334h1.33524z" fill="currentColor"/><path clip-rule="evenodd" d="m5.77886.763672c1.01529-1.01481 2.65759-1.018564 3.66806-.008545.80618.805933.96648 2.013813.48265 2.984623l3.92433 3.9226-8.32834 1.68384 1.74185 1.74121c.97131-.4837 2.18004-.3233 2.98639.4827 1.0103 1.01 1.0064 2.6514-.0088 3.6662-1.01528 1.0148-2.65735 1.0187-3.66783.0088-.80628-.8059-.9667-2.0138-.4829-2.9846l-3.92429-3.92261 8.32832-1.68384-1.74211-1.74145c-.97124.48362-2.17961.32321-2.98589-.48267-1.01044-1.01001-1.00668-2.65143.00856-3.666258zm3.30155 11.979228c-.36551-.3653-.95968-.3639-1.32693.0032-.36718.3671-.36842.9608-.00293 1.3262.36549.3651.95923.3637 1.32643-.0032.36721-.3671.36883-.9608.00343-1.3262zm-.80687-10.81492c-.36549-.36533-.9597-.36389-1.32692.00317-.36709.36707-.36837.96065-.00294 1.32593.36548.36527.95922.36382 1.32644-.00317.36719-.36703.36881-.96059.00342-1.32593z" fill="currentColor" fill-rule="evenodd"/><path d="m16.0238 14.6667c0 .028-.0012.0558-.0029.0833h.0029v1.25h-2.6707v-1.3333h1.3355v-1.3334h1.3352z" fill="currentColor"/><path d="m2.67072 1.33325h-1.33548v1.3335h-1.33524v-1.3335c.00000222-.02797.00123218-.05571.00293405-.08325h-.00293405v-1.25h2.67072z" fill="currentColor"/></svg>
         </h1>
         <span class="spacer" aria-hidden="true"></span>
-        <div class="headerActions">
-          <button class="btn xs" id="settingsPanelToggle" type="button" aria-expanded="false" aria-controls="settingsSection">&#x2699; Settings</button>
-        </div>
+        <span class="versionBadge mono" id="versionBadge" data-version="3.0.0">3.0.0 DH</span>
       </header>
 
-      <section class="contextCard" aria-label="Context and targeting">
-        <div class="contextRow">
-          <span class="mutedLabel">Target</span>
-          <label class="sr-only" for="target">Scope</label>
-          <select id="target" aria-label="Scope">
-            <option value="primary">Primary frame</option>
-            <option value="host">Host page only</option>
-            <option value="embedded">Embedded frame only</option>
-            <option value="all">All frames</option>
-          </select>
-          <span class="frameSelectWrap" id="frameSelectWrap">
-            <label class="sr-only" for="frameSelect">Select a frame</label>
-            <select id="frameSelect" aria-label="Select a frame" disabled></select>
-          </span>
-          <label class="switch switchSm inlineSwitch"><input id="pinFrame" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Pin</span></label>
-          <span class="mutedLabel">WCAG</span>
-          <label class="sr-only" for="wcagLevel">WCAG compliance level</label>
-          <select id="wcagLevel" aria-label="WCAG compliance level">
-            <option value="2.1-AA">WCAG 2.1 AA</option>
-            <option value="2.1-AAA">WCAG 2.1 AAA</option>
-            <option value="2.2-AA">WCAG 2.2 AA</option>
-            <option value="2.2-AAA">WCAG 2.2 AAA</option>
-          </select>
-          <span class="contextSpacer" aria-hidden="true"></span>
-          <button class="btn xs" id="refreshFrames">&#8635; Refresh</button>
-          <button class="btn xs" id="copyFrameUrl" type="button" aria-label="Copy selected frame URL">Copy URL</button>
-        </div>
-        <div class="targetingSummary mono" id="targetingSummary" role="status" aria-live="polite" aria-atomic="true">
-          Target: Primary frame
-        </div>
-      </section>
-
-      <section class="settingsPanel" id="settingsSection" aria-label="Settings panel" hidden>
-        <div class="settingsGrid" id="settingsBody" role="region" aria-labelledby="settingsPanelToggle">
-          <div class="settingsGroup">
-            <span class="settingsLabel">Profiles</span>
-            <div id="profileSelect" class="profilePills" role="group" aria-label="Active MFE profiles"></div>
-          </div>
-          <div class="settingsGroup">
-            <span class="settingsLabel">Display</span>
-            <div class="settingsToggles">
-              <label class="switch"><input id="density" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Compact</span></label>
-              <label class="switch"><input id="themeToggle" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Light theme</span></label>
-            </div>
-          </div>
-          <div class="settingsGroup">
-            <span class="settingsLabel">Audit config</span>
-            <div class="settingsToggles">
-              <label class="switch"><input id="alsoConsole" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Log to console</span></label>
-              <span class="switchText muted">Frame targeting controls are in Context</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      
-      <section class="toolbar auditBar modeCard" aria-label="Mode selection">
-        <div class="modeSelector" role="radiogroup" aria-label="Audit mode">
-          <div class="modeInlineGroups">
-            <div class="modeGroup modeGroupInline" role="group" aria-label="Snapshot modes">
-              <p class="modeGroupTitle">Snapshot</p>
-              <div class="modeGroupControls">
-                <button class="modeTab" data-action="run" role="radio" aria-checked="true" tabindex="0" title="Strict WCAG audit [R]">&#9673; Audit</button>
-                <button class="modeTab" data-action="contrast" role="radio" aria-checked="false" tabindex="-1" title="Check contrast on up to 250 text nodes [C]">&#9680; Contrast</button>
-                <button class="modeTab" data-action="tabWalk" role="radio" aria-checked="false" tabindex="-1" title="Walk 80 focusable elements [T]">&#8677; Tab Walk</button>
-              </div>
-            </div>
-            <div class="modeGroup modeGroupInline" role="group" aria-label="Flow modes">
-              <p class="modeGroupTitle">Flow</p>
-              <div class="modeGroupControls">
-                <button class="modeTab" data-action="observe" role="radio" aria-checked="false" tabindex="-1" title="Re-run checks every ~1s for 12s [O]">&#9678; Observe <span class="dur">12s</span></button>
-                <button class="modeTab" data-action="watch" role="radio" aria-checked="false" tabindex="-1" title="Monitor loaders and focus for 40s [W]">&#9673; Watch <span class="dur">40s</span></button>
-              </div>
-            </div>
-          </div>
-          <div class="quickStartRow" aria-label="Quick start presets">
-            <span class="mutedLabel">Quick start</span>
-            <div class="exportAnchor quickStartAnchor">
-              <button class="exportBtn quickStartBtn" id="quickStartToggle" type="button" aria-expanded="false" aria-haspopup="menu" aria-controls="quickStartMenu">Quick Start &#x25BE;</button>
-              <div class="exportMenu quickStartMenu" id="quickStartMenu" role="menu" aria-labelledby="quickStartToggle" hidden>
-                <button class="emItem" id="presetQuick" type="button" role="menuitem" title="Run Audit + Contrast"><span class="l">&#9889; Quick</span><span class="dd">Audit + Contrast</span></button>
-                <button class="emItem" id="presetRelease" type="button" role="menuitem" title="Run Watch + Observe + Audit"><span class="l">&#9678; Release</span><span class="dd">Watch + Observe + Audit</span></button>
-                <button class="emItem" id="presetFocus" type="button" role="menuitem" title="Run Tab Walk + Audit"><span class="l">&#8677; Focus</span><span class="dd">Tab Walk + Audit</span></button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="card actionBar" id="actionBar" aria-label="Action">
-        <div class="actionRow">
-          <button class="btn xs primary" id="sessionMark" title="Capture current step" disabled hidden>Mark step</button>
-          <button class="btn xs secondary" id="sessionEnd" title="End active session" disabled hidden>End</button>
-          <button class="runBtn" id="runCurrentMode" type="button" title="Run the selected mode"><span id="runIcon">▶</span> <span id="runLabel">Run Audit</span></button>
-          <button class="btn xs secondary" id="sessionStart" type="button" title="Start capture session">&#9687; Start session</button>
-          <button class="btn xs actionTertiary" id="rerunCurrent" type="button" title="Run the selected mode again" hidden>Re-run</button>
-        </div>
-        <div class="lastStatusLine mono" id="lastStatusLine" role="status" aria-live="polite" aria-atomic="true" hidden>
-          Last status: IDLE
-        </div>
-      </section>
-
-      <div class="progress" id="progressWrap" hidden role="status" aria-live="polite" aria-atomic="true" aria-label="Audit progress">
-        <div class="pMeta">
-          <span class="pLabel" id="progressLabel">Scanning…</span>
-          <span class="pTime mono" id="progressTime">0.0s</span>
-        </div>
-        <div class="pTrack" aria-hidden="true">
-          <div class="pFill" id="progressBar" role="progressbar" aria-label="Audit progress completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="0%" aria-describedby="progressLabel progressStatus"></div>
-        </div>
-        <span class="sr-only" id="progressStatus">Audit idle</span>
-      </div>
-
-      <div class="runtimeMeta" hidden aria-hidden="true">
-        <span id="inspectedUrl">—</span>
-        <span id="brandEnv">—</span>
-        <span id="usedFrames">—</span>
-        <span id="diff">—</span>
-      </div>
-
-      <section class="emptyState compact" id="emptyState" aria-live="polite">
-        <div class="emptyCompact">
-          Ready. Pick a mode and run, or use Quick Start.
-        </div>
-      </section>
-
-      <div class="resultsZone" id="resultsZone">
-      <section class="findingsCard" id="resultsCard">
-        <button class="sectionToggle" id="resultsToggleBtn" type="button" aria-expanded="true" aria-controls="resultsBody" data-collapse="resultsBody">
-          <span class="outToggleIcon">&#x25B6;</span> <svg class="si" aria-hidden="true" focusable="false" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 11V8m4 3V5m4 6V3"/></svg> Results
+      <!-- ═══ TOP-LEVEL TABS ═══ -->
+      <nav class="topTabBar" id="topTabBar" role="tablist" aria-label="Main navigation">
+        <button class="topTab topTab--snap" id="topTabSnap" role="tab" data-tab="snap" aria-controls="snapContent" aria-selected="true" tabindex="0" type="button">
+          <img class="tabSvg" src="icons/Snap Icon.svg" alt="" width="16" height="16" aria-hidden="true" />
+          <span class="tabLabel">Snap</span>
+          <kbd class="keycap" aria-hidden="true">1</kbd>
         </button>
-        <div id="resultsBody" class="sectionBody" role="region" aria-labelledby="resultsToggleBtn">
-          <div id="runSummary" class="kvs">(no results yet)</div>
-          <div id="sevBadges" class="badges"></div>
-        </div>
-      </section>
-
-      <div class="statsRow" id="statsRow" hidden></div>
-
-      <section class="findingsCard" id="findingsSection">
-        <button class="sectionToggle" id="topIssuesToggleBtn" type="button" aria-expanded="true" aria-controls="topTableInner" data-collapse="topTableInner">
-          <span class="outToggleIcon">&#x25B6;</span> <svg class="si" aria-hidden="true" focusable="false" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2L1.5 13h13L8 2z"/><path d="M8 6.5v3m0 2v.5"/></svg> Prioritized view (filter) <span class="toggleCount" id="topCount">0</span>
+        <button class="topTab topTab--flow" id="topTabFlow" role="tab" data-tab="flow" aria-controls="flowContent" aria-selected="false" tabindex="-1" type="button">
+          <img class="tabSvg" src="icons/Flow Icon.svg" alt="" width="16" height="16" aria-hidden="true" />
+          <span class="tabLabel">Flow</span>
+          <kbd class="keycap" aria-hidden="true">2</kbd>
         </button>
-        <div id="topTableInner" class="sectionBody" role="region" aria-labelledby="topIssuesToggleBtn">
-          <div class="blockAlert" id="topBlockingAlert" hidden></div>
-          <div class="filterChips" id="topFilterChips" role="group" aria-label="Prioritized findings view filter"></div>
-        </div>
-      </section>
-
-      <section class="findingsCard" id="explorerSection">
-        <button class="sectionToggle" id="explorerToggleBtn" type="button" aria-expanded="true" aria-controls="explorerBody" data-collapse="explorerBody">
-          <span class="outToggleIcon">&#x25B6;</span> <svg class="si" aria-hidden="true" focusable="false" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="6.5" cy="6.5" r="4"/><path d="M10 10l4 4"/></svg> All findings <span class="toggleCount" id="allCount">0</span>
+        <button class="topTab topTab--settings" id="topTabSettings" role="tab" data-tab="settings" aria-controls="settingsContent" aria-selected="false" tabindex="-1" type="button">
+          <img class="tabSvg" src="icons/Settings Icon.svg" alt="" width="16" height="16" aria-hidden="true" />
+          <kbd class="keycap" aria-hidden="true">3</kbd>
         </button>
-        <div id="explorerBody" class="sectionBody" role="region" aria-labelledby="explorerToggleBtn">
-          <div class="filters">
-            <label class="sr-only" for="q">Filter findings</label>
-            <input id="q" name="q" autocomplete="off" type="text" aria-label="Filter findings" placeholder="Filter findings…" />
-            <label class="sr-only" for="sev">Filter by severity</label>
-            <select id="sev" aria-label="Filter by severity">
-              <option value="">All severities</option>
-              <option value="high">high</option>
-              <option value="medium">medium</option>
-              <option value="low">low</option>
-              <option value="info">info</option>
-            </select>
-            <label class="sr-only" for="prod">Filter by product</label>
-            <select id="prod" aria-label="Filter by product"><option value="">All products</option></select>
-            <label class="sr-only" for="type">Filter by type</label>
-            <select id="type" aria-label="Filter by type"><option value="">All types</option></select>
-            <label class="chk"><input id="unique" type="checkbox" checked /> Unique</label>
-          </div>
-          <div class="tableWrap vscroll">
-            <table class="tbl" id="allTable">
-              <caption class="sr-only">All findings</caption>
-              <thead>
-                <tr>
-                  <th scope="col">sev</th><th scope="col">product</th><th scope="col">type</th><th scope="col">wcag</th><th scope="col">name</th><th scope="col">testId</th><th scope="col">path</th><th scope="col">note</th><th scope="col">fix</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
+      </nav>
 
-      <section class="out">
-        <div class="outHeader">
-          <div class="exportAnchor" id="exportAnchor" hidden>
-            <button class="exportBtn" id="exportToggle" type="button" aria-expanded="false" aria-haspopup="menu" aria-controls="exportMenu">&#8595; Export &#x25BE;</button>
-            <div class="exportMenu" id="exportMenu" role="menu" aria-labelledby="exportToggle" hidden>
-              <div class="emLabel">Single run</div>
-              <button class="emItem" id="copyJson" type="button" role="menuitem"><span class="l">Copy JSON</span><span class="dd">Result as JSON</span></button>
-              <button class="emItem" id="copyMd" type="button" role="menuitem"><span class="l">Copy Markdown</span><span class="dd">Formatted report</span></button>
-              <button class="emItem" id="downloadJson" type="button" role="menuitem"><span class="l">Download .json</span><span class="dd">Save to file</span></button>
-              <div class="emLabel" id="sessionExportMenuLabel" hidden>Session</div>
-              <button class="emItem" id="exportSessionJsonMenu" type="button" role="menuitem" hidden><span class="l">Session JSON</span><span class="dd">Last ended session</span></button>
-              <button class="emItem" id="exportSessionMdMenu" type="button" role="menuitem" hidden><span class="l">Session Markdown</span><span class="dd">Last ended session</span></button>
-              <span class="inlineHint sr-only" id="copyMdHint" aria-live="polite"></span>
-            </div>
-          </div>
-          <button class="outToggle" id="jsonToggle" type="button" aria-expanded="false" aria-controls="json">
-            <span class="outToggleIcon">&#x25B6;</span> <svg class="si" aria-hidden="true" focusable="false" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4L1 8l4 4m6-8l4 4-4 4"/></svg> Raw JSON
+
+      <!-- ═══════════════════════ SNAP PANEL ═══════════════════════ -->
+      <div id="snapContent" role="tabpanel" aria-labelledby="topTabSnap">
+
+        <!-- Snap subtabs -->
+        <nav class="subTabBar" id="snapSubTabBar" role="tablist" aria-label="Snap modes">
+          <button class="subTab subTab--run" role="tab" data-action="run" aria-selected="true" tabindex="0" type="button">
+            <img class="tabSvg" src="icons/Audit Icon.svg" alt="" width="16" height="16" aria-hidden="true" />
+            <span class="tabLabel">Audit</span>
           </button>
-          <button class="btn xs" id="copyJsonRaw" type="button" aria-label="Copy raw JSON">Copy</button>
-        </div>
-        <pre id="json" class="collapsed" role="region" aria-label="Raw JSON output" hidden>(no results yet)</pre>
-      </section>
-      <section class="findingsCard" id="contrastSection" role="region" aria-label="Contrast results" hidden>
-        <div class="tableTitle"><svg class="si" aria-hidden="true" focusable="false" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5A5.5 5.5 0 0 1 8 13.5z" fill="currentColor" stroke="none"/></svg> <span id="contrastTitle">Color audit — Contrast failures</span><label class="switch switchSm"><input id="contrastShowAll" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Show all</span></label></div>
-        <div class="tableWrap vscroll">
-          <table class="tbl" id="contrastTable">
-            <caption class="sr-only">Contrast failures</caption>
-            <thead>
-              <tr>
-                <th scope="col">ratio</th><th scope="col">req</th><th scope="col">large</th><th scope="col">text</th><th scope="col">tag</th><th scope="col">testId</th><th scope="col">path</th><th scope="col">note</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </section>
+          <button class="subTab subTab--contrast" role="tab" data-action="contrast" aria-selected="false" tabindex="-1" type="button">
+            <img class="tabSvg" src="icons/Contrast Icon.svg" alt="" width="16" height="16" aria-hidden="true" />
+            <span class="tabLabel">Contrast</span>
+          </button>
+          <button class="subTab subTab--tabWalk" role="tab" data-action="tabWalk" aria-selected="false" tabindex="-1" type="button">
+            <img class="tabSvg" src="icons/Tab Walk Icon.svg" alt="" width="16" height="16" aria-hidden="true" />
+            <span class="tabLabel">Tab Walk</span>
+          </button>
+          <button class="subTab subTab--observe" role="tab" data-action="observe" aria-selected="false" tabindex="-1" type="button">
+            <img class="tabSvg" src="icons/Observe Icon.svg" alt="" width="16" height="16" aria-hidden="true" />
+            <span class="tabLabel">Observe</span>
+          </button>
+          <button class="subTab subTab--watch" role="tab" data-action="watch" aria-selected="false" tabindex="-1" type="button">
+            <img class="tabSvg" src="icons/Watch Icon.svg" alt="" width="16" height="16" aria-hidden="true" />
+            <span class="tabLabel">Watch</span>
+          </button>
+        </nav>
 
-      <section class="findingsCard" id="tabWalkSection" role="region" aria-label="Tab order results" hidden>
-        <div class="tableTitle"><svg class="si" aria-hidden="true" focusable="false" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="14" height="10" rx="2"/><path d="M4 7h1m2 0h1m2 0h1M5 10h6"/></svg> Keystrokes — TabWalk events</div>
-        <div class="tableWrap vscroll">
-          <table class="tbl" id="tabTable">
-            <caption class="sr-only">TabWalk events</caption>
-            <thead>
-              <tr>
-                <th scope="col">i</th><th scope="col">type</th><th scope="col">tabIndex</th><th scope="col">name</th><th scope="col">path</th><th scope="col">note</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+        <!-- CTA slot -->
+        <div class="ctaSlot" id="snapCta">
+          <button class="ctaBtn ctaBtn--amber" id="runCurrentMode" type="button">
+            <span id="runIcon" aria-hidden="true">&#9655;</span> <span id="runLabel">Run Audit</span>
+          </button>
+          <p class="helperText" id="snapHelper">Perform a strict WCAG Audit</p>
         </div>
-      </section>
+
+        <!-- Severity counters -->
+        <div class="statsRow counterRow" id="statsRow" hidden></div>
+
+        <!-- Progress -->
+        <div class="progress" id="progressWrap" hidden role="status" aria-live="polite" aria-atomic="true" aria-label="Audit progress">
+          <div class="pMeta">
+            <span class="pLabel" id="progressLabel">Scanning…</span>
+            <span class="pTime mono" id="progressTime">0.0s</span>
+          </div>
+          <div class="pTrack" aria-hidden="true">
+            <div class="pFill" id="progressBar" role="progressbar" aria-label="Audit progress completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="0%" aria-describedby="progressLabel progressStatus"></div>
+          </div>
+          <span class="sr-only" id="progressStatus">Audit idle</span>
+        </div>
+
+        <!-- Empty state -->
+        <section class="emptyState compact" id="emptyState" aria-live="polite">
+          <div class="emptyCompact">Ready. Pick a mode and run.</div>
+        </section>
+
+        <!-- Results zone -->
+        <div class="resultsZone" id="resultsZone">
+
+          <!-- Results summary -->
+          <section class="findingsCard" id="resultsCard">
+            <button class="sectionToggle" id="resultsToggleBtn" type="button" aria-expanded="true" aria-controls="resultsBody" data-collapse="resultsBody">
+              <span class="outToggleIcon">&#x25B6;</span> Results
+            </button>
+            <div id="resultsBody" class="sectionBody" role="region" aria-labelledby="resultsToggleBtn">
+              <div id="runSummary" class="kvs">(no results yet)</div>
+              <div id="sevBadges" class="badges"></div>
+            </div>
+          </section>
+
+          <!-- Prioritized view -->
+          <section class="findingsCard" id="findingsSection">
+            <button class="sectionToggle" id="topIssuesToggleBtn" type="button" aria-expanded="true" aria-controls="topTableInner" data-collapse="topTableInner">
+              <span class="outToggleIcon">&#x25B6;</span> Prioritized view <span class="toggleCount" id="topCount">0</span>
+            </button>
+            <div id="topTableInner" class="sectionBody" role="region" aria-labelledby="topIssuesToggleBtn">
+              <div class="blockAlert" id="topBlockingAlert" hidden></div>
+              <div class="filterChips" id="topFilterChips" role="group" aria-label="Prioritized findings view filter"></div>
+            </div>
+          </section>
+
+          <!-- All findings explorer -->
+          <section class="findingsCard" id="explorerSection">
+            <button class="sectionToggle" id="explorerToggleBtn" type="button" aria-expanded="true" aria-controls="explorerBody" data-collapse="explorerBody">
+              <span class="outToggleIcon">&#x25B6;</span> All findings <span class="toggleCount" id="allCount">0</span>
+            </button>
+            <div id="explorerBody" class="sectionBody" role="region" aria-labelledby="explorerToggleBtn">
+              <div class="filters">
+                <label class="sr-only" for="q">Filter findings</label>
+                <input id="q" name="q" autocomplete="off" type="text" aria-label="Filter findings" placeholder="Filter findings…" />
+                <label class="sr-only" for="sev">Filter by severity</label>
+                <select id="sev" aria-label="Filter by severity">
+                  <option value="">All severities</option>
+                  <option value="high">high</option>
+                  <option value="medium">medium</option>
+                  <option value="low">low</option>
+                  <option value="info">info</option>
+                </select>
+                <label class="sr-only" for="prod">Filter by product</label>
+                <select id="prod" aria-label="Filter by product"><option value="">All products</option></select>
+                <label class="sr-only" for="type">Filter by type</label>
+                <select id="type" aria-label="Filter by type"><option value="">All types</option></select>
+                <label class="chk"><input id="unique" type="checkbox" checked /> Unique</label>
+              </div>
+              <div class="tableWrap vscroll">
+                <table class="tbl" id="allTable">
+                  <caption class="sr-only">All findings</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">sev</th><th scope="col">product</th><th scope="col">type</th><th scope="col">wcag</th><th scope="col">name</th><th scope="col">testId</th><th scope="col">path</th><th scope="col">note</th><th scope="col">fix</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <!-- Contrast section -->
+          <section class="findingsCard" id="contrastSection" role="region" aria-label="Contrast results" hidden>
+            <div class="tableTitle">
+              <span id="contrastTitle">Contrast failures</span>
+              <label class="switch switchSm"><input id="contrastShowAll" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Show all</span></label>
+            </div>
+            <div class="tableWrap vscroll">
+              <table class="tbl" id="contrastTable">
+                <caption class="sr-only">Contrast failures</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">ratio</th><th scope="col">req</th><th scope="col">large</th><th scope="col">text</th><th scope="col">tag</th><th scope="col">testId</th><th scope="col">path</th><th scope="col">note</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- Tab Walk section -->
+          <section class="findingsCard" id="tabWalkSection" role="region" aria-label="Tab order results" hidden>
+            <div class="tableTitle">TabWalk events</div>
+            <div class="tableWrap vscroll">
+              <table class="tbl" id="tabTable">
+                <caption class="sr-only">TabWalk events</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">i</th><th scope="col">type</th><th scope="col">tabIndex</th><th scope="col">name</th><th scope="col">path</th><th scope="col">note</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </section>
+
+        </div><!-- /resultsZone -->
+
+        <!-- Export + Raw JSON -->
+        <section class="out">
+          <div class="outHeader">
+            <div class="exportAnchor" id="exportAnchor" hidden>
+              <button class="exportBtn" id="exportToggle" type="button" aria-expanded="false" aria-haspopup="menu" aria-controls="exportMenu">&#8595; Export &#x25BE;</button>
+              <div class="exportMenu" id="exportMenu" role="menu" aria-labelledby="exportToggle" hidden>
+                <div class="emLabel">Single run</div>
+                <button class="emItem" id="copyJson" type="button" role="menuitem"><span class="l">Copy JSON</span><span class="dd">Result as JSON</span></button>
+                <button class="emItem" id="copyMd" type="button" role="menuitem"><span class="l">Copy Markdown</span><span class="dd">Formatted report</span></button>
+                <button class="emItem" id="downloadJson" type="button" role="menuitem"><span class="l">Download .json</span><span class="dd">Save to file</span></button>
+                <div class="emLabel" id="sessionExportMenuLabel" hidden>Session</div>
+                <button class="emItem" id="exportSessionJsonMenu" type="button" role="menuitem" hidden><span class="l">Session JSON</span><span class="dd">Last ended session</span></button>
+                <button class="emItem" id="exportSessionMdMenu" type="button" role="menuitem" hidden><span class="l">Session Markdown</span><span class="dd">Last ended session</span></button>
+                <span class="inlineHint sr-only" id="copyMdHint" aria-live="polite"></span>
+              </div>
+            </div>
+            <button class="outToggle" id="jsonToggle" type="button" aria-expanded="false" aria-controls="json">
+              <span class="outToggleIcon">&#x25B6;</span> Raw JSON
+            </button>
+            <button class="btn xs" id="copyJsonRaw" type="button" aria-label="Copy raw JSON">Copy</button>
+          </div>
+          <pre id="json" class="collapsed" role="region" aria-label="Raw JSON output" hidden>(no results yet)</pre>
+        </section>
+
+      </div><!-- /snapContent -->
+
+
+      <!-- ═══════════════════════ FLOW PANEL ═══════════════════════ -->
+      <div id="flowContent" role="tabpanel" aria-labelledby="topTabFlow" hidden inert>
+
+        <!-- Flow subtabs -->
+        <nav class="subTabBar" id="flowSubTabBar" role="tablist" aria-label="Flow modes">
+          <button class="subTab subTab--watch" id="flowTabWatch" role="tab" data-flowtab="watch" aria-selected="false" tabindex="-1" type="button">
+            <img class="tabSvg" src="icons/Watch Icon.svg" alt="" width="16" height="16" aria-hidden="true" />
+            <span class="tabLabel">Watch</span>
+          </button>
+          <button class="subTab subTab--record" id="flowTabRecord" role="tab" data-flowtab="record" aria-selected="true" tabindex="0" type="button">
+            <img class="tabSvg" src="icons/Flow Icon.svg" alt="" width="16" height="16" aria-hidden="true" />
+            <span class="tabLabel">Record</span>
+          </button>
+        </nav>
+
+        <!-- ─── Flow > Record ─── -->
+        <div id="flowRecordView" class="flowView active">
+
+          <div class="ctaSlot" id="flowRecordCta">
+            <button class="ctaBtn ctaBtn--pink" id="sessionStart" type="button" title="Start capture session">
+              &#9655; Record Flow
+            </button>
+            <div class="flowRecordingBanner" id="flowRecordingBanner" hidden>
+              <span class="recSpinner" aria-hidden="true">&#9676;</span> Recording&hellip;
+            </div>
+            <div class="flowRecordActions" id="flowRecordActions" hidden>
+              <button class="ctaBtn ctaBtn--pink" id="sessionMark" type="button" title="Capture current step" disabled>
+                Mark step <kbd class="keycap" aria-hidden="true">s</kbd>
+              </button>
+              <button class="ctaBtn ctaBtn--outline" id="sessionEnd" type="button" title="End active session" disabled>
+                End <kbd class="keycap" aria-hidden="true">e</kbd>
+              </button>
+            </div>
+            <p class="helperText" id="flowRecordHelper">Record a11y changes across a multi-step flow</p>
+          </div>
+
+          <!-- Flow counters (Added / Fixed / Unresolved) -->
+          <div class="counterRow" id="flowCounterRow" hidden></div>
+
+          <!-- Session info accordion -->
+          <section class="accordion" id="flowSessionInfo">
+            <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="flowSessionInfoBody">
+              <span class="accIcon" aria-hidden="true">&#9432;</span>
+              <span class="accLabel">Session info</span>
+              <span class="chevron" aria-hidden="true">&#x2228;</span>
+            </button>
+            <div class="accordionBody" id="flowSessionInfoBody" hidden>
+              <dl class="sessionInfoGrid">
+                <dt>Status</dt><dd id="flowSiStatus">IDLE</dd>
+                <dt>Started</dt><dd id="flowSiStarted">&mdash;</dd>
+                <dt>Duration</dt><dd id="flowSiDuration">&mdash;</dd>
+                <dt>Steps</dt><dd id="flowSiSteps">0 / 100</dd>
+                <dt>Baseline</dt><dd id="flowSiBaseline">Run</dd>
+                <dt>Active</dt><dd id="flowSiActive">Observe</dd>
+                <dt>Scope</dt><dd id="flowSiScope">Primary</dd>
+                <dt>WCAG</dt><dd id="flowSiWcag">2.2 AA</dd>
+              </dl>
+            </div>
+          </section>
+
+          <!-- Timeline view accordion -->
+          <section class="accordion" id="flowTimeline">
+            <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="flowTimelineBody">
+              <span class="accIcon" aria-hidden="true">&#9776;</span>
+              <span class="accLabel">Timeline view</span>
+              <span class="chevron" aria-hidden="true">&#x2228;</span>
+            </button>
+            <div class="accordionBody" id="flowTimelineBody" hidden>
+              <div class="tableWrap vscroll">
+                <table class="tbl" id="flowTimelineTable">
+                  <caption class="sr-only">Flow timeline</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">step</th><th scope="col">route</th><th scope="col">mode</th><th scope="col">new</th><th scope="col">fixed</th><th scope="col">unresolved</th><th scope="col">top blockers</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <!-- Raw JSON for flow record -->
+          <section class="accordion" id="flowRecordJson">
+            <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="flowRecordJsonBody">
+              <span class="accIcon" aria-hidden="true">{&thinsp;}</span>
+              <span class="accLabel">Raw JSON</span>
+              <span class="chevron" aria-hidden="true">&#x2228;</span>
+            </button>
+            <div class="accordionBody" id="flowRecordJsonBody" hidden>
+              <pre class="rawJsonPre">(no session data yet)</pre>
+            </div>
+          </section>
+
+          <!-- Status line -->
+          <div class="lastStatusLine mono" id="lastStatusLine" role="status" aria-live="polite" aria-atomic="true" hidden>
+            Last status: IDLE
+          </div>
+
+        </div><!-- /flowRecordView -->
+
+        <!-- ─── Flow > Watch ─── -->
+        <div id="flowWatchView" class="flowView">
+
+          <div class="ctaSlot">
+            <button class="ctaBtn ctaBtn--green" id="flowWatchCtaBtn" type="button">
+              &#9655; Start Watch
+            </button>
+            <p class="helperText">Monitor loaders and focus bar for 40s</p>
+          </div>
+
+          <section class="accordion">
+            <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="flowWatchFindings">
+              <span class="accIcon" aria-hidden="true">&#9776;</span>
+              <span class="accLabel">All findings</span>
+              <span class="toggleCount" id="flowWatchCount">0</span>
+              <span class="chevron" aria-hidden="true">&#x2228;</span>
+            </button>
+            <div class="accordionBody" id="flowWatchFindings" hidden>
+              <p class="placeholderText">Run Watch to see findings</p>
+            </div>
+          </section>
+
+          <section class="accordion">
+            <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="flowWatchJsonBody">
+              <span class="accIcon" aria-hidden="true">{&thinsp;}</span>
+              <span class="accLabel">Raw JSON</span>
+              <span class="chevron" aria-hidden="true">&#x2228;</span>
+            </button>
+            <div class="accordionBody" id="flowWatchJsonBody" hidden>
+              <pre class="rawJsonPre">(no results yet)</pre>
+            </div>
+          </section>
+
+        </div><!-- /flowWatchView -->
+
+      </div><!-- /flowContent -->
+
+
+      <!-- ═══════════════════════ SETTINGS PANEL ═══════════════════════ -->
+      <div id="settingsContent" role="tabpanel" aria-labelledby="topTabSettings" hidden inert>
+
+        <!-- Global Settings -->
+        <section class="accordion settingsAccordion" id="settingsGlobal">
+          <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="settingsGlobalBody">
+            <span class="accIcon" aria-hidden="true">&#9881;</span>
+            <span class="accLabel">Global Settings</span>
+            <span class="chevron" aria-hidden="true">&#x2228;</span>
+          </button>
+          <div class="accordionBody" id="settingsGlobalBody" hidden>
+            <div class="settingsGrid">
+              <div class="settingsGroup">
+                <span class="settingsLabel">Display</span>
+                <div class="settingsToggles">
+                  <label class="switch"><input id="themeToggle" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Light theme</span></label>
+                  <label class="switch"><input id="density" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Compact</span></label>
+                </div>
+              </div>
+              <div class="settingsGroup">
+                <span class="settingsLabel">WCAG level</span>
+                <label class="sr-only" for="wcagLevel">WCAG compliance level</label>
+                <select id="wcagLevel" aria-label="WCAG compliance level">
+                  <option value="2.1-AA">WCAG 2.1 AA</option>
+                  <option value="2.1-AAA">WCAG 2.1 AAA</option>
+                  <option value="2.2-AA" selected>WCAG 2.2 AA</option>
+                  <option value="2.2-AAA">WCAG 2.2 AAA</option>
+                </select>
+              </div>
+              <div class="settingsGroup">
+                <span class="settingsLabel">Profiles</span>
+                <div id="profileSelect" class="profilePills" role="group" aria-label="Active MFE profiles"></div>
+              </div>
+              <div class="settingsGroup">
+                <span class="settingsLabel">Target scope</span>
+                <label class="sr-only" for="target">Scope</label>
+                <select id="target" aria-label="Scope">
+                  <option value="primary">Primary frame</option>
+                  <option value="host">Host page only</option>
+                  <option value="embedded">Embedded frame only</option>
+                  <option value="all">All frames</option>
+                </select>
+              </div>
+              <div class="settingsGroup">
+                <span class="settingsLabel">Frame</span>
+                <span id="frameSelectWrap">
+                  <label class="sr-only" for="frameSelect">Select a frame</label>
+                  <select id="frameSelect" aria-label="Select a frame" disabled></select>
+                </span>
+                <label class="switch switchSm"><input id="pinFrame" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Pin</span></label>
+                <button class="btn xs" id="refreshFrames" type="button">&#8635; Refresh</button>
+                <button class="btn xs" id="copyFrameUrl" type="button" aria-label="Copy selected frame URL">Copy URL</button>
+              </div>
+              <div class="targetingSummary mono" id="targetingSummary" role="status" aria-live="polite" aria-atomic="true">
+                Target: Primary frame
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Flow-only Settings -->
+        <section class="accordion settingsAccordion" id="settingsFlow">
+          <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="settingsFlowBody">
+            <span class="accIcon" aria-hidden="true">&#9687;</span>
+            <span class="accLabel">Flow-only Settings</span>
+            <span class="chevron" aria-hidden="true">&#x2228;</span>
+          </button>
+          <div class="accordionBody" id="settingsFlowBody" hidden>
+            <div class="settingsGrid">
+              <div class="settingsGroup">
+                <span class="settingsLabel">Active mode</span>
+                <span class="mono readOnly">Observe</span>
+              </div>
+              <div class="settingsGroup">
+                <span class="settingsLabel">Max steps</span>
+                <span class="mono readOnly">100</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Snap-only Settings -->
+        <section class="accordion settingsAccordion" id="settingsSnap">
+          <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="settingsSnapBody">
+            <span class="accIcon" aria-hidden="true">&#9673;</span>
+            <span class="accLabel">Snap-only Settings</span>
+            <span class="chevron" aria-hidden="true">&#x2228;</span>
+          </button>
+          <div class="accordionBody" id="settingsSnapBody" hidden>
+            <div class="settingsGrid">
+              <div class="settingsGroup">
+                <span class="settingsLabel">Console logging</span>
+                <label class="switch"><input id="alsoConsole" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Log to console</span></label>
+              </div>
+              <div class="settingsGroup">
+                <span class="settingsLabel">Observe duration</span>
+                <span class="mono readOnly">12 s</span>
+              </div>
+              <div class="settingsGroup">
+                <span class="settingsLabel">Watch duration</span>
+                <span class="mono readOnly">40 s</span>
+              </div>
+              <div class="settingsGroup">
+                <span class="settingsLabel">Contrast node limit</span>
+                <span class="mono readOnly">250</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div><!-- /settingsContent -->
+
+
+      <!-- Hidden runtime metadata (used by JS) -->
+      <div class="runtimeMeta" hidden aria-hidden="true">
+        <span id="inspectedUrl">&mdash;</span>
+        <span id="brandEnv">&mdash;</span>
+        <span id="usedFrames">&mdash;</span>
+        <span id="diff">&mdash;</span>
       </div>
 
+      <!-- Re-run button (hidden, used programmatically) -->
+      <button class="btn xs" id="rerunCurrent" type="button" title="Run the selected mode again" hidden aria-hidden="true">Re-run</button>
 
       <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
     </main>
