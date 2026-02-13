@@ -219,6 +219,56 @@
     COMBOBOX_NO_LISTBOX: 'Add aria-owns or aria-controls pointing to a role="listbox" (or role="tree"/"grid") element that appears when the combobox is expanded.',
     // AAA
     TARGET_SIZE_AAA: 'Increase the target size to at least 44x44px to meet AAA requirements.',
+    // Tier 1 extended rules
+    NESTED_INTERACTIVE: 'Remove the nested interactive element, or replace the outer <button>/<a> with a non-interactive wrapper like <div> with role and keyboard handling.',
+    DOCUMENT_TITLE_MISSING: 'Add a <title>Page Title</title> element inside <head> that describes the page purpose.',
+    ARIA_VALID_ATTR: (f) => `"${f.extra?.attr}" is not a valid ARIA attribute. Check for typos${f.extra?.suggestion ? ` — did you mean "${f.extra.suggestion}"?` : '.'}`,
+    ARIA_VALID_ROLE: (f) => `role="${f.extra?.role}" is not a valid WAI-ARIA role. Remove it or use a valid role value.`,
+    ARIA_REQUIRED_CHILDREN: (f) => `role="${f.extra?.role}" requires at least one child with role="${f.extra?.expected}". Add the missing child element.`,
+    ARIA_REQUIRED_PARENT: (f) => `role="${f.extra?.role}" must be contained in a parent with role="${f.extra?.expected}". Wrap it in the appropriate parent.`,
+    META_REFRESH: 'Remove <meta http-equiv="refresh">. Use server-side redirects or give the user a link to navigate.',
+    NO_AUTOPLAY_AUDIO: 'Add muted attribute, or ensure audio does not play for more than 3 seconds, or provide a mechanism to pause/stop/mute.',
+    HTML_LANG_VALID: (f) => `lang="${f.extra?.lang}" is not a valid BCP 47 language tag. Use a valid code like "en", "fr", "es", "de".`,
+    SCROLLABLE_NOT_FOCUSABLE: 'Add tabindex="0" and an accessible label (aria-label or aria-labelledby) to the scrollable container.',
+    LINK_SUSPICIOUS_TEXT: (f) => `Link text "${f.extra?.text}" is not descriptive. Use text that describes the link destination (e.g., "View pricing details" instead of "click here").`,
+    EMPTY_HEADING: 'Add text content to the heading, or remove it if not needed.',
+    EMPTY_TABLE_HEADER: 'Add text content to the <th> element, or use aria-label if visual text is not appropriate.',
+    DIALOG_NO_ACCESSIBLE_NAME: 'Add aria-label="Dialog purpose" or aria-labelledby pointing to the dialog title element.',
+    ARIA_ALLOWED_ATTR: (f) => `"${f.extra?.attr}" is not allowed on role="${f.extra?.role}". Remove the attribute or change the element's role.`,
+    ARIA_HIDDEN_ON_BODY: 'Remove aria-hidden="true" from <body> or <html>. This hides the entire page from assistive technology.',
+    // Tier 2 extended rules
+    MARQUEE_ELEMENT: 'Replace <marquee> with CSS animation or a static alternative. The <marquee> element is deprecated and causes reading difficulty.',
+    INPUT_IMAGE_ALT: 'Add alt="description" to the <input type="image"> element describing its action (e.g., alt="Submit form").',
+    AREA_ALT_MISSING: 'Add alt="description" to the <area> element describing the linked region.',
+    OBJECT_NO_ALT: 'Add a text alternative inside the <object> element as fallback content, or use aria-label.',
+    FIELDSET_NO_LEGEND: 'Add a <legend> as the first child of the <fieldset> to describe the group of controls.',
+    SVG_IMG_NO_ALT: 'Add aria-label="description" to the <svg>, or include a <title> element as first child of the SVG.',
+    VIDEO_NO_CAPTIONS: 'Add <track kind="captions" src="..."> inside the <video> element to provide synchronized captions.',
+    LIST_STRUCTURE: (f) => `Move the <${f.extra?.tag}> inside a <ul>, <ol>, or <menu> element. List items must be children of a list container.`,
+    DL_STRUCTURE: (f) => `Move the <${f.extra?.tag}> inside a <dl> element. Definition terms/descriptions must be children of a definition list.`,
+    ACCESSKEY_DUPLICATE: (f) => `accesskey="${f.extra?.key}" is used on ${f.extra?.count} elements. Each accesskey must be unique on the page.`,
+    FORM_FIELD_MULTIPLE_LABELS: 'Remove extra <label> elements so each input has exactly one associated label.',
+    AUTOCOMPLETE_VALID: (f) => `autocomplete="${f.extra?.value}" is not a valid token. Use a recognized value like "name", "email", "tel", etc.`,
+    TH_MISSING_SCOPE: 'Add scope="col" or scope="row" to <th> elements in tables with multiple rows and columns.',
+    VIDEO_AUTOPLAY: 'Add muted attribute to <video autoplay>, or provide a mechanism to pause/stop the video.',
+    // Tier 3 extended rules
+    BLINK_ELEMENT: 'Remove the <blink> element. It is deprecated and causes seizure/readability issues. Use CSS animation with prefers-reduced-motion support if needed.',
+    SERVER_IMAGE_MAP: 'Replace the server-side image map (<img ismap>) with a client-side <map> using <area> elements, so each region has its own accessible name.',
+    SCOPE_ATTR_VALID: (f) => `scope="${f.extra?.value}" is not valid. Use "col", "row", "colgroup", or "rowgroup".`,
+    TD_HEADERS_INVALID: (f) => `headers attribute references id="${f.extra?.id}" which does not exist. Fix the id reference or remove the headers attribute.`,
+    TABLE_DUPLICATE_NAME: 'The table caption and aria-label are identical. Remove one to avoid redundant announcements.',
+    AUDIO_NO_TRANSCRIPT: 'Provide a text transcript for the audio content, or link to one near the <audio> element.',
+    ARIA_VALID_ATTR_VALUE: (f) => `"${f.extra?.value}" is not a valid value for ${f.extra?.attr}. ${f.extra?.expected || 'Check the WAI-ARIA spec for allowed values.'}`,
+    IDENTICAL_LINKS_SAME_TEXT: (f) => `${f.extra?.count} links use text "${f.extra?.text}" but point to different URLs. Differentiate the link text or add aria-label to clarify purpose.`,
+    P_AS_HEADING: 'If this text acts as a heading, use an <h2>–<h6> element instead of styling a <p> or <div> with bold/large text.',
+    // Chat & Help Center extended rules
+    CHAT_SEND_NO_LABEL: 'Add aria-label="Send message" (or similar) to the send button, or ensure it has visible text content.',
+    CHAT_AVATAR_NO_ALT: 'Add alt="Agent name" or alt="" (if decorative) to avatar images inside the chat log.',
+    CHAT_NO_ARIA_RELEVANT: 'Add aria-relevant="additions" to role="log" so assistive technology correctly announces only new messages.',
+    CHAT_TYPING_NO_ANNOUNCEMENT: 'Wrap the typing indicator in an aria-live="polite" region, or announce "Agent is typing" via a live region.',
+    HC_SEARCH_NO_LABEL: 'Add a visible <label> or aria-label to the help center search input.',
+    HC_BREADCRUMB_NO_LABEL: 'Add aria-label="Breadcrumb" to the <nav> element containing breadcrumb links.',
+    HC_ACCORDION_NO_STATE: 'Add aria-expanded="true" or aria-expanded="false" to the accordion trigger button.',
   };
 
   const RULE_REGISTRY = {
@@ -627,6 +677,97 @@
     "button", "link", "checkbox", "switch", "radio", "menuitem", "menuitemcheckbox",
     "menuitemradio", "option", "tab", "textbox", "combobox", "slider", "spinbutton"
   ]);
+
+  // WAI-ARIA 1.2 valid aria-* attributes
+  const VALID_ARIA_ATTRS = new Set([
+    "aria-activedescendant","aria-atomic","aria-autocomplete","aria-braillelabel",
+    "aria-brailleroledescription","aria-busy","aria-checked","aria-colcount",
+    "aria-colindex","aria-colindextext","aria-colspan","aria-controls","aria-current",
+    "aria-describedby","aria-description","aria-details","aria-disabled",
+    "aria-dropeffect","aria-errormessage","aria-expanded","aria-flowto","aria-grabbed",
+    "aria-haspopup","aria-hidden","aria-invalid","aria-keyshortcuts","aria-label",
+    "aria-labelledby","aria-level","aria-live","aria-modal","aria-multiline",
+    "aria-multiselectable","aria-orientation","aria-owns","aria-placeholder",
+    "aria-posinset","aria-pressed","aria-readonly","aria-relevant","aria-required",
+    "aria-roledescription","aria-rowcount","aria-rowindex","aria-rowindextext",
+    "aria-rowspan","aria-selected","aria-setsize","aria-sort","aria-valuemax",
+    "aria-valuemin","aria-valuenow","aria-valuetext"
+  ]);
+
+  // WAI-ARIA 1.2 valid role values
+  const VALID_ROLES = new Set([
+    "alert","alertdialog","application","article","banner","blockquote","button",
+    "caption","cell","checkbox","code","columnheader","combobox","command","comment",
+    "complementary","composite","contentinfo","definition","deletion","dialog",
+    "directory","document","emphasis","feed","figure","form","generic","grid",
+    "gridcell","group","heading","img","input","insertion","landmark","link","list",
+    "listbox","listitem","log","main","mark","marquee","math","menu","menubar",
+    "menuitem","menuitemcheckbox","menuitemradio","meter","navigation","none","note",
+    "option","paragraph","presentation","progressbar","radio","radiogroup","range",
+    "region","roletype","row","rowgroup","rowheader","scrollbar","search","searchbox",
+    "section","sectionhead","select","separator","slider","spinbutton","status",
+    "strong","structure","subscript","superscript","switch","tab","table","tablist",
+    "tabpanel","term","textbox","time","timer","toolbar","tooltip","tree","treegrid",
+    "treeitem","widget","window"
+  ]);
+
+  // Required owned elements (children) by parent role
+  const REQUIRED_CHILDREN = {
+    tablist: [["tab"]], menu: [["menuitem","menuitemcheckbox","menuitemradio"]],
+    menubar: [["menuitem","menuitemcheckbox","menuitemradio"]],
+    list: [["listitem"]], listbox: [["option"]],
+    tree: [["treeitem","group"]], treegrid: [["row"]],
+    grid: [["row","rowgroup"]], table: [["row","rowgroup"]],
+    radiogroup: [["radio"]], feed: [["article"]], rowgroup: [["row"]]
+  };
+
+  // Required context (parent) by child role
+  const REQUIRED_PARENT = {
+    tab: ["tablist"], menuitem: ["menu","menubar","group"],
+    menuitemcheckbox: ["menu","menubar","group"],
+    menuitemradio: ["menu","menubar","group"],
+    option: ["listbox","group"], treeitem: ["tree","group"],
+    listitem: ["list","group"], row: ["table","grid","treegrid","rowgroup"],
+    cell: ["row"], gridcell: ["row"], columnheader: ["row"], rowheader: ["row"]
+  };
+
+  // WCAG 1.3.5 valid autocomplete tokens (HTML spec)
+  const VALID_AUTOCOMPLETE = new Set([
+    "off","on","name","honorific-prefix","given-name","additional-name","family-name",
+    "honorific-suffix","nickname","email","username","new-password","current-password",
+    "one-time-code","organization-title","organization","street-address","address-line1",
+    "address-line2","address-line3","address-level4","address-level3","address-level2",
+    "address-level1","country","country-name","postal-code","cc-name","cc-given-name",
+    "cc-additional-name","cc-family-name","cc-number","cc-exp","cc-exp-month","cc-exp-year",
+    "cc-csc","cc-type","transaction-currency","transaction-amount","language","bday",
+    "bday-day","bday-month","bday-year","sex","tel","tel-country-code","tel-national",
+    "tel-area-code","tel-local","tel-extension","impp","url","photo","webauthn"
+  ]);
+
+  // ARIA attribute value type validators
+  const ARIA_BOOL_ATTRS = new Set([
+    "aria-atomic","aria-busy","aria-disabled","aria-expanded","aria-grabbed",
+    "aria-hidden","aria-modal","aria-multiline","aria-multiselectable","aria-readonly",
+    "aria-required","aria-selected"
+  ]);
+  const ARIA_TRISTATE_ATTRS = new Set(["aria-checked","aria-pressed"]);
+  const ARIA_INT_ATTRS = new Set([
+    "aria-level","aria-posinset","aria-setsize","aria-colcount","aria-colindex",
+    "aria-colspan","aria-rowcount","aria-rowindex","aria-rowspan"
+  ]);
+  const ARIA_NUM_ATTRS = new Set(["aria-valuenow","aria-valuemax","aria-valuemin"]);
+  const ARIA_TOKEN_ATTRS = {
+    "aria-autocomplete": new Set(["none","inline","list","both"]),
+    "aria-current": new Set(["page","step","location","date","time","true","false"]),
+    "aria-haspopup": new Set(["true","false","menu","listbox","tree","grid","dialog"]),
+    "aria-invalid": new Set(["grammar","spelling","true","false"]),
+    "aria-live": new Set(["off","polite","assertive"]),
+    "aria-orientation": new Set(["horizontal","vertical","undefined"]),
+    "aria-sort": new Set(["ascending","descending","none","other"]),
+    "aria-relevant": new Set(["additions","removals","text","all","additions text"]),
+    "aria-dropeffect": new Set(["copy","execute","link","move","none","popup"]),
+  };
+  const VALID_SCOPE_VALUES = new Set(["col","row","colgroup","rowgroup"]);
 
   const isNativeInteractiveControl = (el) => {
     if (!isEl(el)) return false;
@@ -1146,6 +1287,59 @@
           }
         });
       });
+
+      // CHAT_SEND_NO_LABEL: Send/submit button near chat input with no accessible name (icon-only)
+      doc.querySelectorAll("[role='log']").forEach(log => {
+        if (isHidden(log)) return;
+        const container = log.parentElement || doc.body;
+        container.querySelectorAll("button,[role='button'],input[type='submit']").forEach(btn => {
+          if (isHidden(btn)) return;
+          const name = getAccName(btn);
+          if (!name) {
+            add(findings, { type: "CHAT_SEND_NO_LABEL", el: btn, severity: "medium", wcag: "4.1.2",
+              product: "chat",
+              note: "Button near chat log has no accessible name — likely an icon-only send button." });
+          }
+        });
+      });
+
+      // CHAT_AVATAR_NO_ALT: Avatar images inside role=log without alt
+      doc.querySelectorAll("[role='log'] img").forEach(img => {
+        if (isHidden(img)) return;
+        if (!img.hasAttribute("alt")) {
+          const src = (img.getAttribute("src") || "").toLowerCase();
+          if (/(avatar|profile|photo|user|agent|bot)/i.test(src) || img.closest("[class*='avatar'],[class*='Avatar']")) {
+            add(findings, { type: "CHAT_AVATAR_NO_ALT", el: img, severity: "low", wcag: "1.1.1",
+              product: "chat",
+              note: "Avatar image in chat log has no alt attribute. AT will read the filename." });
+          }
+        }
+      });
+
+      // CHAT_NO_ARIA_RELEVANT: role=log without aria-relevant
+      doc.querySelectorAll("[role='log']").forEach(log => {
+        if (isHidden(log)) return;
+        if (!log.hasAttribute("aria-relevant")) {
+          add(findings, { type: "CHAT_NO_ARIA_RELEVANT", el: log, severity: "low", wcag: "4.1.3",
+            product: "chat",
+            note: 'role="log" without aria-relevant. Add aria-relevant="additions" so only new messages are announced.' });
+        }
+      });
+
+      // CHAT_TYPING_NO_ANNOUNCEMENT: Typing indicator with no live region
+      doc.querySelectorAll("[role='log']").forEach(log => {
+        if (isHidden(log)) return;
+        const container = log.parentElement || doc.body;
+        const typingEls = container.querySelectorAll("[class*='typing'],[class*='Typing'],[data-testid*='typing'],[data-testid*='Typing']");
+        typingEls.forEach(el => {
+          const inLive = el.closest("[aria-live]");
+          if (!inLive) {
+            add(findings, { type: "CHAT_TYPING_NO_ANNOUNCEMENT", el, severity: "low", wcag: "4.1.3",
+              product: "chat",
+              note: "Typing indicator is not inside an aria-live region. Screen readers won't announce when someone is typing." });
+          }
+        });
+      });
     }
 
     // -------- Help center tree checks --------
@@ -1190,6 +1384,48 @@
             product: "helpcenter",
             note: `Article with ${textLen} chars of text has no heading — screen reader users cannot navigate its structure.`
           });
+        }
+      });
+
+      // HC_SEARCH_NO_LABEL: Search input without accessible label
+      doc.querySelectorAll("input[type='search'],input[placeholder*='earch' i],input[placeholder*='Find' i],[role='searchbox']").forEach(inp => {
+        if (isHidden(inp)) return;
+        const name = getAccName(inp);
+        if (!name || name.startsWith("[placeholder]")) {
+          add(findings, { type: "HC_SEARCH_NO_LABEL", el: inp, severity: "medium", wcag: "1.3.1 / 4.1.2",
+            product: "helpcenter",
+            note: "Search input has no accessible label (placeholder alone is insufficient)." });
+        }
+      });
+
+      // HC_BREADCRUMB_NO_LABEL: Breadcrumb nav without aria-label
+      doc.querySelectorAll("nav").forEach(nav => {
+        if (isHidden(nav)) return;
+        const links = nav.querySelectorAll("a[href]");
+        if (links.length < 2) return;
+        const hasSep = nav.textContent.match(/[›»>\/]/);
+        const hasBreadcrumbClass = /breadcrumb/i.test(nav.className || "");
+        if ((hasSep || hasBreadcrumbClass) && !nav.hasAttribute("aria-label") && !nav.hasAttribute("aria-labelledby")) {
+          add(findings, { type: "HC_BREADCRUMB_NO_LABEL", el: nav, severity: "low", wcag: "1.3.1",
+            product: "helpcenter",
+            note: 'Breadcrumb <nav> has no aria-label. Add aria-label="Breadcrumb" to distinguish from other nav elements.' });
+        }
+      });
+
+      // HC_ACCORDION_NO_STATE: Accordion/FAQ trigger button without aria-expanded
+      doc.querySelectorAll("button,[role='button']").forEach(btn => {
+        if (isHidden(btn)) return;
+        if (btn.hasAttribute("aria-expanded")) return;
+        const next = btn.nextElementSibling;
+        const parent = btn.parentElement;
+        const isAccordionLike =
+          /accordion|faq|collaps|expand/i.test(btn.className || "") ||
+          /accordion|faq|collaps|expand/i.test(parent?.className || "") ||
+          (next && (next.hasAttribute("hidden") || /accordion|panel|collaps/i.test(next.className || "")));
+        if (isAccordionLike) {
+          add(findings, { type: "HC_ACCORDION_NO_STATE", el: btn, severity: "medium", wcag: "4.1.2",
+            product: "helpcenter",
+            note: "Accordion trigger button has no aria-expanded. Screen readers cannot convey open/closed state." });
         }
       });
     }
@@ -1537,6 +1773,535 @@
       const content = (viewport.getAttribute("content") || "").toLowerCase();
       if (/user-scalable\s*=\s*no/.test(content) || /maximum-scale\s*=\s*1([^.]|$)/.test(content)) {
         add(findings, { type: "VIEWPORT_ZOOM_DISABLED", severity: "medium", wcag: "1.4.4", el: viewport, note: "Viewport disables user zoom — fails WCAG in webview contexts." });
+      }
+    }
+
+    // -------- Tier 1: Extended checks --------
+
+    // 4.1.2: aria-hidden on body/html hides entire page from AT
+    if (doc.body?.getAttribute("aria-hidden") === "true" || doc.documentElement.getAttribute("aria-hidden") === "true") {
+      add(findings, { type: "ARIA_HIDDEN_ON_BODY", severity: "high", wcag: "4.1.2",
+        el: doc.body?.getAttribute("aria-hidden") === "true" ? doc.body : doc.documentElement,
+        note: 'aria-hidden="true" on <body> or <html> hides the entire page from assistive technology.' });
+    }
+
+    // 2.4.2: Document title missing or empty
+    const titleEl = doc.querySelector("title");
+    if (!titleEl || !titleEl.textContent.trim()) {
+      add(findings, { type: "DOCUMENT_TITLE_MISSING", severity: "medium", wcag: "2.4.2",
+        el: doc.head || doc.documentElement, note: "Page has no <title> or title is empty." });
+    }
+
+    // 2.2.1: Meta refresh auto-redirect
+    const metaRefresh = doc.querySelector("meta[http-equiv='refresh' i]");
+    if (metaRefresh) {
+      add(findings, { type: "META_REFRESH", severity: "high", wcag: "2.2.1", el: metaRefresh,
+        note: "meta refresh detected. This can disorient users and cause content to change unexpectedly." });
+    }
+
+    // 1.4.2: Autoplay audio/video without muted
+    doc.querySelectorAll("audio[autoplay],video[autoplay]").forEach(el => {
+      if (isHidden(el)) return;
+      if (!el.hasAttribute("muted")) {
+        add(findings, { type: "NO_AUTOPLAY_AUDIO", severity: "high", wcag: "1.4.2", el,
+          note: `<${el.tagName.toLowerCase()}> has autoplay without muted. May play audio automatically.` });
+      }
+    });
+
+    // 3.1.1: HTML lang attribute has invalid value
+    const langVal = doc.documentElement.getAttribute("lang");
+    if (langVal) {
+      const langPrimary = langVal.split("-")[0].toLowerCase();
+      if (!/^[a-z]{2,3}$/.test(langPrimary)) {
+        add(findings, { type: "HTML_LANG_VALID", severity: "medium", wcag: "3.1.1",
+          el: doc.documentElement, note: `lang="${langVal}" is not a valid language tag.`,
+          extra: { lang: langVal } });
+      }
+    }
+
+    // 4.1.2: Nested interactive elements (button inside link, link inside button, etc.)
+    doc.querySelectorAll("button,a[href],[role='button'],[role='link']").forEach(outer => {
+      if (isHidden(outer)) return;
+      const nested = outer.querySelectorAll("button,a[href],input:not([type='hidden']),select,textarea,[role='button'],[role='link'],[role='checkbox'],[role='radio'],[tabindex]");
+      nested.forEach(inner => {
+        if (inner === outer) return;
+        const ti = inner.getAttribute("tabindex");
+        if (ti !== null && parseInt(ti, 10) < 0) return;
+        add(findings, { type: "NESTED_INTERACTIVE", severity: "high", wcag: "4.1.2", el: inner,
+          note: `Interactive <${inner.tagName.toLowerCase()}> nested inside <${outer.tagName.toLowerCase()}>. Creates unpredictable AT behavior.`,
+          extra: { outer: outer.tagName.toLowerCase(), inner: inner.tagName.toLowerCase() } });
+      });
+    });
+
+    // 1.3.1: Empty headings
+    doc.querySelectorAll("h1,h2,h3,h4,h5,h6,[role='heading']").forEach(el => {
+      if (isHidden(el)) return;
+      if (!getAccName(el).trim()) {
+        add(findings, { type: "EMPTY_HEADING", severity: "medium", wcag: "1.3.1", el,
+          note: `Empty ${el.tagName?.toLowerCase() || 'heading'} element provides no navigation value for AT users.` });
+      }
+    });
+
+    // 1.3.1: Empty table headers
+    doc.querySelectorAll("th").forEach(el => {
+      if (isHidden(el)) return;
+      if (!getAccName(el).trim() && !el.textContent.trim()) {
+        add(findings, { type: "EMPTY_TABLE_HEADER", severity: "medium", wcag: "1.3.1", el,
+          note: "Empty <th> element. Screen readers use header text to describe table cell context." });
+      }
+    });
+
+    // 4.1.2: Dialog without accessible name
+    doc.querySelectorAll("dialog,[role='dialog'],[role='alertdialog']").forEach(el => {
+      if (isHidden(el)) return;
+      if (!getAccName(el).trim()) {
+        add(findings, { type: "DIALOG_NO_ACCESSIBLE_NAME", severity: "high", wcag: "4.1.2", el,
+          note: "Dialog has no accessible name. Add aria-label or aria-labelledby." });
+      }
+    });
+
+    // 2.4.4: Suspicious link text
+    const suspiciousLinkRe = /^(click here|here|read more|more|learn more|link|this|go|download|details|continue|info|page|this page|this link)$/i;
+    doc.querySelectorAll("a[href]").forEach(el => {
+      if (isHidden(el)) return;
+      const linkText = (el.textContent || "").trim();
+      if (linkText && suspiciousLinkRe.test(linkText)) {
+        add(findings, { type: "LINK_SUSPICIOUS_TEXT", severity: "low", wcag: "2.4.4", el,
+          note: `Link text "${txt(linkText, 30)}" is not descriptive of the destination.`,
+          extra: { text: txt(linkText, 30) } });
+      }
+    });
+
+    // 2.1.1: Scrollable container not keyboard-accessible
+    doc.querySelectorAll("div,section,article,aside,nav,ul,ol").forEach(el => {
+      if (isHidden(el)) return;
+      try {
+        const cs = w.getComputedStyle(el);
+        const scrollable = cs.overflowY === "scroll" || cs.overflowY === "auto" || cs.overflowX === "scroll" || cs.overflowX === "auto";
+        if (!scrollable) return;
+        if (el.scrollHeight <= el.clientHeight && el.scrollWidth <= el.clientWidth) return;
+        if (el.getAttribute("tabindex") !== null) return;
+        if (el.querySelector("a[href],button,input,select,textarea,[tabindex]")) return;
+        add(findings, { type: "SCROLLABLE_NOT_FOCUSABLE", severity: "medium", wcag: "2.1.1", el,
+          note: "Scrollable container is not keyboard-accessible. Mouse-only users can scroll; keyboard users cannot." });
+      } catch {}
+    });
+
+    // 4.1.2: Invalid ARIA role value
+    doc.querySelectorAll("[role]").forEach(el => {
+      if (isHidden(el)) return;
+      const roleRaw = (el.getAttribute("role") || "").trim().toLowerCase();
+      if (!roleRaw) return;
+      const rolePrimary = roleRaw.split(/\s+/)[0];
+      if (!VALID_ROLES.has(rolePrimary)) {
+        add(findings, { type: "ARIA_VALID_ROLE", severity: "high", wcag: "4.1.2", el,
+          note: `role="${rolePrimary}" is not a valid WAI-ARIA role.`, extra: { role: rolePrimary } });
+      }
+    });
+
+    // 4.1.2: Invalid aria-* attribute names (typos)
+    {
+      const allEls = doc.querySelectorAll("*");
+      const elLimit = Math.min(allEls.length, 3000);
+      for (let i = 0; i < elLimit; i++) {
+        const el = allEls[i];
+        for (const attr of el.attributes) {
+          if (!attr.name.startsWith("aria-")) continue;
+          if (VALID_ARIA_ATTRS.has(attr.name)) continue;
+          let suggestion = null;
+          for (const valid of VALID_ARIA_ATTRS) {
+            if (Math.abs(valid.length - attr.name.length) <= 2 && valid.startsWith(attr.name.slice(0, 6))) {
+              suggestion = valid; break;
+            }
+          }
+          add(findings, { type: "ARIA_VALID_ATTR", severity: "high", wcag: "4.1.2", el,
+            note: `"${attr.name}" is not a recognized ARIA attribute.`,
+            extra: { attr: attr.name, suggestion } });
+        }
+      }
+    }
+
+    // 1.3.1: ARIA required children missing
+    for (const [parentRole, childRoleSets] of Object.entries(REQUIRED_CHILDREN)) {
+      doc.querySelectorAll(`[role="${parentRole}"]`).forEach(el => {
+        if (isHidden(el)) return;
+        const children = el.querySelectorAll("[role]");
+        const childRoles = new Set([...children].map(c => c.getAttribute("role")));
+        for (const acceptable of childRoleSets) {
+          if (acceptable.some(r => childRoles.has(r))) continue;
+          const hasNativeChild = (parentRole === "list" && el.querySelector("li")) ||
+            (parentRole === "table" && el.querySelector("tr")) ||
+            (parentRole === "grid" && el.querySelector("tr")) ||
+            (parentRole === "radiogroup" && el.querySelector("input[type='radio']"));
+          if (hasNativeChild) return;
+          add(findings, { type: "ARIA_REQUIRED_CHILDREN", severity: "high", wcag: "1.3.1", el,
+            note: `role="${parentRole}" requires child with role="${acceptable.join('" or "')}".`,
+            extra: { role: parentRole, expected: acceptable.join("|") } });
+        }
+      });
+    }
+
+    // 1.3.1: ARIA required parent context missing
+    for (const [childRole, parentRoles] of Object.entries(REQUIRED_PARENT)) {
+      doc.querySelectorAll(`[role="${childRole}"]`).forEach(el => {
+        if (isHidden(el)) return;
+        let parent = el.parentElement;
+        let found = false;
+        while (parent && parent !== doc.body) {
+          const pRole = parent.getAttribute("role");
+          if (pRole && parentRoles.includes(pRole)) { found = true; break; }
+          const tag = parent.tagName;
+          if (childRole === "listitem" && (tag === "UL" || tag === "OL")) { found = true; break; }
+          if (childRole === "row" && (tag === "TABLE" || tag === "THEAD" || tag === "TBODY" || tag === "TFOOT")) { found = true; break; }
+          if ((childRole === "cell" || childRole === "columnheader" || childRole === "rowheader") && tag === "TR") { found = true; break; }
+          parent = parent.parentElement;
+        }
+        if (!found) {
+          add(findings, { type: "ARIA_REQUIRED_PARENT", severity: "high", wcag: "1.3.1", el,
+            note: `role="${childRole}" must be owned by role="${parentRoles.join('" or "')}".`,
+            extra: { role: childRole, expected: parentRoles.join("|") } });
+        }
+      });
+    }
+
+    // 4.1.2: ARIA attribute not allowed on this role
+    {
+      const DENIED_ATTRS = {
+        textbox: new Set(["aria-checked","aria-selected","aria-pressed"]),
+        img: new Set(["aria-expanded","aria-checked","aria-pressed","aria-selected"]),
+        heading: new Set(["aria-checked","aria-pressed","aria-selected","aria-expanded"]),
+        separator: new Set(["aria-checked","aria-pressed","aria-selected"]),
+        alert: new Set(["aria-checked","aria-pressed","aria-selected","aria-expanded"]),
+        progressbar: new Set(["aria-checked","aria-pressed","aria-selected","aria-expanded"]),
+        status: new Set(["aria-checked","aria-pressed","aria-selected","aria-expanded"]),
+      };
+      doc.querySelectorAll("[role]").forEach(el => {
+        if (isHidden(el)) return;
+        const role = (el.getAttribute("role") || "").trim().toLowerCase();
+        const denied = DENIED_ATTRS[role];
+        if (!denied) return;
+        for (const attr of el.attributes) {
+          if (attr.name.startsWith("aria-") && denied.has(attr.name)) {
+            add(findings, { type: "ARIA_ALLOWED_ATTR", severity: "medium", wcag: "4.1.2", el,
+              note: `"${attr.name}" is not allowed on role="${role}".`,
+              extra: { attr: attr.name, role } });
+          }
+        }
+      });
+    }
+
+    // -------- Tier 2: Extended checks --------
+
+    // 2.2.2: Deprecated <marquee> element
+    doc.querySelectorAll("marquee").forEach(el => {
+      if (isHidden(el)) return;
+      add(findings, { type: "MARQUEE_ELEMENT", severity: "high", wcag: "2.2.2", el,
+        note: "<marquee> is deprecated. Auto-scrolling content is difficult to read and cannot be paused." });
+    });
+
+    // 1.1.1: <input type="image"> without alt
+    doc.querySelectorAll("input[type='image']").forEach(el => {
+      if (isHidden(el)) return;
+      if (!el.hasAttribute("alt") || !el.getAttribute("alt").trim()) {
+        add(findings, { type: "INPUT_IMAGE_ALT", severity: "medium", wcag: "1.1.1", el,
+          note: '<input type="image"> missing alt text describing its action.' });
+      }
+    });
+
+    // 1.1.1: <area> without alt
+    doc.querySelectorAll("area").forEach(el => {
+      if (!el.hasAttribute("alt") || !el.getAttribute("alt").trim()) {
+        add(findings, { type: "AREA_ALT_MISSING", severity: "medium", wcag: "1.1.1", el,
+          note: "<area> in image map missing alt text." });
+      }
+    });
+
+    // 1.1.1: <object> without accessible text
+    doc.querySelectorAll("object").forEach(el => {
+      if (isHidden(el)) return;
+      if (!getAccName(el).trim() && !el.textContent.trim()) {
+        add(findings, { type: "OBJECT_NO_ALT", severity: "medium", wcag: "1.1.1", el,
+          note: "<object> has no accessible name or fallback text content." });
+      }
+    });
+
+    // 1.3.1: <fieldset> without <legend>
+    doc.querySelectorAll("fieldset").forEach(el => {
+      if (isHidden(el)) return;
+      if (!el.querySelector("legend")) {
+        add(findings, { type: "FIELDSET_NO_LEGEND", severity: "medium", wcag: "1.3.1", el,
+          note: "<fieldset> has no <legend>. Screen readers need a legend to describe the group of controls." });
+      }
+    });
+
+    // 1.1.1: SVG used as image without accessible name
+    doc.querySelectorAll("svg[role='img'],svg[role='graphics-document']").forEach(el => {
+      if (isHidden(el)) return;
+      const hasTitle = el.querySelector("title");
+      const hasAriaLabel = el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby");
+      if (!hasTitle && !hasAriaLabel) {
+        add(findings, { type: "SVG_IMG_NO_ALT", severity: "medium", wcag: "1.1.1", el,
+          note: "SVG with role=\"img\" has no accessible name. Add aria-label or a <title> child element." });
+      }
+    });
+
+    // 1.2.2: <video> without captions track
+    doc.querySelectorAll("video").forEach(el => {
+      if (isHidden(el)) return;
+      const hasCaptions = el.querySelector("track[kind='captions'],track[kind='subtitles']");
+      if (!hasCaptions) {
+        add(findings, { type: "VIDEO_NO_CAPTIONS", severity: "medium", wcag: "1.2.2", el,
+          note: "<video> has no <track kind=\"captions\">. Provide synchronized captions for audio content." });
+      }
+    });
+
+    // 1.4.2: <video autoplay> without muted (extends audio check)
+    doc.querySelectorAll("video[autoplay]").forEach(el => {
+      if (isHidden(el)) return;
+      if (!el.hasAttribute("muted")) {
+        add(findings, { type: "VIDEO_AUTOPLAY", severity: "medium", wcag: "1.4.2", el,
+          note: "<video> has autoplay without muted. May play audio automatically." });
+      }
+    });
+
+    // 1.3.1: <li> not inside <ul>, <ol>, or <menu>
+    doc.querySelectorAll("li").forEach(el => {
+      if (isHidden(el)) return;
+      const parent = el.parentElement;
+      if (parent && parent.tagName !== "UL" && parent.tagName !== "OL" && parent.tagName !== "MENU") {
+        add(findings, { type: "LIST_STRUCTURE", severity: "medium", wcag: "1.3.1", el,
+          note: `<li> is not inside a <ul>, <ol>, or <menu>. Parent is <${parent.tagName.toLowerCase()}>.`,
+          extra: { tag: "li", parent: parent.tagName.toLowerCase() } });
+      }
+    });
+
+    // 1.3.1: <dt>/<dd> not inside <dl>
+    doc.querySelectorAll("dt,dd").forEach(el => {
+      if (isHidden(el)) return;
+      const parent = el.parentElement;
+      if (parent && parent.tagName !== "DL" && parent.tagName !== "DIV") {
+        // DIV is allowed as grouping wrapper inside DL per HTML spec
+        add(findings, { type: "DL_STRUCTURE", severity: "medium", wcag: "1.3.1", el,
+          note: `<${el.tagName.toLowerCase()}> is not inside a <dl>. Parent is <${parent.tagName.toLowerCase()}>.`,
+          extra: { tag: el.tagName.toLowerCase(), parent: parent.tagName.toLowerCase() } });
+      }
+    });
+
+    // 4.1.1: Duplicate accesskey values
+    {
+      const accesskeyMap = new Map();
+      doc.querySelectorAll("[accesskey]").forEach(el => {
+        const key = (el.getAttribute("accesskey") || "").toLowerCase();
+        if (!key) return;
+        if (!accesskeyMap.has(key)) accesskeyMap.set(key, []);
+        accesskeyMap.get(key).push(el);
+      });
+      for (const [key, els] of accesskeyMap) {
+        if (els.length > 1) {
+          add(findings, { type: "ACCESSKEY_DUPLICATE", severity: "low", wcag: "4.1.1", el: els[1],
+            note: `accesskey="${key}" is used on ${els.length} elements. Only the first will be activated.`,
+            extra: { key, count: els.length } });
+        }
+      }
+    }
+
+    // 1.3.1: Input associated with multiple <label> elements
+    doc.querySelectorAll("input,select,textarea").forEach(el => {
+      if (isHidden(el)) return;
+      const id = el.getAttribute("id");
+      if (!id) return;
+      const labels = doc.querySelectorAll(`label[for="${CSS.escape(id)}"]`);
+      if (labels.length > 1) {
+        add(findings, { type: "FORM_FIELD_MULTIPLE_LABELS", severity: "low", wcag: "1.3.1", el,
+          note: `Input has ${labels.length} <label> elements pointing to it. Use exactly one label per input.`,
+          extra: { labelCount: labels.length } });
+      }
+    });
+
+    // 1.3.5: Invalid autocomplete value
+    doc.querySelectorAll("input[autocomplete],select[autocomplete],textarea[autocomplete]").forEach(el => {
+      if (isHidden(el)) return;
+      const raw = (el.getAttribute("autocomplete") || "").trim().toLowerCase();
+      if (!raw || raw === "off" || raw === "on") return;
+      // autocomplete can have section-* prefix and billing/shipping modifier
+      const tokens = raw.split(/\s+/);
+      const last = tokens[tokens.length - 1];
+      if (!VALID_AUTOCOMPLETE.has(last)) {
+        add(findings, { type: "AUTOCOMPLETE_VALID", severity: "medium", wcag: "1.3.5", el,
+          note: `autocomplete="${raw}" contains unrecognized token "${last}".`,
+          extra: { value: raw, token: last } });
+      }
+    });
+
+    // 1.3.1: <th> without scope in multi-row/col tables
+    doc.querySelectorAll("table").forEach(table => {
+      if (isHidden(table)) return;
+      const role = table.getAttribute("role");
+      if (role === "presentation" || role === "none") return;
+      const rows = table.querySelectorAll("tr");
+      const ths = table.querySelectorAll("th");
+      if (rows.length > 1 && ths.length > 0) {
+        ths.forEach(th => {
+          if (!th.hasAttribute("scope")) {
+            add(findings, { type: "TH_MISSING_SCOPE", severity: "low", wcag: "1.3.1", el: th,
+              note: "<th> without scope attribute in a multi-row table. Add scope=\"col\" or scope=\"row\"." });
+          }
+        });
+      }
+    });
+
+    // -------- Tier 3: Extended checks --------
+
+    // 2.2.2: Deprecated <blink> element
+    doc.querySelectorAll("blink").forEach(el => {
+      if (isHidden(el)) return;
+      add(findings, { type: "BLINK_ELEMENT", severity: "high", wcag: "2.2.2", el,
+        note: "<blink> is deprecated. Blinking content can cause seizures and is unreadable." });
+    });
+
+    // 1.1.1: Server-side image map without client-side alternative
+    doc.querySelectorAll("img[ismap]").forEach(el => {
+      if (isHidden(el)) return;
+      const usemap = el.getAttribute("usemap");
+      if (!usemap) {
+        add(findings, { type: "SERVER_IMAGE_MAP", severity: "medium", wcag: "1.1.1", el,
+          note: "<img ismap> uses a server-side image map with no client-side <map> alternative." });
+      }
+    });
+
+    // 1.3.1: <th scope> with invalid value
+    doc.querySelectorAll("th[scope]").forEach(el => {
+      if (isHidden(el)) return;
+      const val = (el.getAttribute("scope") || "").toLowerCase();
+      if (val && !VALID_SCOPE_VALUES.has(val)) {
+        add(findings, { type: "SCOPE_ATTR_VALID", severity: "low", wcag: "1.3.1", el,
+          note: `scope="${val}" is not a valid value.`, extra: { value: val } });
+      }
+    });
+
+    // 1.3.1: <td headers="..."> referencing non-existent IDs
+    doc.querySelectorAll("td[headers]").forEach(el => {
+      const headerIds = (el.getAttribute("headers") || "").trim().split(/\s+/);
+      for (const id of headerIds) {
+        if (id && !doc.getElementById(id)) {
+          add(findings, { type: "TD_HEADERS_INVALID", severity: "medium", wcag: "1.3.1", el,
+            note: `headers attribute references id="${id}" which does not exist in the document.`,
+            extra: { id } });
+        }
+      }
+    });
+
+    // 4.1.2: Table where caption and aria-label are identical (redundant)
+    doc.querySelectorAll("table[aria-label]").forEach(table => {
+      if (isHidden(table)) return;
+      const caption = table.querySelector("caption");
+      if (caption) {
+        const capText = caption.textContent.trim().toLowerCase();
+        const ariaLabel = (table.getAttribute("aria-label") || "").trim().toLowerCase();
+        if (capText && ariaLabel && capText === ariaLabel) {
+          add(findings, { type: "TABLE_DUPLICATE_NAME", severity: "low", wcag: "4.1.2", el: table,
+            note: "Table caption and aria-label are identical. Remove one to avoid redundant AT announcements." });
+        }
+      }
+    });
+
+    // 1.2.1: <audio> without transcript (heuristic)
+    doc.querySelectorAll("audio").forEach(el => {
+      if (isHidden(el)) return;
+      const parent = el.parentElement;
+      const nearbyLink = parent?.querySelector("a[href*='transcript'],a[href*='text']");
+      const hasTrack = el.querySelector("track");
+      if (!nearbyLink && !hasTrack) {
+        add(findings, { type: "AUDIO_NO_TRANSCRIPT", severity: "medium", wcag: "1.2.1", el,
+          note: "<audio> has no nearby transcript link or <track> element. Provide a text alternative." });
+      }
+    });
+
+    // 4.1.2: ARIA attribute values that don't match expected type
+    {
+      const allEls2 = doc.querySelectorAll("[aria-checked],[aria-pressed],[aria-expanded],[aria-hidden],[aria-disabled],[aria-selected],[aria-busy],[aria-modal],[aria-required],[aria-readonly],[aria-multiline],[aria-multiselectable],[aria-grabbed],[aria-atomic],[aria-level],[aria-posinset],[aria-setsize],[aria-colcount],[aria-colindex],[aria-colspan],[aria-rowcount],[aria-rowindex],[aria-rowspan],[aria-valuenow],[aria-valuemax],[aria-valuemin],[aria-autocomplete],[aria-current],[aria-haspopup],[aria-invalid],[aria-live],[aria-orientation],[aria-sort],[aria-relevant],[aria-dropeffect]");
+      allEls2.forEach(el => {
+        for (const attr of el.attributes) {
+          if (!attr.name.startsWith("aria-")) continue;
+          const val = attr.value.trim().toLowerCase();
+          if (!val) continue;
+          if (ARIA_TRISTATE_ATTRS.has(attr.name)) {
+            if (val !== "true" && val !== "false" && val !== "mixed") {
+              add(findings, { type: "ARIA_VALID_ATTR_VALUE", severity: "high", wcag: "4.1.2", el,
+                note: `${attr.name}="${attr.value}" is invalid.`,
+                extra: { attr: attr.name, value: attr.value, expected: 'Use "true", "false", or "mixed".' } });
+            }
+          } else if (ARIA_BOOL_ATTRS.has(attr.name)) {
+            if (val !== "true" && val !== "false") {
+              add(findings, { type: "ARIA_VALID_ATTR_VALUE", severity: "high", wcag: "4.1.2", el,
+                note: `${attr.name}="${attr.value}" is invalid.`,
+                extra: { attr: attr.name, value: attr.value, expected: 'Use "true" or "false".' } });
+            }
+          } else if (ARIA_INT_ATTRS.has(attr.name)) {
+            if (!/^-?\d+$/.test(val)) {
+              add(findings, { type: "ARIA_VALID_ATTR_VALUE", severity: "high", wcag: "4.1.2", el,
+                note: `${attr.name}="${attr.value}" is not a valid integer.`,
+                extra: { attr: attr.name, value: attr.value, expected: "Must be an integer." } });
+            }
+          } else if (ARIA_NUM_ATTRS.has(attr.name)) {
+            if (isNaN(parseFloat(val))) {
+              add(findings, { type: "ARIA_VALID_ATTR_VALUE", severity: "high", wcag: "4.1.2", el,
+                note: `${attr.name}="${attr.value}" is not a valid number.`,
+                extra: { attr: attr.name, value: attr.value, expected: "Must be a number." } });
+            }
+          } else if (ARIA_TOKEN_ATTRS[attr.name]) {
+            if (!ARIA_TOKEN_ATTRS[attr.name].has(val)) {
+              add(findings, { type: "ARIA_VALID_ATTR_VALUE", severity: "high", wcag: "4.1.2", el,
+                note: `${attr.name}="${attr.value}" is not a recognized value.`,
+                extra: { attr: attr.name, value: attr.value, expected: `Allowed: ${[...ARIA_TOKEN_ATTRS[attr.name]].join(", ")}.` } });
+            }
+          }
+        }
+      });
+    }
+
+    // 2.4.4: Multiple links with same text pointing to different URLs
+    {
+      const linkTextMap = new Map();
+      doc.querySelectorAll("a[href]").forEach(el => {
+        if (isHidden(el)) return;
+        const text = (el.textContent || "").trim().toLowerCase();
+        if (!text || text.length < 2) return;
+        const href = el.getAttribute("href") || "";
+        if (!linkTextMap.has(text)) linkTextMap.set(text, new Set());
+        linkTextMap.get(text).add(href);
+      });
+      for (const [text, hrefs] of linkTextMap) {
+        if (hrefs.size > 1) {
+          const firstEl = doc.querySelector(`a[href]`);
+          add(findings, { type: "IDENTICAL_LINKS_SAME_TEXT", severity: "low", wcag: "2.4.4",
+            el: firstEl || doc.body,
+            note: `${hrefs.size} different destinations share link text "${txt(text, 30)}".`,
+            extra: { text: txt(text, 30), count: hrefs.size } });
+        }
+      }
+    }
+
+    // 1.3.1: <p>/<div>/<span> styled as heading but not using heading semantics (heuristic)
+    {
+      const pCandidates = doc.querySelectorAll("p,div,span");
+      const limit3 = Math.min(pCandidates.length, 2000);
+      for (let i = 0; i < limit3; i++) {
+        const el = pCandidates[i];
+        if (isHidden(el)) continue;
+        const text = (el.textContent || "").trim();
+        if (!text || text.length > 80 || text.length < 2) continue;
+        if (el.querySelector("h1,h2,h3,h4,h5,h6")) continue;
+        try {
+          const cs = w.getComputedStyle(el);
+          const fontSize = parseFloat(cs.fontSize);
+          const fontWeight = parseInt(cs.fontWeight, 10) || (cs.fontWeight === "bold" ? 700 : 400);
+          if (fontSize >= 20 && fontWeight >= 600 && el.children.length <= 2) {
+            add(findings, { type: "P_AS_HEADING", severity: "low", wcag: "1.3.1", el,
+              note: `<${el.tagName.toLowerCase()}> is styled as a heading (${Math.round(fontSize)}px, weight ${fontWeight}) but lacks heading semantics.`,
+              extra: { fontSize: Math.round(fontSize), fontWeight } });
+          }
+        } catch {}
       }
     }
 

@@ -43,7 +43,6 @@ const els = {
   usedFrames: document.getElementById("usedFrames"),
   diff: document.getElementById("diff"),
 
-  runSummary: document.getElementById("runSummary"),  // may be null (removed from DOM)
   sevTabs: document.getElementById("sevTabs"),
   emptyState: document.getElementById("emptyState"),
   resultsZone: document.getElementById("resultsZone"),
@@ -78,6 +77,10 @@ const els = {
   flowRecordActions: document.getElementById("flowRecordActions"),
   flowSessionInfoBody: document.getElementById("flowSessionInfoBody"),
   flowTimelineBody: document.getElementById("flowTimelineBody"),
+  watchSection: document.getElementById("watchSection"),
+  watchSummary: document.getElementById("watchSummary"),
+  watchVerdicts: document.getElementById("watchVerdicts"),
+  watchTbody: document.querySelector("#watchTable tbody"),
 };
 
 const ORDER = { high: 3, medium: 2, low: 1, info: 0 };
@@ -715,10 +718,12 @@ function showMode(mode) {
   const explorer = document.getElementById("explorerSection");
   const contrast = document.getElementById("contrastSection");
   const tab = document.getElementById("tabWalkSection");
+  const watch = els.watchSection;
   const runLike = mode === "run" || mode === "observe";
   if (explorer) explorer.hidden = !runLike;
   if (contrast) contrast.hidden = mode !== "contrast";
   if (tab) tab.hidden = mode !== "tabWalk";
+  if (watch) watch.hidden = mode !== "watch";
   if (els.sevTabs) els.sevTabs.hidden = !runLike;
 }
 
@@ -744,6 +749,13 @@ function showView(tab, sub) {
   if (state.topTab === "snap" && sub) {
     setPressed(sub);
     showMode(sub);
+  }
+
+  // Auto-render flow tab content when switching to Flow
+  if (state.topTab === "flow") {
+    renderFlowSessionInfo();
+    renderFlowTimeline();
+    renderFlowCounters();
   }
 
   updateSessionButtons();
@@ -915,78 +927,26 @@ function renderRecord(rec) {
     renderRunSummary(bestResult, rec);
     const findings = Array.isArray(bestResult?.findings) ? bestResult.findings : [];
     state.currentFindings = findings;
-    buildOptionsFromFindings(findings, els.prod, "product");
-    buildOptionsFromFindings(findings, els.type, "type");
     renderExplorer(findings);
   } else if (mode === "contrast") {
-    const scanned = bestResult?.scanned ?? "—";
-    const failures = bestResult?.failuresCount ?? bestResult?.failures?.length ?? "—";
-    const ts = bestResult?.timestamp ? new Date(bestResult.timestamp).toLocaleTimeString() : "";
-    if (els.runSummary) els.runSummary.innerHTML = `
-      <div class="runStats">
-        <span class="runStat"><b>${escapeHtml(String(failures))}</b> failures</span>
-        <span class="runStat"><b>${escapeHtml(String(scanned))}</b> scanned</span>
-        ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
-      </div>`;
     renderSevTabs();
     renderContrast(bestResult);
   } else if (mode === "tabWalk") {
-    const walked = bestResult?.walked ?? "—";
-    const totalFoc = bestResult?.totalFocusables ?? "—";
-    const evtCount = bestResult?.events?.length ?? "—";
-    const ts = bestResult?.timestamp ? new Date(bestResult.timestamp).toLocaleTimeString() : "";
-    if (els.runSummary) els.runSummary.innerHTML = `
-      <div class="runStats">
-        <span class="runStat"><b>${escapeHtml(String(evtCount))}</b> events</span>
-        <span class="runStat">walked <b>${escapeHtml(String(walked))}</b>/<b>${escapeHtml(String(totalFoc))}</b></span>
-        ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
-      </div>`;
     renderSevTabs();
     renderTabWalk(bestResult);
   } else if (mode === "observe" && bestResult) {
-    const snapshots = Array.isArray(bestResult.snapshots) ? bestResult.snapshots : [];
     const oFindings = Array.isArray(bestResult.findings) ? bestResult.findings : [];
-    const ts = bestResult.timestamp ? new Date(bestResult.timestamp).toLocaleTimeString() : "";
-    if (els.runSummary) els.runSummary.innerHTML = `
-      <div class="runStats">
-        <span class="runStat"><b>${oFindings.length}</b> findings</span>
-        <span class="runStat"><b>${snapshots.length}</b> snapshots</span>
-        <span class="runStat"><b>${escapeHtml(String(bestResult.seconds ?? "—"))}</b>s duration</span>
-        ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
-      </div>`;
     if (oFindings.length) {
       renderSevTabs(oFindings);
       state.currentFindings = oFindings;
       showMode("observe");
-      buildOptionsFromFindings(oFindings, els.prod, "product");
-      buildOptionsFromFindings(oFindings, els.type, "type");
       renderExplorer(oFindings);
     } else {
       renderSevTabs();
     }
   } else if (mode === "watch" && bestResult) {
-    const verdicts = Array.isArray(bestResult.verdicts) ? bestResult.verdicts : [];
-    const wEvents = Array.isArray(bestResult.events) ? bestResult.events : [];
-    const overBudget = verdicts.length > 0;
-    const ts = bestResult.timestamp ? new Date(bestResult.timestamp).toLocaleTimeString() : "";
-    if (els.runSummary) els.runSummary.innerHTML = `
-      <div class="runStats">
-        <span class="runStat"><b>${escapeHtml(String(bestResult.bursts ?? "—"))}</b> bursts</span>
-        <span class="runStat"><b>${escapeHtml(String(bestResult.totalLoadingMs ?? "—"))}</b>ms loading</span>
-        <span class="runStat"><b>${escapeHtml(String(bestResult.silentMs ?? "—"))}</b>ms silent</span>
-        <span class="runStat"><b>${escapeHtml(String(bestResult.focusLossCount ?? "—"))}</b> focus loss</span>
-        <span class="runStat"><b>${wEvents.length}</b> events</span>
-        ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
-      </div>`;
-    renderSevTabs();
+    renderWatch(bestResult);
   } else {
-    const ts = (bestResult?.timestamp || bestResult?.endedAt || rec.at) ? new Date(bestResult?.timestamp || bestResult?.endedAt || rec.at).toLocaleTimeString() : "";
-    if (els.runSummary) els.runSummary.innerHTML = `
-      <div class="runStats">
-        <span class="runStat">${escapeHtml(mode)}</span>
-        <span class="runStat">frame <b>${escapeHtml(String(rec?.best?.frameId ?? "—"))}</b></span>
-        ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
-      </div>`;
     renderSevTabs();
   }
 }
@@ -2519,46 +2479,13 @@ function actionIsWatch(resultObj) {
 
 function renderRunSummary(r, rec = null) {
   if (!r) {
-    if (els.runSummary) els.runSummary.innerHTML = '<div class="emptyGuide">Pick a mode and hit <kbd>Run Audit</kbd>, or use a quick start preset.</div>';
     renderSevTabs();
     return;
   }
-
-  const mode = r?.mode ?? "";
   const findings = Array.isArray(r?.findings) ? r.findings : [];
-  const summary = summarizeRunFindings(findings);
-  const strictSignal = asNumber(summary?.primaryCounts?.strictHigh, 0) + asNumber(summary?.primaryCounts?.strictMedium, 0);
-  const heuristicSignal = asNumber(summary?.primaryCounts?.heuristicHigh, 0) + asNumber(summary?.primaryCounts?.heuristicMedium, 0);
-  const advisorySignal = asNumber(summary?.primaryCounts?.advisoryHigh, 0) + asNumber(summary?.primaryCounts?.advisoryMedium, 0);
-  const frameLabel = rec?.best?.frameId != null ? `#${rec.best.frameId}` : "auto";
-  const scopeLabel = SCOPE_LABELS[getScopeValue()] || getScopeValue();
-  const diffSummary = state.lastDiffSummary || "—";
-  const ts = r.timestamp ? new Date(r.timestamp).toLocaleTimeString() : "";
-
-  if (els.runSummary) els.runSummary.innerHTML = `
-    <div class="runStats">
-      <span class="runStat"><b>${asNumber(summary?.primaryCounts?.blockingFindings, 0)}</b> blocking</span>
-      <span class="runStat">strict <b>${strictSignal}</b></span>
-      <span class="runStat">heuristic <b>${heuristicSignal}</b></span>
-      <span class="runStat">advisory <b>${advisorySignal}</b></span>
-      <span class="runStat">changes <b>${escapeHtml(diffSummary)}</b></span>
-      <span class="runStat">scope <b>${escapeHtml(scopeLabel)}</b> • frame <b>${escapeHtml(frameLabel)}</b></span>
-      <span class="runStat">mode <b>${escapeHtml(mode || "auto")}</b></span>
-      ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
-    </div>
-  `;
-
   renderSevTabs(findings);
 }
 
-function buildOptionsFromFindings(findings, elSelect, key) {
-  if (!elSelect) return;
-  const vals = [...new Set(findings.map(f => f?.[key]).filter(Boolean))].sort();
-  const current = elSelect.value;
-  elSelect.innerHTML = `<option value="">All ${key === "product" ? "products" : "types"}</option>` +
-    vals.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
-  if (vals.includes(current)) elSelect.value = current;
-}
 
 function applyExplorerFilters(findings) {
   const q = (els.q.value || "").trim().toLowerCase();
@@ -2667,6 +2594,41 @@ function renderTabWalk(res) {
   `).join("");
 }
 
+function renderWatch(res) {
+  if (!res) return;
+  // Summary metrics
+  if (els.watchSummary) {
+    const metrics = [
+      { label: "Bursts", value: res.bursts ?? 0 },
+      { label: "Loading", value: `${((res.totalLoadingMs ?? 0) / 1000).toFixed(1)}s` },
+      { label: "Silent", value: `${((res.silentMs ?? 0) / 1000).toFixed(1)}s` },
+      { label: "Focus loss", value: res.focusLossCount ?? 0 },
+      { label: "Focus jumps", value: res.focusJumps ?? 0 },
+    ];
+    els.watchSummary.innerHTML = metrics.map(m =>
+      `<div class="watchMetric"><span class="watchMetricValue">${escapeHtml(String(m.value))}</span><span class="watchMetricLabel">${escapeHtml(m.label)}</span></div>`
+    ).join("");
+  }
+  // Verdicts
+  if (els.watchVerdicts) {
+    const verdicts = Array.isArray(res.verdicts) ? res.verdicts : [];
+    if (verdicts.length) {
+      els.watchVerdicts.innerHTML = verdicts.map(v => {
+        const over = v.value > v.budget;
+        return `<span class="watchVerdict ${over ? "watchVerdict--fail" : "watchVerdict--pass"}">${escapeHtml(v.metric)}: ${v.value}${over ? " \u26A0" : " \u2713"}</span>`;
+      }).join("");
+    } else {
+      els.watchVerdicts.innerHTML = '<span class="watchVerdict watchVerdict--pass">All metrics within budget \u2713</span>';
+    }
+  }
+  // Events timeline table
+  const events = Array.isArray(res.events) ? res.events : [];
+  const tbody = els.watchTbody;
+  if (!tbody) return;
+  tbody.innerHTML = events.slice(0, 200).map(e =>
+    `<tr class="trow"><td>${((e.t ?? 0) / 1000).toFixed(1)}s</td><td>${escapeHtml(String(e.type ?? ""))}</td><td>${cellHtml(e.note, 80)}</td></tr>`
+  ).join("");
+}
 
 function renderExplorer(findings) {
   const filtered = applySortState(applyExplorerFilters(findings), 'explorer');
@@ -4089,20 +4051,7 @@ if (_jsonToggle) {
   });
 }
 
-// Section collapse toggles (existing + old pattern)
-document.querySelectorAll('.sectionToggle[data-collapse]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const expanded = btn.getAttribute('aria-expanded') === 'true';
-    btn.setAttribute('aria-expanded', String(!expanded));
-    const target = document.getElementById(btn.dataset.collapse);
-    if (target) {
-      target.classList.toggle('collapsed', expanded);
-      target.hidden = expanded;
-    }
-  });
-});
-
-// Generic accordion toggles (new tab shell accordions)
+// Accordion toggles
 document.querySelectorAll('.accordionToggle').forEach(btn => {
   btn.addEventListener('click', () => {
     const expanded = btn.getAttribute('aria-expanded') === 'true';
@@ -4115,9 +4064,6 @@ document.querySelectorAll('.accordionToggle').forEach(btn => {
 });
 
 function syncCollapsedSections() {
-  document.querySelectorAll(".sectionBody").forEach((section) => {
-    section.hidden = section.classList.contains("collapsed");
-  });
   if (els.json) {
     els.json.hidden = els.json.classList.contains("collapsed");
   }

@@ -730,15 +730,6 @@ kbd {
 .sevTab[data-sev="low"][aria-selected="true"]::before    { background: linear-gradient(90deg, var(--yellow), rgba(203,219,62,0.4)); }
 .sevTab[data-sev="info"][aria-selected="true"]::before   { background: linear-gradient(90deg, var(--cyan), rgba(62,190,219,0.4)); }
 
-/* ═══ COUNTER ROW ═══ */
-.counterRow {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
-  padding: 8px 16px;
-  flex-wrap: wrap;
-}
-
 /* ═══ FLOW SESSION COUNTERS ═══ */
 .flowCounterRow {
   display: flex;
@@ -926,6 +917,50 @@ kbd {
   white-space: pre-wrap;
 }
 
+/* ═══ WATCH VIZ ═══ */
+.watchSummary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 6px;
+  padding: 12px 16px;
+}
+.watchMetric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.watchMetricValue {
+  font: 800 16px/1 var(--font-mono);
+  color: var(--tx);
+}
+.watchMetricLabel {
+  font: 400 10px/1 var(--font-mono);
+  color: var(--tx2);
+}
+.watchVerdicts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 16px 12px;
+}
+.watchVerdict {
+  font: 600 10px/1 var(--font-mono);
+  border-radius: 4px;
+  padding: 3px 8px;
+}
+.watchVerdict--pass {
+  background: rgba(76, 175, 80, 0.15);
+  color: var(--green);
+}
+.watchVerdict--fail {
+  background: rgba(244, 104, 106, 0.15);
+  color: var(--red);
+}
+
 /* ═══ SETTINGS ═══ */
 .settingsPane {
   padding: 16px;
@@ -1100,7 +1135,6 @@ kbd {
 }
 
 
-.sectionToggle,
 .outToggle {
   display: flex;
   align-items: center;
@@ -1116,7 +1150,6 @@ kbd {
   transition: color .12s;
 }
 
-.sectionToggle:hover,
 .outToggle:hover { color: var(--tx); }
 
 .outToggleIcon {
@@ -1125,46 +1158,13 @@ kbd {
   display: inline-block;
 }
 
-.sectionToggle[aria-expanded="true"] .outToggleIcon,
 .outToggle[aria-expanded="true"] .outToggleIcon {
   transform: rotate(90deg);
 }
 
-.sectionBody {
-  padding: 12px 16px;
-}
-
-.sectionBody.collapsed,
 .out pre.collapsed {
   display: none;
 }
-
-/* (explorerBody sectionBody rule removed — section flattened) */
-
-.si {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-}
-
-.kvs {
-  display: grid;
-  gap: 8px;
-}
-
-.runStats {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  font-size: 12px;
-}
-
-.runStat { color: var(--tx2); }
-.runStat b { color: var(--tx); font-weight: 700; }
-.runStatMuted { color: var(--tx3); font-size: 11px; font-family: var(--font-mono); }
-
-/* (stat cards removed — replaced by .sevTabs) */
 
 
 .pill {
@@ -1194,24 +1194,6 @@ kbd {
   overflow-y: auto;
   max-height: 50vh;
 }
-
-/* explorerSection: tableWrap follows searchToolbar directly (no wrapper padding) */
-
-.tableTitle {
-  padding: 12px 20px;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--tx3);
-  text-transform: uppercase;
-  letter-spacing: .08em;
-  background: var(--raised);
-  border-bottom: 1px solid var(--brd);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.tableTitle .switch { margin-left: auto; }
 
 .tbl {
   width: 100%;
@@ -1390,8 +1372,6 @@ kbd {
 .rowAct:focus-visible {
   box-shadow: 0 0 0 1px var(--bg), 0 0 0 3px var(--infoB);
 }
-
-/* (filters and chk removed — replaced by searchToolbar) */
 
 .profilePills {
   display: flex;
