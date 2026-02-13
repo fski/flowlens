@@ -575,108 +575,158 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const tabId = Number(msg.tabId);
       const frameId = Number(msg.frameId);
       const finding = isPlainObject(msg.finding) ? msg.finding : {};
-      await chrome.scripting.executeScript({
+      const results = await chrome.scripting.executeScript({
         target: { tabId, frameIds: [frameId] },
         world: "MAIN",
         func: (finding) => {
-          const OVERLAY_ATTR = "data-a11yflow-highlight";
+          const HL_ATTR = "data-a11yflow-highlight";
           const STYLE_ID = "a11yflow-highlight-style";
 
-          // Cleanup previous highlights
-          document.querySelectorAll(`[${OVERLAY_ATTR}]`).forEach(el => el.remove());
+          // Remove previous highlight from any element
+          document.querySelectorAll(`[${HL_ATTR}]`).forEach(el => {
+            el.removeAttribute(HL_ATTR);
+          });
 
-          // Inject keyframe style once
+          // Inject highlight + pulse animation style once
           if (!document.getElementById(STYLE_ID)) {
             const style = document.createElement("style");
             style.id = STYLE_ID;
             style.textContent = `
               @keyframes a11yflow-pulse {
-                0%, 100% { box-shadow: 0 0 0 3px rgba(255,121,198,0.9); }
-                50% { box-shadow: 0 0 0 6px rgba(255,121,198,0.4); }
+                0%, 100% { outline-color: #ff79c6; box-shadow: 0 0 0 4px rgba(255,121,198,0.7); }
+                50% { outline-color: #ff92d0; box-shadow: 0 0 8px 6px rgba(255,121,198,0.3); }
               }
-              [${OVERLAY_ATTR}] {
-                position: absolute;
-                pointer-events: none;
-                z-index: 2147483647;
-                border: 2px solid #ff79c6;
-                border-radius: 3px;
-                animation: a11yflow-pulse 1s ease-in-out 3;
-                transition: opacity 0.4s ease;
+              [${HL_ATTR}] {
+                outline: 3px solid #ff79c6 !important;
+                outline-offset: 2px !important;
+                box-shadow: 0 0 0 4px rgba(255,121,198,0.7) !important;
+                animation: a11yflow-pulse 1s ease-in-out 3 !important;
+                transition: outline-color 0.4s ease, box-shadow 0.4s ease !important;
               }
             `;
-            document.head.appendChild(style);
+            (document.head || document.documentElement).appendChild(style);
           }
 
-          const pick = () => {
-            // 1st: testId
-            try {
-              if (finding?.testId) {
-                const el = document.querySelector(`[data-testid="${CSS.escape(finding.testId)}"]`);
-                if (el) return el;
+          const norm = (s) => (s || "").replace(/\s+/g, " ").trim().toLowerCase();
+
+          // Traverse shadow DOM roots looking for a match
+          const queryDeep = (selector) => {
+            const el = document.querySelector(selector);
+            if (el) return el;
+            const walk = (root) => {
+              for (const node of root.querySelectorAll("*")) {
+                if (node.shadowRoot) {
+                  try {
+                    const hit = node.shadowRoot.querySelector(selector);
+                    if (hit) return hit;
+                    const deeper = walk(node.shadowRoot);
+                    if (deeper) return deeper;
+                  } catch {}
+                }
               }
-            } catch {}
-            // 2nd: CSS path
+              return null;
+            };
+            return walk(document);
+          };
+
+          const pick = () => {
+            // 1st: CSS path — most specific, unique selector from audit time
             try {
               if (finding?.path) {
-                const el = document.querySelector(finding.path);
+                const el = queryDeep(finding.path);
                 if (el) return el;
               }
             } catch {}
-            // 3rd: tag + role + text match
+
+            // 2nd: testId — if the found element's tag doesn't match, narrow to descendant
             try {
-              if (finding?.tag && finding?.name) {
-                const tag = finding.tag.toLowerCase();
-                const candidates = document.querySelectorAll(tag);
-                const role = finding.role || null;
-                const nameNorm = (finding.name || "").trim().toLowerCase().slice(0, 80);
-                for (const c of candidates) {
-                  if (role && c.getAttribute("role") !== role) continue;
-                  const cText = (c.textContent || "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, 80);
-                  if (cText && nameNorm && cText.includes(nameNorm)) return c;
+              if (finding?.testId) {
+                const sel = `[data-testid="${CSS.escape(finding.testId)}"]`;
+                const container = queryDeep(sel);
+                if (container) {
+                  const tag = (finding.tag || "").toLowerCase();
+                  if (!tag || container.tagName.toLowerCase() === tag) return container;
+                  // testId was inherited from ancestor — find the right child
+                  const child = container.querySelector(tag);
+                  if (child) return child;
+                  return container; // fallback to container
                 }
               }
             } catch {}
+
+            // 3rd: tag + role + accessible name (text, aria-label, title)
+            try {
+              const tag = (finding?.tag || "").toLowerCase();
+              const nameNorm = norm(finding?.name).slice(0, 80);
+              if (tag) {
+                const candidates = document.querySelectorAll(tag);
+                const role = finding.role || null;
+                for (const c of candidates) {
+                  if (role && c.getAttribute("role") !== role) continue;
+                  // Check multiple name sources
+                  const texts = [
+                    norm(c.getAttribute("aria-label")),
+                    norm(c.getAttribute("title")),
+                    norm(c.getAttribute("alt")),
+                    norm(c.getAttribute("placeholder")),
+                    norm(c.textContent),
+                  ];
+                  if (nameNorm) {
+                    for (const t of texts) {
+                      if (t && t.slice(0, 80).includes(nameNorm)) return c;
+                    }
+                  }
+                }
+                // Relax: try without role constraint
+                if (role && nameNorm) {
+                  for (const c of candidates) {
+                    const cText = norm(c.textContent).slice(0, 80);
+                    if (cText && cText.includes(nameNorm)) return c;
+                  }
+                }
+              }
+            } catch {}
+
+            // 4th: last resort — match by HTML snippet
+            try {
+              if (finding?.html && finding?.tag) {
+                const tag = finding.tag.toLowerCase();
+                const htmlNorm = norm(finding.html).slice(0, 120);
+                for (const c of document.querySelectorAll(tag)) {
+                  if (norm(c.outerHTML).slice(0, 120).includes(htmlNorm)) return c;
+                }
+              }
+            } catch {}
+
             return null;
           };
 
           const el = pick();
           if (!el) {
-            console.warn("[A11YFlowAudit] Could not find element to highlight.", finding);
-            return;
+            console.warn("[A11YFlow] Could not locate element to highlight.", finding);
+            return { found: false };
           }
 
           // Scroll into view
           try { el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" }); } catch {}
 
-          // Position overlay after scroll settles (double-rAF)
-          requestAnimationFrame(() => { requestAnimationFrame(() => {
-            const rect = el.getBoundingClientRect();
-            const overlay = document.createElement("div");
-            overlay.setAttribute(OVERLAY_ATTR, "1");
-            overlay.style.cssText = `
-              position: fixed;
-              pointer-events: none;
-              z-index: 2147483647;
-              border: 2px solid #ff79c6;
-              border-radius: 3px;
-              box-shadow: 0 0 0 3px rgba(255,121,198,0.9);
-              animation: a11yflow-pulse 1s ease-in-out 3;
-              transition: opacity 0.4s ease;
-              top: ${rect.top - 3}px;
-              left: ${rect.left - 3}px;
-              width: ${rect.width + 6}px;
-              height: ${rect.height + 6}px;
-            `;
-            document.body.appendChild(overlay);
+          // Apply highlight directly to the element (no overlay div)
+          // This survives z-index wars, stacking contexts, and tracks with scroll
+          requestAnimationFrame(() => {
+            el.setAttribute(HL_ATTR, "1");
 
-            // Fade out after 3.5s, remove at 3.9s
-            setTimeout(() => { overlay.style.opacity = "0"; }, 3500);
-            setTimeout(() => { overlay.remove(); }, 3900);
-          }); });
+            // Remove highlight after animation completes
+            setTimeout(() => {
+              el.removeAttribute(HL_ATTR);
+            }, 4000);
+          });
+
+          return { found: true };
         },
         args: [finding]
       });
-      sendResponse({ ok: true });
+      const found = results?.[0]?.result?.found === true;
+      sendResponse({ ok: true, found });
       return;
     }
 

@@ -283,7 +283,7 @@ function applySortState(arr, tableId) {
       ? (va - vb)
       : String(va).localeCompare(String(vb));
     if (primary !== 0) return primary;
-    if (tableId === "top" || tableId === "explorer") {
+    if (tableId === "explorer") {
       const ah = hashFinding(a);
       const bh = hashFinding(b);
       if (ah !== bh) return ah.localeCompare(bh);
@@ -519,7 +519,7 @@ function scrollToResults(action) {
   let el;
   if (action === 'contrast') el = document.getElementById('contrastSection');
   else if (action === 'tabWalk') el = document.getElementById('tabWalkSection');
-  else if (action === 'run') el = document.getElementById('findingsSection');
+  else if (action === 'run') el = document.getElementById('explorerSection');
   else el = document.getElementById('runSummary');
   if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
 }
@@ -752,8 +752,9 @@ function updateResultsVisibility(forceValue = null) {
   if (els.exportAnchor) els.exportAnchor.hidden = !(hasResults || hasSessionExport);
 }
 
-function clearStatsRow() {
+function renderStatsRow(findings = null) {
   if (!els.statsRow) return;
+  const c = findings ? countBySeverity(findings) : null;
   const cards = [
     { key: "high", label: "High" },
     { key: "medium", label: "Medium" },
@@ -762,25 +763,7 @@ function clearStatsRow() {
   ];
   els.statsRow.innerHTML = cards.map(({ key, label }) => `
     <div class="statCard ${key}">
-      <span class="statValue ${key}">&ndash;</span>
-      <span class="statLabel">${label}</span>
-    </div>
-  `).join("");
-  els.statsRow.hidden = false;
-}
-
-function renderStatsRow(findings = []) {
-  if (!els.statsRow) return;
-  const c = countBySeverity(findings);
-  const cards = [
-    { key: "high", label: "High" },
-    { key: "medium", label: "Medium" },
-    { key: "low", label: "Low" },
-    { key: "info", label: "Info" },
-  ];
-  els.statsRow.innerHTML = cards.map(({ key, label }) => `
-    <div class="statCard ${key}">
-      <span class="statValue ${key}">${escapeHtml(String(c[key] ?? 0))}</span>
+      <span class="statValue ${key}">${c ? escapeHtml(String(c[key] ?? 0)) : "&ndash;"}</span>
       <span class="statLabel">${escapeHtml(label)}</span>
     </div>
   `).join("");
@@ -859,16 +842,6 @@ async function persistRecords(scopeKey) {
     return out;
   };
 
-  const estimateBytes = (value) => {
-    try {
-      const json = JSON.stringify(value);
-      if (typeof TextEncoder !== "undefined") return new TextEncoder().encode(json).length;
-      return json.length;
-    } catch {
-      return -1;
-    }
-  };
-
   // keep latest records in-memory; persistence uses progressively more compact payloads
   if (state.records.length > 20) {
     state.records = state.records.slice(0, 20);
@@ -885,12 +858,12 @@ async function persistRecords(scopeKey) {
     try {
       await storageSet({ [scopeKey]: compacted });
       if (i > 0) {
-        console.warn(`persistRecords recovered with compact level ${i + 1}/${PERSIST_LIMIT_STEPS.length}`, { bytes: estimateBytes(compacted) });
+        console.warn(`persistRecords recovered with compact level ${i + 1}/${PERSIST_LIMIT_STEPS.length}`, { bytes: estimateJsonBytes(compacted) });
       }
       return true;
     } catch (err) {
       lastErr = err;
-      console.warn(`persistRecords attempt ${i + 1} failed`, { bytes: estimateBytes(compacted), err });
+      console.warn(`persistRecords attempt ${i + 1} failed`, { bytes: estimateJsonBytes(compacted), err });
     }
   }
 
@@ -928,7 +901,7 @@ function renderRecord(rec) {
   els.allTableBody.innerHTML = "";
   state.currentFindings = [];
   if (els.allCount) els.allCount.textContent = "0";
-  clearStatsRow();
+  renderStatsRow();
   showMode(mode);
 
   if (mode === "run") {
@@ -948,7 +921,7 @@ function renderRecord(rec) {
         <span class="runStat"><b>${escapeHtml(String(scanned))}</b> scanned</span>
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
-    clearStatsRow();
+    renderStatsRow();
     renderContrast(bestResult);
   } else if (mode === "tabWalk") {
     const walked = bestResult?.walked ?? "—";
@@ -961,7 +934,7 @@ function renderRecord(rec) {
         <span class="runStat">walked <b>${escapeHtml(String(walked))}</b>/<b>${escapeHtml(String(totalFoc))}</b></span>
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
-    clearStatsRow();
+    renderStatsRow();
     renderTabWalk(bestResult);
   } else if (mode === "observe" && bestResult) {
     const snapshots = Array.isArray(bestResult.snapshots) ? bestResult.snapshots : [];
@@ -982,7 +955,7 @@ function renderRecord(rec) {
       buildOptionsFromFindings(oFindings, els.type, "type");
       renderExplorer(oFindings);
     } else {
-      clearStatsRow();
+      renderStatsRow();
     }
   } else if (mode === "watch" && bestResult) {
     const verdicts = Array.isArray(bestResult.verdicts) ? bestResult.verdicts : [];
@@ -998,7 +971,7 @@ function renderRecord(rec) {
         <span class="runStat"><b>${wEvents.length}</b> events</span>
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
-    clearStatsRow();
+    renderStatsRow();
   } else {
     const ts = (bestResult?.timestamp || bestResult?.endedAt || rec.at) ? new Date(bestResult?.timestamp || bestResult?.endedAt || rec.at).toLocaleTimeString() : "";
     els.runSummary.innerHTML = `
@@ -1007,7 +980,7 @@ function renderRecord(rec) {
         <span class="runStat">frame <b>${escapeHtml(String(rec?.best?.frameId ?? "—"))}</b></span>
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
-    clearStatsRow();
+    renderStatsRow();
   }
 }
 
@@ -1505,8 +1478,6 @@ function formatElapsedHms(startIso, endIso = null) {
 }
 
 function ensureSessionHudTicker() {
-  const hasHudSurface = !!(els.sessionMeta || els.sessionStatus);
-  if (!hasHudSurface) return;
   const hasSession = !!sessionState.current;
   if (hasSession && !sessionState.hudTimer) {
     sessionState.hudTimer = window.setInterval(() => {
@@ -1522,49 +1493,9 @@ function ensureSessionHudTicker() {
 }
 
 function renderSessionHud() {
-  const sess = sessionState.current;
-  const statusEl = els.sessionStatus;
-  const metaEl = els.sessionMeta;
-  if (!sess?.id) {
-    if (metaEl) {
-      metaEl.textContent = "0 steps · 0:00";
-      metaEl.title = "No active session";
-    }
-    if (statusEl) {
-      statusEl.textContent = "IDLE";
-      statusEl.className = "sessionStatus idle";
-      statusEl.title = "No active session";
-    }
-    return;
-  }
-  const steps = Array.isArray(sess?.steps) ? sess.steps : [];
-  const elapsed = formatElapsedHms(sess.startedAt, sess.endedAt);
-  if (sessionState.inFlight) {
-    const slowText = sessionState.captureSlow ? "CAPTURING (SLOW)" : "CAPTURING";
-    if (metaEl) {
-      metaEl.textContent = `${steps.length} steps · ${elapsed}`;
-      metaEl.title = "Capture in-flight";
-    }
-    if (statusEl) {
-      statusEl.textContent = slowText;
-      statusEl.className = "sessionStatus running";
-      statusEl.title = "Capture in-flight";
-    }
-    return;
-  }
-  const status = sessionState.lastMarkStep?.status || "—";
-  const reasonCode = sessionState.lastMarkStep?.reasonCode || (status === "OK" ? "-" : "—");
-  const normalized = status === "OK" ? "ok" : status === "PARTIAL" ? "partial" : status === "FAILED" ? "failed" : "idle";
-  if (metaEl) {
-    metaEl.textContent = `${steps.length} steps · ${elapsed}`;
-    metaEl.title = `${status}/${reasonCode}`;
-  }
-  if (statusEl) {
-    statusEl.textContent = status === "—" ? "READY" : status;
-    statusEl.className = `sessionStatus ${normalized}`;
-    statusEl.title = `${status} (${reasonCode}) — ${reasonDetail(reasonCode)}`;
-  }
   renderFlowSessionInfo();
+  renderFlowTimeline();
+  renderFlowCounters();
 }
 
 function renderFlowSessionInfo() {
@@ -1598,6 +1529,58 @@ function renderFlowSessionInfo() {
   `;
 }
 
+function renderFlowTimeline() {
+  const body = els.flowTimelineBody;
+  if (!body) return;
+  const sess = sessionState.current || sessionState.lastEndedSession;
+  const steps = Array.isArray(sess?.steps) ? sess.steps : [];
+  const tbody = body.querySelector("tbody");
+  if (!tbody) return;
+  if (!steps.length) {
+    tbody.innerHTML = "";
+    return;
+  }
+  tbody.innerHTML = steps.map(s => {
+    const d = s.diffs?.consolidated || {};
+    const route = s.routeHint || s.url || "—";
+    const shortRoute = route.length > 40 ? route.slice(-38) : route;
+    const mode = s.activeModeCaptured || "—";
+    const blockers = [];
+    if (d.blockingAdded) blockers.push(`+${d.blockingAdded} blocking`);
+    if (d.blockingFixed) blockers.push(`-${d.blockingFixed} blocking`);
+    return `<tr class="trow">
+      <td>${s.index}</td>
+      <td title="${escapeHtml(route)}">${escapeHtml(shortRoute)}</td>
+      <td>${escapeHtml(mode)}</td>
+      <td>${d.added ?? 0}</td>
+      <td>${d.fixed ?? 0}</td>
+      <td>${d.persisting ?? 0}</td>
+      <td>${escapeHtml(blockers.join(", ") || "—")}</td>
+    </tr>`;
+  }).join("");
+}
+
+function renderFlowCounters() {
+  const el = document.getElementById("flowCounterRow");
+  if (!el) return;
+  const sess = sessionState.current || sessionState.lastEndedSession;
+  const steps = Array.isArray(sess?.steps) ? sess.steps : [];
+  if (!steps.length) { el.hidden = true; return; }
+  let added = 0, fixed = 0, unresolved = 0;
+  for (const s of steps) {
+    const d = s.diffs?.consolidated || {};
+    added += d.added || 0;
+    fixed += d.fixed || 0;
+    unresolved += d.persisting || 0;
+  }
+  el.innerHTML = `
+    <div class="flowCounter"><span class="flowCounterValue">${added}</span><span class="flowCounterLabel">Added</span></div>
+    <div class="flowCounter"><span class="flowCounterValue">${fixed > 0 ? "-" : ""}${fixed}</span><span class="flowCounterLabel">Fixed</span></div>
+    <div class="flowCounter"><span class="flowCounterValue">${unresolved}</span><span class="flowCounterLabel">Unresolved</span></div>
+  `;
+  el.hidden = false;
+}
+
 function updateSessionButtons() {
   const hasSession = !!sessionState.current;
   const hasExportableSession = !!(sessionState.current || sessionState.lastEndedSession);
@@ -1611,7 +1594,7 @@ function updateSessionButtons() {
   }
   if (els.sessionMark) {
     els.sessionMark.disabled = !hasSession || panelBusy;
-    els.sessionMark.textContent = inFlight ? "Capturing\u2026" : "Mark step";
+    els.sessionMark.innerHTML = inFlight ? "Capturing\u2026" : 'Mark step <kbd class="keycap" aria-hidden="true">s</kbd>';
   }
   if (els.sessionEnd) {
     els.sessionEnd.disabled = !hasSession || panelBusy;
@@ -2530,7 +2513,7 @@ function actionIsWatch(resultObj) {
 function renderRunSummary(r, rec = null) {
   if (!r) {
     els.runSummary.innerHTML = '<div class="emptyGuide">Pick a mode and hit <kbd>Run Audit</kbd>, or use a quick start preset.</div>';
-    clearStatsRow();
+    renderStatsRow();
     return;
   }
 
@@ -2904,8 +2887,16 @@ async function setPinnedFrameIfNeeded() {
 async function highlightFinding(finding) {
   if (!finding) return;
   const frameId = state.bestFrameId ?? 0;
-  await send({ type: "HIGHLIGHT", frameId, finding });
-  toast("Highlighted element");
+  try {
+    const res = await send({ type: "HIGHLIGHT", frameId, finding });
+    if (res?.found === false) {
+      toast("Element not found on page — DOM may have changed");
+    } else {
+      toast("Highlighted element");
+    }
+  } catch {
+    toast("Could not highlight — frame may be inaccessible");
+  }
 }
 
 async function saveHistorySnapshot({ key, snapshot }) {
@@ -3585,14 +3576,7 @@ els.copyJson.addEventListener("click", async () => {
 });
 
 els.downloadJson.addEventListener("click", () => {
-  const data = pretty(state.lastResult || {});
-  const blob = new Blob([data], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `a11yflowaudit-${Date.now()}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadText(`a11yflowaudit-${Date.now()}.json`, pretty(state.lastResult || {}), "application/json");
   setExportMenuOpen(false);
   toast("Downloaded JSON");
 });
@@ -3744,15 +3728,6 @@ window.addEventListener("keydown", (e) => {
   if (key === "1") { showView("snap"); return; }
   if (key === "2") { showView("flow"); return; }
   if (key === "3") { showView("settings"); return; }
-
-  if (state.topTab === "snap") {
-    // Snap subtab switching
-    const snapSubs = { a: "run", c: "contrast", t: "tabWalk", o: "observe", w: "watch" };
-    const sub = snapSubs[key];
-    if (sub) { showView("snap", sub); return; }
-    // s = execute current snap CTA
-    if (key === "s") { _lockedPreset([state.activeMode || "run"]); return; }
-  }
 
   if (state.topTab === "flow") {
     // s = mark step (if session active), e = end session
@@ -4072,7 +4047,7 @@ function syncCollapsedSections() {
 // initial
 showView("snap", "run");
 syncCollapsedSections();
-clearStatsRow();
+renderStatsRow();
 updateResultsVisibility(false);
 initVirtualTables();
 initSortableHeaders();

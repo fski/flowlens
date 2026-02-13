@@ -231,6 +231,9 @@
           <p class="helperText" id="flowRecordHelper">Record a11y changes across a multi-step flow</p>
         </div>
 
+        <!-- Flow session counters (Added / Fixed / Unresolved) -->
+        <div class="flowCounterRow" id="flowCounterRow" hidden></div>
+
         <!-- Session info accordion -->
         <section class="accordion" id="flowSessionInfo">
           <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="flowSessionInfoBody">
@@ -297,15 +300,8 @@
       <!-- ═══════════════════════ SETTINGS PANEL ═══════════════════════ -->
       <div id="settingsContent" role="tabpanel" aria-labelledby="topTabSettings" hidden inert>
 
-        <!-- Global Settings -->
-        <section class="accordion settingsAccordion" id="settingsGlobal">
-          <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="settingsGlobalBody">
-            <span class="accIcon" aria-hidden="true">&#9881;</span>
-            <span class="accLabel">Global Settings</span>
-            <span class="chevron" aria-hidden="true">&#x2228;</span>
-          </button>
-          <div class="accordionBody" id="settingsGlobalBody" hidden>
-            <div class="settingsGrid">
+        <section class="settingsPane">
+          <div class="settingsGrid">
               <div class="settingsGroup">
                 <span class="settingsLabel">Display</span>
                 <div class="settingsToggles">
@@ -350,57 +346,10 @@
               <div class="targetingSummary mono" id="targetingSummary" role="status" aria-live="polite" aria-atomic="true">
                 Target: Primary frame
               </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- Flow-only Settings -->
-        <section class="accordion settingsAccordion" id="settingsFlow">
-          <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="settingsFlowBody">
-            <span class="accIcon" aria-hidden="true">&#9687;</span>
-            <span class="accLabel">Flow-only Settings</span>
-            <span class="chevron" aria-hidden="true">&#x2228;</span>
-          </button>
-          <div class="accordionBody" id="settingsFlowBody" hidden>
-            <div class="settingsGrid">
-              <div class="settingsGroup">
-                <span class="settingsLabel">Active mode</span>
-                <span class="mono readOnly">Observe</span>
-              </div>
-              <div class="settingsGroup">
-                <span class="settingsLabel">Max steps</span>
-                <span class="mono readOnly">100</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- Snap-only Settings -->
-        <section class="accordion settingsAccordion" id="settingsSnap">
-          <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="settingsSnapBody">
-            <span class="accIcon" aria-hidden="true">&#9673;</span>
-            <span class="accLabel">Snap-only Settings</span>
-            <span class="chevron" aria-hidden="true">&#x2228;</span>
-          </button>
-          <div class="accordionBody" id="settingsSnapBody" hidden>
-            <div class="settingsGrid">
               <div class="settingsGroup">
                 <span class="settingsLabel">Console logging</span>
                 <label class="switch"><input id="alsoConsole" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Log to console</span></label>
               </div>
-              <div class="settingsGroup">
-                <span class="settingsLabel">Observe duration</span>
-                <span class="mono readOnly">12 s</span>
-              </div>
-              <div class="settingsGroup">
-                <span class="settingsLabel">Watch duration</span>
-                <span class="mono readOnly">40 s</span>
-              </div>
-              <div class="settingsGroup">
-                <span class="settingsLabel">Contrast node limit</span>
-                <span class="mono readOnly">250</span>
-              </div>
-            </div>
           </div>
         </section>
 
