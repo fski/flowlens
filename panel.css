@@ -661,6 +661,75 @@ kbd {
   margin: 0;
 }
 
+/* ═══ SEVERITY FILTER TABS ═══ */
+.sevTabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 8px;
+  background: var(--raised);
+  border-bottom: 2px solid var(--brd);
+}
+
+.sevTab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border: none;
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  position: relative;
+  transition: background .12s;
+}
+
+.sevTab .sevCount {
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.sevTab .sevLabel {
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--tx2);
+  text-transform: capitalize;
+}
+
+/* Inactive tab backgrounds */
+.sevTab[data-sev=""]       { background: var(--emphasis); }
+.sevTab[data-sev="high"]   { background: var(--dangerS); }
+.sevTab[data-sev="medium"] { background: var(--priS); }
+.sevTab[data-sev="low"]    { background: var(--okS); }
+.sevTab[data-sev="info"]   { background: var(--infoS); }
+
+/* Inactive tab count colors */
+.sevTab[data-sev=""] .sevCount      { color: var(--tx); }
+.sevTab[data-sev="high"] .sevCount  { color: var(--red); }
+.sevTab[data-sev="medium"] .sevCount{ color: var(--orange); }
+.sevTab[data-sev="low"] .sevCount   { color: var(--yellow); }
+.sevTab[data-sev="info"] .sevCount  { color: var(--cyan); }
+
+/* Active tab */
+.sevTab[aria-selected="true"] {
+  background: var(--surface);
+}
+
+.sevTab[aria-selected="true"]::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  border-radius: 6px 6px 0 0;
+}
+
+.sevTab[data-sev=""][aria-selected="true"]::before       { background: linear-gradient(90deg, rgba(161,161,161,1), rgba(161,161,161,0.4)); }
+.sevTab[data-sev="high"][aria-selected="true"]::before   { background: linear-gradient(90deg, rgba(244,104,106,1), rgba(244,104,106,0.4)); }
+.sevTab[data-sev="medium"][aria-selected="true"]::before { background: linear-gradient(90deg, var(--orange), rgba(219,159,62,0.4)); }
+.sevTab[data-sev="low"][aria-selected="true"]::before    { background: linear-gradient(90deg, var(--yellow), rgba(203,219,62,0.4)); }
+.sevTab[data-sev="info"][aria-selected="true"]::before   { background: linear-gradient(90deg, var(--cyan), rgba(62,190,219,0.4)); }
+
 /* ═══ COUNTER ROW ═══ */
 .counterRow {
   display: flex;
@@ -1070,9 +1139,7 @@ kbd {
   display: none;
 }
 
-#explorerBody.sectionBody {
-  padding: 0;
-}
+/* (explorerBody sectionBody rule removed — section flattened) */
 
 .si {
   width: 14px;
@@ -1097,77 +1164,26 @@ kbd {
 .runStat b { color: var(--tx); font-weight: 700; }
 .runStatMuted { color: var(--tx3); font-size: 11px; font-family: var(--font-mono); }
 
-.statsRow {
-  display: flex;
-  gap: 0;
-  flex-wrap: wrap;
-  padding: 0;
-  border-top: 2px solid var(--brd);
-  border-bottom: 2px solid var(--brd);
-  background: var(--raised);
-}
-
-.statCard {
-  flex: 1;
-  min-width: 56px;
-  padding: 8px 16px;
-  border-radius: 0;
-  border: 0;
-  background: transparent;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-
-.statValue {
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: var(--tx);
-  padding: 6px;
-  border-radius: 6px;
-  min-width: 28px;
-  text-align: center;
-}
-
-.statLabel {
-  font-size: 11px;
-  color: var(--tx2);
-  text-transform: capitalize;
-  font-weight: 400;
-}
-
-.statCard.high .statValue    { color: #FF5571; background: rgba(255, 85, 113, 0.08); }
-.statCard.medium .statValue  { color: #DB9F3E; background: rgba(219, 159, 62, 0.08); }
-.statCard.low .statValue     { color: #CBDB3E; background: rgba(203, 219, 62, 0.08); }
-.statCard.info .statValue    { color: #3EBEDB; background: rgba(62, 190, 219, 0.08); }
-
-@media (min-width: 480px) {
-  .statCard {
-    flex-direction: row;
-    gap: 8px;
-  }
-}
+/* (stat cards removed — replaced by .sevTabs) */
 
 
 .pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  border: 1.5px solid;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: none;
   text-transform: uppercase;
   letter-spacing: .04em;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 10px;
+  font-weight: 500;
 }
 
-.pill.high{color:var(--red);border-color:var(--dangerB);background:var(--dangerS)}
-.pill.medium{color:var(--orange);border-color:var(--priB);background:var(--priS)}
-.pill.low{color:var(--yellow);border-color:var(--warnB);background:var(--warnS)}
-.pill.info{color:var(--cyan);border-color:var(--infoB);background:var(--infoS)}
+.pill.high{color:var(--red);background:var(--dangerS)}
+.pill.medium{color:var(--orange);background:var(--priS)}
+.pill.low{color:var(--yellow);background:var(--okS)}
+.pill.info{color:var(--cyan);background:var(--infoS)}
 
 .tableWrap {
   overflow-x: auto;
@@ -1179,9 +1195,7 @@ kbd {
   max-height: 50vh;
 }
 
-#explorerBody .tableWrap {
-  margin-top: 10px;
-}
+/* explorerSection: tableWrap follows searchToolbar directly (no wrapper padding) */
 
 .tableTitle {
   padding: 12px 20px;
@@ -1274,6 +1288,12 @@ kbd {
   font-weight: 600;
 }
 
+/* First 4 columns fill panel width; remaining scroll horizontally */
+#allTable th:nth-child(1), #allTable td:nth-child(1) { min-width: 56px; }
+#allTable th:nth-child(2), #allTable td:nth-child(2) { min-width: 56px; }
+#allTable th:nth-child(3), #allTable td:nth-child(3) { min-width: 112px; }
+#allTable th:nth-child(4), #allTable td:nth-child(4) { min-width: 40px; }
+
 .tbl th:first-child,
 .tbl td:first-child {
   position: sticky;
@@ -1287,6 +1307,61 @@ kbd {
 .contrastPass td:first-child { color: var(--green); }
 
 .trow { cursor: pointer; }
+
+/* ═══ SEARCH TOOLBAR ═══ */
+.searchToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--brd);
+}
+
+.searchInput {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.searchIcon {
+  width: 12px;
+  height: 12px;
+  color: var(--tx3);
+  flex-shrink: 0;
+}
+
+.searchToolbar #q,
+.searchToolbar input[type="text"] {
+  border: none;
+  background: transparent;
+  padding: 4px 0;
+  font-size: 11px;
+  color: var(--tx);
+  flex: 1;
+  min-width: 0;
+}
+
+.searchToolbar #q:focus,
+.searchToolbar input[type="text"]:focus {
+  border: none;
+  box-shadow: none;
+  outline: none;
+}
+
+.searchToolbar #q::placeholder,
+.searchToolbar input[type="text"]::placeholder {
+  color: var(--tx3);
+}
+
+.toolbarActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 
 .highlightHint {
   margin-left: auto;
@@ -1316,42 +1391,7 @@ kbd {
   box-shadow: 0 0 0 1px var(--bg), 0 0 0 3px var(--infoB);
 }
 
-.filters {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: center;
-  padding: 12px 16px;
-  border-bottom: 2px solid var(--brd);
-}
-
-.filters select {
-  min-width: 100px;
-  font-size: 12px;
-  padding: 5px 28px 5px 10px;
-}
-
-.filters input[type="text"] {
-  min-width: 180px;
-  font-size: 12px;
-  padding: 5px 10px;
-}
-
-.chk {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--tx2);
-  cursor: pointer;
-  user-select: none;
-}
-
-.chk input {
-  width: 14px;
-  height: 14px;
-  accent-color: var(--pri);
-}
+/* (filters and chk removed — replaced by searchToolbar) */
 
 .profilePills {
   display: flex;
@@ -1444,20 +1484,28 @@ kbd {
 
 
 .emptyState {
-  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 16px;
   text-align: center;
   background: var(--surface);
   border: 1px solid var(--brd);
   border-radius: 0;
 }
 
-.emptyState.compact {
-  padding: 14px 16px;
-  text-align: left;
+.emptyState[hidden] { display: none; }
+
+.emptyIcon {
+  width: 32px;
+  height: 32px;
+  color: var(--tx3);
 }
 
-.emptyCompact {
-  color: var(--tx2);
+.emptyText {
+  color: var(--tx3);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -1469,7 +1517,7 @@ kbd {
 
 .resultsZone.visible {
   display: grid;
-  gap: 16px;
+  gap: 0;
   animation: fadeUp .2s ease-out;
 }
 
