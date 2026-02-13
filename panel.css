@@ -158,6 +158,8 @@ body {
   border: 1px solid var(--brd);
   border-radius: 2px;
   box-shadow: none;
+  overflow: hidden;
+  padding: 0;
 }
 
 .findingsCard {
@@ -856,10 +858,6 @@ kbd {
 }
 
 /* ═══ SETTINGS ACCORDIONS ═══ */
-.settingsAccordion {
-  border-bottom: 2px solid var(--brd);
-}
-
 .settingsAccordion .accordionBody {
   padding: 16px;
 }
@@ -1070,10 +1068,6 @@ kbd {
 .sectionBody.collapsed,
 .out pre.collapsed {
   display: none;
-}
-
-#resultsCard .sectionBody {
-  padding: 12px 16px;
 }
 
 #explorerBody.sectionBody {
@@ -1418,11 +1412,6 @@ kbd {
 }
 .settingsToggles { display: flex; flex-direction: column; gap: 6px; }
 .settingsGroup select { max-width: 220px; }
-
-.out {
-  overflow: hidden;
-  padding: 0;
-}
 
 .outHeader {
   display: flex;

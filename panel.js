@@ -752,8 +752,9 @@ function updateResultsVisibility(forceValue = null) {
   if (els.exportAnchor) els.exportAnchor.hidden = !(hasResults || hasSessionExport);
 }
 
-function clearStatsRow() {
+function renderStatsRow(findings = null) {
   if (!els.statsRow) return;
+  const c = findings ? countBySeverity(findings) : null;
   const cards = [
     { key: "high", label: "High" },
     { key: "medium", label: "Medium" },
@@ -762,25 +763,7 @@ function clearStatsRow() {
   ];
   els.statsRow.innerHTML = cards.map(({ key, label }) => `
     <div class="statCard ${key}">
-      <span class="statValue ${key}">&ndash;</span>
-      <span class="statLabel">${label}</span>
-    </div>
-  `).join("");
-  els.statsRow.hidden = false;
-}
-
-function renderStatsRow(findings = []) {
-  if (!els.statsRow) return;
-  const c = countBySeverity(findings);
-  const cards = [
-    { key: "high", label: "High" },
-    { key: "medium", label: "Medium" },
-    { key: "low", label: "Low" },
-    { key: "info", label: "Info" },
-  ];
-  els.statsRow.innerHTML = cards.map(({ key, label }) => `
-    <div class="statCard ${key}">
-      <span class="statValue ${key}">${escapeHtml(String(c[key] ?? 0))}</span>
+      <span class="statValue ${key}">${c ? escapeHtml(String(c[key] ?? 0)) : "&ndash;"}</span>
       <span class="statLabel">${escapeHtml(label)}</span>
     </div>
   `).join("");
@@ -859,16 +842,6 @@ async function persistRecords(scopeKey) {
     return out;
   };
 
-  const estimateBytes = (value) => {
-    try {
-      const json = JSON.stringify(value);
-      if (typeof TextEncoder !== "undefined") return new TextEncoder().encode(json).length;
-      return json.length;
-    } catch {
-      return -1;
-    }
-  };
-
   // keep latest records in-memory; persistence uses progressively more compact payloads
   if (state.records.length > 20) {
     state.records = state.records.slice(0, 20);
@@ -885,12 +858,12 @@ async function persistRecords(scopeKey) {
     try {
       await storageSet({ [scopeKey]: compacted });
       if (i > 0) {
-        console.warn(`persistRecords recovered with compact level ${i + 1}/${PERSIST_LIMIT_STEPS.length}`, { bytes: estimateBytes(compacted) });
+        console.warn(`persistRecords recovered with compact level ${i + 1}/${PERSIST_LIMIT_STEPS.length}`, { bytes: estimateJsonBytes(compacted) });
       }
       return true;
     } catch (err) {
       lastErr = err;
-      console.warn(`persistRecords attempt ${i + 1} failed`, { bytes: estimateBytes(compacted), err });
+      console.warn(`persistRecords attempt ${i + 1} failed`, { bytes: estimateJsonBytes(compacted), err });
     }
   }
 
@@ -928,7 +901,7 @@ function renderRecord(rec) {
   els.allTableBody.innerHTML = "";
   state.currentFindings = [];
   if (els.allCount) els.allCount.textContent = "0";
-  clearStatsRow();
+  renderStatsRow();
   showMode(mode);
 
   if (mode === "run") {
@@ -948,7 +921,7 @@ function renderRecord(rec) {
         <span class="runStat"><b>${escapeHtml(String(scanned))}</b> scanned</span>
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
-    clearStatsRow();
+    renderStatsRow();
     renderContrast(bestResult);
   } else if (mode === "tabWalk") {
     const walked = bestResult?.walked ?? "—";
@@ -961,7 +934,7 @@ function renderRecord(rec) {
         <span class="runStat">walked <b>${escapeHtml(String(walked))}</b>/<b>${escapeHtml(String(totalFoc))}</b></span>
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
-    clearStatsRow();
+    renderStatsRow();
     renderTabWalk(bestResult);
   } else if (mode === "observe" && bestResult) {
     const snapshots = Array.isArray(bestResult.snapshots) ? bestResult.snapshots : [];
@@ -982,7 +955,7 @@ function renderRecord(rec) {
       buildOptionsFromFindings(oFindings, els.type, "type");
       renderExplorer(oFindings);
     } else {
-      clearStatsRow();
+      renderStatsRow();
     }
   } else if (mode === "watch" && bestResult) {
     const verdicts = Array.isArray(bestResult.verdicts) ? bestResult.verdicts : [];
@@ -998,7 +971,7 @@ function renderRecord(rec) {
         <span class="runStat"><b>${wEvents.length}</b> events</span>
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
-    clearStatsRow();
+    renderStatsRow();
   } else {
     const ts = (bestResult?.timestamp || bestResult?.endedAt || rec.at) ? new Date(bestResult?.timestamp || bestResult?.endedAt || rec.at).toLocaleTimeString() : "";
     els.runSummary.innerHTML = `
@@ -1007,7 +980,7 @@ function renderRecord(rec) {
         <span class="runStat">frame <b>${escapeHtml(String(rec?.best?.frameId ?? "—"))}</b></span>
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
-    clearStatsRow();
+    renderStatsRow();
   }
 }
 
@@ -2540,7 +2513,7 @@ function actionIsWatch(resultObj) {
 function renderRunSummary(r, rec = null) {
   if (!r) {
     els.runSummary.innerHTML = '<div class="emptyGuide">Pick a mode and hit <kbd>Run Audit</kbd>, or use a quick start preset.</div>';
-    clearStatsRow();
+    renderStatsRow();
     return;
   }
 
@@ -3603,14 +3576,7 @@ els.copyJson.addEventListener("click", async () => {
 });
 
 els.downloadJson.addEventListener("click", () => {
-  const data = pretty(state.lastResult || {});
-  const blob = new Blob([data], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `a11yflowaudit-${Date.now()}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadText(`a11yflowaudit-${Date.now()}.json`, pretty(state.lastResult || {}), "application/json");
   setExportMenuOpen(false);
   toast("Downloaded JSON");
 });
@@ -4081,7 +4047,7 @@ function syncCollapsedSections() {
 // initial
 showView("snap", "run");
 syncCollapsedSections();
-clearStatsRow();
+renderStatsRow();
 updateResultsVisibility(false);
 initVirtualTables();
 initSortableHeaders();
