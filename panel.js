@@ -2535,7 +2535,7 @@ function renderRunSummary(r, rec = null) {
   const diffSummary = state.lastDiffSummary || "—";
   const ts = r.timestamp ? new Date(r.timestamp).toLocaleTimeString() : "";
 
-  els.runSummary.innerHTML = `
+  if (els.runSummary) els.runSummary.innerHTML = `
     <div class="runStats">
       <span class="runStat"><b>${asNumber(summary?.primaryCounts?.blockingFindings, 0)}</b> blocking</span>
       <span class="runStat">strict <b>${strictSignal}</b></span>
@@ -3936,9 +3936,9 @@ function initColToggles() {
     applyColStyles();
 
     const placements = [
-      { tableId: 'allTable', selector: '#explorerSection .sectionToggle', sibling: true },
-      { tableId: 'contrastTable', selector: '#contrastSection .tableTitle' },
-      { tableId: 'tabTable', selector: '#tabWalkSection .tableTitle' },
+      { tableId: 'allTable', selector: '#searchToolbar .toolbarActions' },
+      { tableId: 'contrastTable', selector: '#contrastToolbar .toolbarActions' },
+      { tableId: 'tabTable', selector: '#tabWalkToolbar .toolbarActions' },
     ];
 
     for (const p of placements) {
@@ -3968,10 +3968,7 @@ function initSortableHeaders() {
     {
       id: 'tab',
       thead: document.querySelector('#tabTable thead'),
-      render: () => {
-        const sorted = applySortState(state.tabData, 'tab');
-        if (VT.tab) VT.tab.setData(sorted);
-      },
+      render: () => renderTabWalk({ events: state.tabData }),
     },
   ];
 
