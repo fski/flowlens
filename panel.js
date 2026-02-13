@@ -12,8 +12,6 @@ const els = {
   frameSelect: document.getElementById("frameSelect"),
   frameSelectWrap: document.getElementById("frameSelectWrap"),
   copyFrameUrl: document.getElementById("copyFrameUrl"),
-  settingsPanelToggle: document.getElementById("settingsPanelToggle"),
-  settingsSection: document.getElementById("settingsSection"),
   profileSelect: document.getElementById("profileSelect"),
   alsoConsole: document.getElementById("alsoConsole"),
   pinFrame: document.getElementById("pinFrame"),
@@ -37,11 +35,6 @@ const els = {
   sessionEnd: document.getElementById("sessionEnd"),
   lastStatusLine: document.getElementById("lastStatusLine"),
 
-  presetQuick: document.getElementById("presetQuick"),
-  presetRelease: document.getElementById("presetRelease"),
-  presetFocus: document.getElementById("presetFocus"),
-  quickStartToggle: document.getElementById("quickStartToggle"),
-  quickStartMenu: document.getElementById("quickStartMenu"),
   runCurrentMode: document.getElementById("runCurrentMode"),
 
   json: document.getElementById("json"),
@@ -84,6 +77,18 @@ const els = {
   contrastShowAll: document.getElementById("contrastShowAll"),
   contrastTitle: document.getElementById("contrastTitle"),
   copyJsonRaw: document.getElementById("copyJsonRaw"),
+
+  // new tab shell elements
+  snapContent: document.getElementById("snapContent"),
+  flowContent: document.getElementById("flowContent"),
+  settingsContent: document.getElementById("settingsContent"),
+  snapHelper: document.getElementById("snapHelper"),
+  flowRecordingBanner: document.getElementById("flowRecordingBanner"),
+  flowRecordActions: document.getElementById("flowRecordActions"),
+  flowCounterRow: document.getElementById("flowCounterRow"),
+  flowSessionInfoBody: document.getElementById("flowSessionInfoBody"),
+  flowTimelineBody: document.getElementById("flowTimelineBody"),
+  flowWatchCtaBtn: document.getElementById("flowWatchCtaBtn"),
 };
 
 const ORDER = { high: 3, medium: 2, low: 1, info: 0 };
@@ -104,6 +109,8 @@ const state = {
   contrastSamples: [],
   tabData: [],
   activeMode: "run",
+  topTab: "snap",
+  flowSubTab: "record",
   pinnedFrameId: null,
   prioritizedFilter: false,
   lastDiffSummary: "—",
@@ -143,13 +150,6 @@ const MODE_LABELS = {
   observe: "Observe",
 };
 
-const RUN_BUTTON_LABELS = {
-  run: "Run Audit",
-  observe: "Start Observe",
-  watch: "Start Watch",
-  tabWalk: "Run Tab Walk",
-  contrast: "Run Contrast",
-};
 
 const SCOPE_LABELS = {
   primary: "Primary frame",
@@ -553,17 +553,18 @@ async function _runSingle(action, opts) {
 function setRunButtonBusy(busy) {
   if (!els.runCurrentMode) return;
   els.runCurrentMode.classList.toggle("running", !!busy);
-  if (els.quickStartToggle) {
-    els.quickStartToggle.disabled = !!busy || !!sessionState.inFlight;
-    if (busy) setQuickStartMenuOpen(false);
-  }
+  els.runCurrentMode.classList.toggle("busy", !!busy);
   if (els.runIcon) {
-    if (busy) els.runIcon.innerHTML = '<span class="spinner" aria-hidden="true"></span>';
-    else els.runIcon.textContent = "▶";
+    els.runIcon.textContent = busy ? "" : "\u25B6";
   }
   if (els.runLabel) {
-    if (busy) els.runLabel.textContent = "Running…";
-    else els.runLabel.textContent = runButtonLabel(state.activeMode || "run");
+    if (busy) {
+      const busyLabels = { run: "Running\u2026", contrast: "Checking\u2026", tabWalk: "Walking\u2026", observe: "Observing\u2026", watch: "Watching\u2026" };
+      els.runLabel.textContent = busyLabels[state.activeMode] || "Running\u2026";
+    } else {
+      const cta = SNAP_CTA[state.activeMode] || SNAP_CTA.run;
+      els.runLabel.textContent = cta.label;
+    }
   }
 }
 
@@ -574,9 +575,7 @@ async function _lockedPreset(actions) {
     return;
   }
   state.running = true;
-  const toolbar = document.querySelector('.toolbar');
   let lastSuccessAction = null;
-  if (toolbar) toolbar.classList.add('isRunning');
   setRunButtonBusy(true);
   try {
     for (const a of actions) {
@@ -588,18 +587,10 @@ async function _lockedPreset(actions) {
     if (lastSuccessAction) scrollToResults(lastSuccessAction);
   } finally {
     state.running = false;
-    if (toolbar) toolbar.classList.remove('isRunning');
     setRunButtonBusy(false);
   }
 }
 
-function setSettingsPanelOpen(open, { restoreFocus = false } = {}) {
-  if (!els.settingsSection || !els.settingsPanelToggle) return;
-  const isOpen = !!open;
-  els.settingsSection.hidden = !isOpen;
-  els.settingsPanelToggle.setAttribute("aria-expanded", String(isOpen));
-  if (!isOpen && restoreFocus) els.settingsPanelToggle.focus();
-}
 
 function exportMenuItems() {
   if (!els.exportMenu) return [];
@@ -615,19 +606,6 @@ function setExportMenuOpen(open, { restoreFocus = false } = {}) {
   if (!isOpen && restoreFocus) els.exportToggle.focus();
 }
 
-function quickStartMenuItems() {
-  if (!els.quickStartMenu) return [];
-  return [...els.quickStartMenu.querySelectorAll(".emItem")];
-}
-
-function setQuickStartMenuOpen(open, { restoreFocus = false } = {}) {
-  if (!els.quickStartMenu || !els.quickStartToggle) return;
-  const isOpen = !!open;
-  els.quickStartMenu.hidden = !isOpen;
-  els.quickStartMenu.classList.toggle("open", isOpen);
-  els.quickStartToggle.setAttribute("aria-expanded", String(isOpen));
-  if (!isOpen && restoreFocus) els.quickStartToggle.focus();
-}
 
 async function copyText(text) {
   // DevTools panel can have Clipboard API blocked by Permissions Policy.
@@ -694,9 +672,6 @@ function modeLabel(mode) {
   return MODE_LABELS[mode] || String(mode || "run");
 }
 
-function runButtonLabel(mode) {
-  return RUN_BUTTON_LABELS[mode] || `Run ${modeLabel(mode)}`;
-}
 
 function countBySeverity(findings = []) {
   const out = { high: 0, medium: 0, low: 0, info: 0 };
@@ -737,17 +712,32 @@ function recordLabel(rec) {
 
 function setPressed(action) {
   if (action) state.activeMode = action;
-  // Update mode selector buttons aria-checked
-  document.querySelectorAll("button[data-action]").forEach(btn => {
+  // Update snap subtab buttons aria-selected (new tab semantics)
+  document.querySelectorAll("#snapSubTabBar button[data-action]").forEach(btn => {
     const selected = btn.dataset.action === (state.activeMode || "run");
-    btn.setAttribute("aria-checked", String(selected));
+    btn.setAttribute("aria-selected", String(selected));
     btn.setAttribute("tabindex", selected ? "0" : "-1");
     btn.classList.toggle("active", selected);
   });
-  // Update run button label
-  const label = runButtonLabel(state.activeMode || "run");
-  if (els.runLabel) els.runLabel.textContent = label;
-  else if (els.runCurrentMode) els.runCurrentMode.textContent = label;
+  // Update CTA button label + color
+  updateSnapCta(state.activeMode || "run");
+}
+
+const SNAP_CTA = {
+  run:      { label: "Run Audit",      cls: "ctaBtn--amber", helper: "Perform a strict WCAG Audit" },
+  contrast: { label: "Check Contrast", cls: "ctaBtn--cyan",  helper: "Check contrast on up to 250 text nodes" },
+  tabWalk:  { label: "Run Tab Walk",   cls: "ctaBtn--lime",  helper: "Walk 80 focusable elements" },
+  observe:  { label: "Start Observe",  cls: "ctaBtn--teal",  helper: "Re-run WCAG check every ~1s for 12s" },
+  watch:    { label: "Start Watch",    cls: "ctaBtn--mint",   helper: "Monitor loaders and focus bar for 40s" },
+};
+
+function updateSnapCta(mode) {
+  const cta = SNAP_CTA[mode] || SNAP_CTA.run;
+  if (els.runLabel) els.runLabel.textContent = cta.label;
+  if (els.runCurrentMode) {
+    els.runCurrentMode.className = "ctaBtn " + cta.cls;
+  }
+  if (els.snapHelper) els.snapHelper.textContent = cta.helper;
 }
 
 function showMode(mode) {
@@ -760,6 +750,47 @@ function showMode(mode) {
   if (explorer) explorer.hidden = !runLike;
   if (contrast) contrast.hidden = mode !== "contrast";
   if (tab) tab.hidden = mode !== "tabWalk";
+}
+
+// ═══ VIEW ROUTING ═══
+function showView(tab, sub) {
+  // Update top-level tab
+  if (tab) state.topTab = tab;
+  const panels = { snap: els.snapContent, flow: els.flowContent, settings: els.settingsContent };
+  document.querySelectorAll("#topTabBar [role='tab']").forEach(btn => {
+    const isActive = btn.dataset.tab === state.topTab;
+    btn.setAttribute("aria-selected", String(isActive));
+    btn.setAttribute("tabindex", isActive ? "0" : "-1");
+  });
+  for (const [key, panel] of Object.entries(panels)) {
+    if (!panel) continue;
+    const active = key === state.topTab;
+    panel.hidden = !active;
+    if (active) panel.removeAttribute("inert");
+    else panel.setAttribute("inert", "");
+  }
+
+  // Handle Snap subtab
+  if (state.topTab === "snap" && sub) {
+    setPressed(sub);
+    showMode(sub);
+  }
+
+  // Handle Flow subtab
+  if (state.topTab === "flow") {
+    if (sub) state.flowSubTab = sub;
+    document.querySelectorAll("#flowSubTabBar [role='tab']").forEach(btn => {
+      const isActive = btn.dataset.flowtab === state.flowSubTab;
+      btn.setAttribute("aria-selected", String(isActive));
+      btn.setAttribute("tabindex", isActive ? "0" : "-1");
+    });
+    const recordView = document.getElementById("flowRecordView");
+    const watchView = document.getElementById("flowWatchView");
+    if (recordView) recordView.classList.toggle("active", state.flowSubTab === "record");
+    if (watchView) watchView.classList.toggle("active", state.flowSubTab === "watch");
+  }
+
+  updateSessionButtons();
 }
 
 function updateResultsVisibility(forceValue = null) {
@@ -783,21 +814,32 @@ function updateTopCount(total = 0, shown = total) {
 
 function clearStatsRow() {
   if (!els.statsRow) return;
-  els.statsRow.innerHTML = "";
-  els.statsRow.hidden = true;
+  const cards = [
+    { key: "high", label: "High" },
+    { key: "medium", label: "Medium" },
+    { key: "low", label: "Low" },
+    { key: "info", label: "Info" },
+  ];
+  els.statsRow.innerHTML = cards.map(({ key, label }) => `
+    <div class="statCard ${key}">
+      <span class="statValue ${key}">&ndash;</span>
+      <span class="statLabel">${label}</span>
+    </div>
+  `).join("");
+  els.statsRow.hidden = false;
 }
 
 function renderStatsRow(findings = []) {
   if (!els.statsRow) return;
   const c = countBySeverity(findings);
   const cards = [
-    { key: "high", label: "high" },
-    { key: "medium", label: "medium" },
-    { key: "low", label: "low" },
-    { key: "info", label: "info" },
+    { key: "high", label: "High" },
+    { key: "medium", label: "Medium" },
+    { key: "low", label: "Low" },
+    { key: "info", label: "Info" },
   ];
   els.statsRow.innerHTML = cards.map(({ key, label }) => `
-    <div class="statCard">
+    <div class="statCard ${key}">
       <span class="statValue ${key}">${escapeHtml(String(c[key] ?? 0))}</span>
       <span class="statLabel">${escapeHtml(label)}</span>
     </div>
@@ -1615,6 +1657,55 @@ function renderSessionHud() {
     statusEl.className = `sessionStatus ${normalized}`;
     statusEl.title = `${status} (${reasonCode}) — ${reasonDetail(reasonCode)}`;
   }
+  renderFlowSessionInfo();
+}
+
+function renderFlowSessionInfo() {
+  const body = els.flowSessionInfoBody;
+  if (!body) return;
+  const sess = sessionState.current || sessionState.lastEndedSession;
+  if (!sess?.id) {
+    body.innerHTML = '<p class="placeholderText">No session data yet</p>';
+    return;
+  }
+  const steps = Array.isArray(sess.steps) ? sess.steps : [];
+  const elapsed = formatElapsedHms(sess.startedAt, sess.endedAt);
+  const status = sess.endedAt ? "ENDED" : "ACTIVE";
+  const started = sess.startedAt ? new Date(sess.startedAt).toLocaleTimeString() : "—";
+  const baseline = sess.baseline || "Run";
+  const active = sess.activeMode || "Observe";
+  const scope = sess.scope || "Primary";
+  const wcag = sess.wcagLevel || "2.2 AA";
+  const maxSteps = sess.maxSteps || 100;
+  body.innerHTML = `
+    <dl class="sessionInfoGrid">
+      <dt>Status</dt><dd>${escapeHtml(status)}</dd>
+      <dt>Started</dt><dd>${escapeHtml(started)}</dd>
+      <dt>Duration</dt><dd>${escapeHtml(elapsed)}</dd>
+      <dt>Steps</dt><dd>${steps.length} / ${maxSteps}</dd>
+      <dt>Baseline</dt><dd>${escapeHtml(baseline)}</dd>
+      <dt>Active</dt><dd>${escapeHtml(active)}</dd>
+      <dt>Scope</dt><dd>${escapeHtml(scope)}</dd>
+      <dt>WCAG</dt><dd>${escapeHtml(wcag)}</dd>
+    </dl>
+  `;
+}
+
+function renderFlowCounters(stepDiff) {
+  const row = els.flowCounterRow;
+  if (!row) return;
+  if (!stepDiff) {
+    row.innerHTML = "";
+    return;
+  }
+  const added = stepDiff.added ?? 0;
+  const fixed = stepDiff.fixed ?? 0;
+  const unresolved = stepDiff.unresolved ?? 0;
+  row.innerHTML = `
+    <div class="counterPill"><span class="counterValue high">${added}</span><span class="counterLabel">Added</span></div>
+    <div class="counterPill"><span class="counterValue info">${fixed}</span><span class="counterLabel">Fixed</span></div>
+    <div class="counterPill"><span class="counterValue medium">${unresolved}</span><span class="counterLabel">Unresolved</span></div>
+  `;
 }
 
 function updateSessionButtons() {
@@ -1627,26 +1718,17 @@ function updateSessionButtons() {
   if (els.sessionStart) {
     els.sessionStart.disabled = panelBusy || hasSession;
     els.sessionStart.hidden = hasSession;
-    els.sessionStart.classList.toggle("on", hasSession);
-    els.sessionStart.textContent = hasSession ? "\u25F7 Session active" : "\u25F7 Start session";
-    els.sessionStart.title = hasSession ? "Session is active" : "Start capture session";
   }
   if (els.sessionMark) {
     els.sessionMark.disabled = !hasSession || panelBusy;
-    els.sessionMark.hidden = !hasSession;
-    els.sessionMark.classList.toggle("primary", hasSession && !panelBusy);
-    els.sessionMark.classList.toggle("secondary", !hasSession || panelBusy);
-    els.sessionMark.textContent = inFlight ? "Capturing…" : "Mark step";
-  }
-  if (els.runCurrentMode) {
-    els.runCurrentMode.classList.toggle("sessionActive", hasSession && !inFlight);
-    els.runCurrentMode.classList.remove("secondaryAction");
-    els.runCurrentMode.classList.toggle("tertiaryAction", hasSession);
+    els.sessionMark.textContent = inFlight ? "Capturing\u2026" : "Mark step";
   }
   if (els.sessionEnd) {
     els.sessionEnd.disabled = !hasSession || panelBusy;
-    els.sessionEnd.hidden = !hasSession;
   }
+  // Toggle recording banner and actions in Flow Record view
+  if (els.flowRecordingBanner) els.flowRecordingBanner.hidden = !hasSession;
+  if (els.flowRecordActions) els.flowRecordActions.hidden = !hasSession;
   if (els.sessionExportMenuLabel) els.sessionExportMenuLabel.hidden = !hasExportableSession;
   if (els.exportSessionJsonMenu) {
     els.exportSessionJsonMenu.hidden = !hasExportableSession;
@@ -1663,10 +1745,6 @@ function updateSessionButtons() {
     els.rerunCurrent.disabled = panelBusy;
   }
   if (els.exportAnchor) els.exportAnchor.hidden = !((state.records.length > 0) || hasExportableSession);
-  if (els.quickStartToggle) {
-    els.quickStartToggle.disabled = panelBusy;
-    if (panelBusy) setQuickStartMenuOpen(false);
-  }
   renderSessionHud();
 }
 
@@ -3432,9 +3510,6 @@ async function exportSessionMarkdown() {
 }
 
 // --- Presets ---
-async function presetQuick() { await _lockedPreset(["run", "contrast"]); }
-async function presetRelease() { await _lockedPreset(["watch", "observe", "run"]); }
-async function presetFocus() { await _lockedPreset(["tabWalk", "run"]); }
 
 // --- Export ---
 async function copyMarkdown() {
@@ -3466,7 +3541,7 @@ function setVersionBadge() {
     if (!badge) return;
     const v = (__runtime && __runtime.getManifest) ? __runtime.getManifest().version : (badge.dataset.version || badge.textContent.replace(/^v/, ""));
     badge.dataset.version = v;
-    badge.textContent = "v" + v;
+    badge.textContent = v + " DH";
   } catch {}
 }
 
@@ -3535,31 +3610,73 @@ async function loadUiPrefs() {
 }
 
 // --- wire up ---
-// Mode buttons: select mode only (do not run)
-document.querySelectorAll("button[data-action]").forEach(btn => {
+
+// Top-level tab clicks
+document.querySelectorAll("#topTabBar [role='tab']").forEach(btn => {
+  btn.addEventListener("click", () => showView(btn.dataset.tab));
+});
+
+// Roving tabindex for top tabs
+document.getElementById("topTabBar").addEventListener("keydown", (e) => {
+  const tabs = [...document.querySelectorAll("#topTabBar [role='tab']")];
+  if (!tabs.length) return;
+  const idx = tabs.indexOf(e.target);
+  if (idx < 0) return;
+  let next = idx;
+  if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (idx + 1) % tabs.length;
+  else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (idx - 1 + tabs.length) % tabs.length;
+  else if (e.key === "Home") next = 0;
+  else if (e.key === "End") next = tabs.length - 1;
+  else return;
+  e.preventDefault();
+  showView(tabs[next].dataset.tab);
+  tabs[next].focus();
+});
+
+// Snap subtab clicks
+document.querySelectorAll("#snapSubTabBar [role='tab']").forEach(btn => {
   btn.addEventListener("click", () => {
-    setPressed(btn.dataset.action);
-    showMode(btn.dataset.action);
+    showView("snap", btn.dataset.action);
   });
-  btn.addEventListener("keydown", (e) => {
-    const key = e.key;
-    if (!["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp", "Home", "End"].includes(key)) return;
-    const modeBtns = [...document.querySelectorAll("button[data-action][role='radio']")];
-    if (!modeBtns.length) return;
-    const currentIdx = modeBtns.findIndex(node => node === btn);
-    if (currentIdx < 0) return;
-    let nextIdx = currentIdx;
-    if (key === "Home") nextIdx = 0;
-    else if (key === "End") nextIdx = modeBtns.length - 1;
-    else if (key === "ArrowRight" || key === "ArrowDown") nextIdx = (currentIdx + 1) % modeBtns.length;
-    else if (key === "ArrowLeft" || key === "ArrowUp") nextIdx = (currentIdx - 1 + modeBtns.length) % modeBtns.length;
-    const nextBtn = modeBtns[nextIdx];
-    if (!nextBtn) return;
-    e.preventDefault();
-    setPressed(nextBtn.dataset.action);
-    showMode(nextBtn.dataset.action);
-    nextBtn.focus();
-  });
+});
+
+// Roving tabindex for snap subtabs
+document.getElementById("snapSubTabBar").addEventListener("keydown", (e) => {
+  const tabs = [...document.querySelectorAll("#snapSubTabBar [role='tab']")];
+  if (!tabs.length) return;
+  const idx = tabs.indexOf(e.target);
+  if (idx < 0) return;
+  let next = idx;
+  if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (idx + 1) % tabs.length;
+  else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (idx - 1 + tabs.length) % tabs.length;
+  else if (e.key === "Home") next = 0;
+  else if (e.key === "End") next = tabs.length - 1;
+  else return;
+  e.preventDefault();
+  showView("snap", tabs[next].dataset.action);
+  tabs[next].focus();
+});
+
+// Flow subtab clicks
+document.querySelectorAll("#flowSubTabBar [role='tab']").forEach(btn => {
+  btn.addEventListener("click", () => showView("flow", btn.dataset.flowtab));
+});
+
+// Roving tabindex for flow subtabs
+document.getElementById("flowSubTabBar").addEventListener("keydown", (e) => {
+  const tabs = [...document.querySelectorAll("#flowSubTabBar [role='tab']")];
+  if (!tabs.length) return;
+  const idx = tabs.indexOf(e.target);
+  if (idx < 0) return;
+  let next = idx;
+  if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (idx + 1) % tabs.length;
+  else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (idx - 1 + tabs.length) % tabs.length;
+  else if (e.key === "Home") next = 0;
+  else if (e.key === "End") next = tabs.length - 1;
+  else return;
+  e.preventDefault();
+  showView("flow", tabs[next].dataset.flowtab);
+  tabs[next].focus();
 });
 
 // Run button: execute currently selected mode
@@ -3612,67 +3729,9 @@ if (els.exportToggle && els.exportMenu) {
   });
 }
 
-if (els.quickStartToggle && els.quickStartMenu) {
-  els.quickStartToggle.addEventListener("click", () => {
-    setQuickStartMenuOpen(els.quickStartMenu.hidden);
-  });
-  els.quickStartToggle.addEventListener("keydown", (e) => {
-    if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      setQuickStartMenuOpen(true);
-      const first = quickStartMenuItems().find(item => !item.disabled);
-      if (first) first.focus();
-      return;
-    }
-    if (e.key === "Escape" && !els.quickStartMenu.hidden) {
-      e.preventDefault();
-      setQuickStartMenuOpen(false, { restoreFocus: true });
-    }
-  });
-  els.quickStartMenu.addEventListener("keydown", (e) => {
-    const items = quickStartMenuItems().filter(item => !item.disabled);
-    if (!items.length) return;
-    const currentIdx = items.findIndex(item => item === document.activeElement);
-    if (e.key === "Escape") {
-      e.preventDefault();
-      setQuickStartMenuOpen(false, { restoreFocus: true });
-      return;
-    }
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      items[(currentIdx + 1 + items.length) % items.length].focus();
-      return;
-    }
-    if (e.key === "ArrowUp") {
-      e.preventDefault();
-      items[(currentIdx - 1 + items.length) % items.length].focus();
-      return;
-    }
-    if (e.key === "Tab") setQuickStartMenuOpen(false);
-  });
-  document.addEventListener("click", (e) => {
-    const target = e.target;
-    if (els.quickStartToggle.contains(target) || els.quickStartMenu.contains(target)) return;
-    setQuickStartMenuOpen(false);
-  });
-}
-
-if (els.settingsPanelToggle && els.settingsSection) {
-  els.settingsPanelToggle.addEventListener("click", () => {
-    setSettingsPanelOpen(els.settingsSection.hidden);
-  });
-  els.settingsSection.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      setSettingsPanelOpen(false, { restoreFocus: true });
-    }
-  });
-  document.addEventListener("click", (e) => {
-    if (els.settingsSection.hidden) return;
-    const t = e.target;
-    if (els.settingsPanelToggle.contains(t) || els.settingsSection.contains(t)) return;
-    setSettingsPanelOpen(false);
-  });
+// Flow Watch CTA button
+if (els.flowWatchCtaBtn) {
+  els.flowWatchCtaBtn.addEventListener("click", () => _lockedPreset(["watch"]));
 }
 
 els.refreshFrames.addEventListener("click", refreshFrames);
@@ -3867,9 +3926,6 @@ if (els.allTableBody && !els.allTableBody.__bound) {
   });
 }
 
-if (els.presetQuick) els.presetQuick.addEventListener("click", () => { setQuickStartMenuOpen(false); presetQuick(); });
-if (els.presetRelease) els.presetRelease.addEventListener("click", () => { setQuickStartMenuOpen(false); presetRelease(); });
-if (els.presetFocus) els.presetFocus.addEventListener("click", () => { setQuickStartMenuOpen(false); presetFocus(); });
 
 if (els.topFilterChips) {
   els.topFilterChips.addEventListener("click", (e) => {
@@ -3947,14 +4003,48 @@ function scheduleExplorerRender() {
   el.addEventListener("change", scheduleExplorerRender);
 });
 
-// keyboard shortcuts (while panel focused)
+// keyboard shortcuts (tab-aware)
 window.addEventListener("keydown", (e) => {
   if (state.running) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.target && (e.target.matches("input,select,textarea") || e.target.isContentEditable)) return;
-  const actions = { r: "run", o: "observe", w: "watch", t: "tabWalk", c: "contrast" };
-  const action = actions[(e.key || "").toLowerCase()];
-  if (action) _lockedPreset([action]);
+  const key = (e.key || "").toLowerCase();
+
+  // Top-level tab switching: 1/2/3
+  if (key === "1") { showView("snap"); return; }
+  if (key === "2") { showView("flow"); return; }
+  if (key === "3") { showView("settings"); return; }
+
+  if (state.topTab === "snap") {
+    // Snap subtab switching
+    const snapSubs = { a: "run", c: "contrast", t: "tabWalk", o: "observe", w: "watch" };
+    const sub = snapSubs[key];
+    if (sub) { showView("snap", sub); return; }
+    // s = execute current snap CTA
+    if (key === "s") { _lockedPreset([state.activeMode || "run"]); return; }
+  }
+
+  if (state.topTab === "flow") {
+    if (state.flowSubTab === "record") {
+      // s = mark step (if session active), e = end session
+      if (key === "s" && sessionState.current && els.sessionMark && !els.sessionMark.disabled) {
+        els.sessionMark.click();
+        return;
+      }
+      if (key === "e" && sessionState.current && els.sessionEnd && !els.sessionEnd.disabled) {
+        els.sessionEnd.click();
+        return;
+      }
+      // r = start recording (if no session)
+      if (key === "r" && !sessionState.current && els.sessionStart && !els.sessionStart.disabled) {
+        els.sessionStart.click();
+        return;
+      }
+    }
+    if (state.flowSubTab === "watch") {
+      if (key === "s" && els.flowWatchCtaBtn) { els.flowWatchCtaBtn.click(); return; }
+    }
+  }
 });
 
 
@@ -4220,7 +4310,7 @@ if (_jsonToggle) {
   });
 }
 
-// Section collapse toggles
+// Section collapse toggles (existing + old pattern)
 document.querySelectorAll('.sectionToggle[data-collapse]').forEach(btn => {
   btn.addEventListener('click', () => {
     const expanded = btn.getAttribute('aria-expanded') === 'true';
@@ -4230,6 +4320,18 @@ document.querySelectorAll('.sectionToggle[data-collapse]').forEach(btn => {
       target.classList.toggle('collapsed', expanded);
       target.hidden = expanded;
     }
+  });
+});
+
+// Generic accordion toggles (new tab shell accordions)
+document.querySelectorAll('.accordionToggle').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const expanded = btn.getAttribute('aria-expanded') === 'true';
+    btn.setAttribute('aria-expanded', String(!expanded));
+    const body = btn.closest('.accordion')?.querySelector('.accordionBody');
+    if (body) body.hidden = expanded;
+    const chevron = btn.querySelector('.chevron');
+    if (chevron) chevron.textContent = expanded ? '\u2228' : '\u2227';
   });
 });
 
@@ -4243,8 +4345,9 @@ function syncCollapsedSections() {
 }
 
 // initial
-setSettingsPanelOpen(false);
+showView("snap", "run");
 syncCollapsedSections();
+clearStatsRow();
 updateResultsVisibility(false);
 initVirtualTables();
 initSortableHeaders();
@@ -4252,8 +4355,6 @@ initColToggles();
 updateScopeUi();
 setVersionBadge();
 loadUiPrefs();
-updateSessionButtons();
-setPressed(state.activeMode || "run");
 
 (async () => {
   await refreshInspectedUrl();
