@@ -104,25 +104,13 @@
             </button>
             <div id="resultsBody" class="sectionBody" role="region" aria-labelledby="resultsToggleBtn">
               <div id="runSummary" class="kvs">(no results yet)</div>
-              <div id="sevBadges" class="badges"></div>
-            </div>
-          </section>
-
-          <!-- Prioritized view -->
-          <section class="findingsCard" id="findingsSection">
-            <button class="sectionToggle" id="topIssuesToggleBtn" type="button" aria-expanded="true" aria-controls="topTableInner" data-collapse="topTableInner">
-              <span class="outToggleIcon">&#x25B6;</span> Prioritized view <span class="toggleCount" id="topCount">0</span>
-            </button>
-            <div id="topTableInner" class="sectionBody" role="region" aria-labelledby="topIssuesToggleBtn">
-              <div class="blockAlert" id="topBlockingAlert" hidden></div>
-              <div class="filterChips" id="topFilterChips" role="group" aria-label="Prioritized findings view filter"></div>
             </div>
           </section>
 
           <!-- All findings explorer -->
           <section class="findingsCard" id="explorerSection">
             <button class="sectionToggle" id="explorerToggleBtn" type="button" aria-expanded="true" aria-controls="explorerBody" data-collapse="explorerBody">
-              <span class="outToggleIcon">&#x25B6;</span> All findings <span class="toggleCount" id="allCount">0</span>
+              <span class="outToggleIcon">&#x25B6;</span> All findings <span class="toggleCount" id="allCount">0</span> <span class="highlightHint">Click a row to highlight on page</span>
             </button>
             <div id="explorerBody" class="sectionBody" role="region" aria-labelledby="explorerToggleBtn">
               <div class="filters">
@@ -242,9 +230,6 @@
           </div>
           <p class="helperText" id="flowRecordHelper">Record a11y changes across a multi-step flow</p>
         </div>
-
-        <!-- Flow counters (Added / Fixed / Unresolved) -->
-        <div class="counterRow" id="flowCounterRow" hidden></div>
 
         <!-- Session info accordion -->
         <section class="accordion" id="flowSessionInfo">
@@ -429,9 +414,6 @@
         <span id="usedFrames">&mdash;</span>
         <span id="diff">&mdash;</span>
       </div>
-
-      <!-- Re-run button (hidden, used programmatically) -->
-      <button class="btn xs" id="rerunCurrent" type="button" title="Run the selected mode again" hidden aria-hidden="true">Re-run</button>
 
       <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
     </main>
