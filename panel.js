@@ -519,7 +519,7 @@ function scrollToResults(action) {
   let el;
   if (action === 'contrast') el = document.getElementById('contrastSection');
   else if (action === 'tabWalk') el = document.getElementById('tabWalkSection');
-  else if (action === 'run') el = document.getElementById('findingsSection');
+  else if (action === 'run') el = document.getElementById('explorerSection');
   else el = document.getElementById('runSummary');
   if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
 }
@@ -1505,8 +1505,6 @@ function formatElapsedHms(startIso, endIso = null) {
 }
 
 function ensureSessionHudTicker() {
-  const hasHudSurface = !!(els.sessionMeta || els.sessionStatus);
-  if (!hasHudSurface) return;
   const hasSession = !!sessionState.current;
   if (hasSession && !sessionState.hudTimer) {
     sessionState.hudTimer = window.setInterval(() => {
@@ -1522,48 +1520,6 @@ function ensureSessionHudTicker() {
 }
 
 function renderSessionHud() {
-  const sess = sessionState.current;
-  const statusEl = els.sessionStatus;
-  const metaEl = els.sessionMeta;
-  if (!sess?.id) {
-    if (metaEl) {
-      metaEl.textContent = "0 steps · 0:00";
-      metaEl.title = "No active session";
-    }
-    if (statusEl) {
-      statusEl.textContent = "IDLE";
-      statusEl.className = "sessionStatus idle";
-      statusEl.title = "No active session";
-    }
-    return;
-  }
-  const steps = Array.isArray(sess?.steps) ? sess.steps : [];
-  const elapsed = formatElapsedHms(sess.startedAt, sess.endedAt);
-  if (sessionState.inFlight) {
-    const slowText = sessionState.captureSlow ? "CAPTURING (SLOW)" : "CAPTURING";
-    if (metaEl) {
-      metaEl.textContent = `${steps.length} steps · ${elapsed}`;
-      metaEl.title = "Capture in-flight";
-    }
-    if (statusEl) {
-      statusEl.textContent = slowText;
-      statusEl.className = "sessionStatus running";
-      statusEl.title = "Capture in-flight";
-    }
-    return;
-  }
-  const status = sessionState.lastMarkStep?.status || "—";
-  const reasonCode = sessionState.lastMarkStep?.reasonCode || (status === "OK" ? "-" : "—");
-  const normalized = status === "OK" ? "ok" : status === "PARTIAL" ? "partial" : status === "FAILED" ? "failed" : "idle";
-  if (metaEl) {
-    metaEl.textContent = `${steps.length} steps · ${elapsed}`;
-    metaEl.title = `${status}/${reasonCode}`;
-  }
-  if (statusEl) {
-    statusEl.textContent = status === "—" ? "READY" : status;
-    statusEl.className = `sessionStatus ${normalized}`;
-    statusEl.title = `${status} (${reasonCode}) — ${reasonDetail(reasonCode)}`;
-  }
   renderFlowSessionInfo();
   renderFlowTimeline();
   renderFlowCounters();
