@@ -223,138 +223,88 @@
       <!-- ═══════════════════════ FLOW PANEL ═══════════════════════ -->
       <div id="flowContent" role="tabpanel" aria-labelledby="topTabFlow" hidden inert>
 
-        <!-- Flow subtabs -->
-        <nav class="subTabBar" id="flowSubTabBar" role="tablist" aria-label="Flow modes">
-          <button class="subTab subTab--watch" id="flowTabWatch" role="tab" data-flowtab="watch" aria-selected="false" tabindex="-1" type="button">
-            <img class="tabSvg" src="icons/Watch Icon.svg" alt="" width="16" height="16" aria-hidden="true" />
-            <span class="tabLabel">Watch</span>
-          </button>
-          <button class="subTab subTab--record" id="flowTabRecord" role="tab" data-flowtab="record" aria-selected="true" tabindex="0" type="button">
+        <!-- CTA slot -->
+        <div class="ctaSlot" id="flowRecordCta">
+          <button class="ctaBtn ctaBtn--coral" id="sessionStart" type="button" title="Start capture session">
             <img class="tabSvg" src="icons/Flow Icon.svg" alt="" width="16" height="16" aria-hidden="true" />
-            <span class="tabLabel">Record</span>
+            Record Flow
           </button>
-        </nav>
-
-        <!-- ─── Flow > Record ─── -->
-        <div id="flowRecordView" class="flowView active">
-
-          <div class="ctaSlot" id="flowRecordCta">
-            <button class="ctaBtn ctaBtn--pink" id="sessionStart" type="button" title="Start capture session">
-              &#9655; Record Flow
-            </button>
-            <div class="flowRecordingBanner" id="flowRecordingBanner" hidden>
-              <span class="recSpinner" aria-hidden="true">&#9676;</span> Recording&hellip;
-            </div>
-            <div class="flowRecordActions" id="flowRecordActions" hidden>
-              <button class="ctaBtn ctaBtn--pink" id="sessionMark" type="button" title="Capture current step" disabled>
-                Mark step <kbd class="keycap" aria-hidden="true">s</kbd>
-              </button>
-              <button class="ctaBtn ctaBtn--outline" id="sessionEnd" type="button" title="End active session" disabled>
-                End <kbd class="keycap" aria-hidden="true">e</kbd>
-              </button>
-            </div>
-            <p class="helperText" id="flowRecordHelper">Record a11y changes across a multi-step flow</p>
+          <div class="flowRecordingBanner" id="flowRecordingBanner" hidden>
+            <span class="recSpinner" aria-hidden="true">&#9676;</span> Recording&hellip;
           </div>
-
-          <!-- Flow counters (Added / Fixed / Unresolved) -->
-          <div class="counterRow" id="flowCounterRow" hidden></div>
-
-          <!-- Session info accordion -->
-          <section class="accordion" id="flowSessionInfo">
-            <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="flowSessionInfoBody">
-              <span class="accIcon" aria-hidden="true">&#9432;</span>
-              <span class="accLabel">Session info</span>
-              <span class="chevron" aria-hidden="true">&#x2228;</span>
+          <div class="flowRecordActions" id="flowRecordActions" hidden>
+            <button class="ctaBtn ctaBtn--coral" id="sessionMark" type="button" title="Capture current step" disabled>
+              Mark step <kbd class="keycap" aria-hidden="true">s</kbd>
             </button>
-            <div class="accordionBody" id="flowSessionInfoBody" hidden>
-              <dl class="sessionInfoGrid">
-                <dt>Status</dt><dd id="flowSiStatus">IDLE</dd>
-                <dt>Started</dt><dd id="flowSiStarted">&mdash;</dd>
-                <dt>Duration</dt><dd id="flowSiDuration">&mdash;</dd>
-                <dt>Steps</dt><dd id="flowSiSteps">0 / 100</dd>
-                <dt>Baseline</dt><dd id="flowSiBaseline">Run</dd>
-                <dt>Active</dt><dd id="flowSiActive">Observe</dd>
-                <dt>Scope</dt><dd id="flowSiScope">Primary</dd>
-                <dt>WCAG</dt><dd id="flowSiWcag">2.2 AA</dd>
-              </dl>
-            </div>
-          </section>
-
-          <!-- Timeline view accordion -->
-          <section class="accordion" id="flowTimeline">
-            <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="flowTimelineBody">
-              <span class="accIcon" aria-hidden="true">&#9776;</span>
-              <span class="accLabel">Timeline view</span>
-              <span class="chevron" aria-hidden="true">&#x2228;</span>
+            <button class="ctaBtn ctaBtn--outline" id="sessionEnd" type="button" title="End active session" disabled>
+              End <kbd class="keycap" aria-hidden="true">e</kbd>
             </button>
-            <div class="accordionBody" id="flowTimelineBody" hidden>
-              <div class="tableWrap vscroll">
-                <table class="tbl" id="flowTimelineTable">
-                  <caption class="sr-only">Flow timeline</caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">step</th><th scope="col">route</th><th scope="col">mode</th><th scope="col">new</th><th scope="col">fixed</th><th scope="col">unresolved</th><th scope="col">top blockers</th>
-                    </tr>
-                  </thead>
-                  <tbody></tbody>
-                </table>
-              </div>
-            </div>
-          </section>
-
-          <!-- Raw JSON for flow record -->
-          <section class="accordion" id="flowRecordJson">
-            <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="flowRecordJsonBody">
-              <span class="accIcon" aria-hidden="true">{&thinsp;}</span>
-              <span class="accLabel">Raw JSON</span>
-              <span class="chevron" aria-hidden="true">&#x2228;</span>
-            </button>
-            <div class="accordionBody" id="flowRecordJsonBody" hidden>
-              <pre class="rawJsonPre">(no session data yet)</pre>
-            </div>
-          </section>
-
-          <!-- Status line -->
-          <div class="lastStatusLine mono" id="lastStatusLine" role="status" aria-live="polite" aria-atomic="true" hidden>
-            Last status: IDLE
           </div>
+          <p class="helperText" id="flowRecordHelper">Record a11y changes across a multi-step flow</p>
+        </div>
 
-        </div><!-- /flowRecordView -->
+        <!-- Flow counters (Added / Fixed / Unresolved) -->
+        <div class="counterRow" id="flowCounterRow" hidden></div>
 
-        <!-- ─── Flow > Watch ─── -->
-        <div id="flowWatchView" class="flowView">
-
-          <div class="ctaSlot">
-            <button class="ctaBtn ctaBtn--green" id="flowWatchCtaBtn" type="button">
-              &#9655; Start Watch
-            </button>
-            <p class="helperText">Monitor loaders and focus bar for 40s</p>
+        <!-- Session info accordion -->
+        <section class="accordion" id="flowSessionInfo">
+          <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="flowSessionInfoBody">
+            <span class="accIcon" aria-hidden="true">&#9432;</span>
+            <span class="accLabel">Session info</span>
+            <span class="chevron" aria-hidden="true">&#x2228;</span>
+          </button>
+          <div class="accordionBody" id="flowSessionInfoBody" hidden>
+            <dl class="sessionInfoGrid">
+              <dt>Status</dt><dd id="flowSiStatus">IDLE</dd>
+              <dt>Started</dt><dd id="flowSiStarted">&mdash;</dd>
+              <dt>Duration</dt><dd id="flowSiDuration">&mdash;</dd>
+              <dt>Steps</dt><dd id="flowSiSteps">0 / 100</dd>
+              <dt>Baseline</dt><dd id="flowSiBaseline">Run</dd>
+              <dt>Active</dt><dd id="flowSiActive">Observe</dd>
+              <dt>Scope</dt><dd id="flowSiScope">Primary</dd>
+              <dt>WCAG</dt><dd id="flowSiWcag">2.2 AA</dd>
+            </dl>
           </div>
+        </section>
 
-          <section class="accordion">
-            <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="flowWatchFindings">
-              <span class="accIcon" aria-hidden="true">&#9776;</span>
-              <span class="accLabel">All findings</span>
-              <span class="toggleCount" id="flowWatchCount">0</span>
-              <span class="chevron" aria-hidden="true">&#x2228;</span>
-            </button>
-            <div class="accordionBody" id="flowWatchFindings" hidden>
-              <p class="placeholderText">Run Watch to see findings</p>
+        <!-- Timeline view accordion -->
+        <section class="accordion" id="flowTimeline">
+          <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="flowTimelineBody">
+            <span class="accIcon" aria-hidden="true">&#9776;</span>
+            <span class="accLabel">Timeline view</span>
+            <span class="chevron" aria-hidden="true">&#x2228;</span>
+          </button>
+          <div class="accordionBody" id="flowTimelineBody" hidden>
+            <div class="tableWrap vscroll">
+              <table class="tbl" id="flowTimelineTable">
+                <caption class="sr-only">Flow timeline</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">step</th><th scope="col">route</th><th scope="col">mode</th><th scope="col">new</th><th scope="col">fixed</th><th scope="col">unresolved</th><th scope="col">top blockers</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
             </div>
-          </section>
+          </div>
+        </section>
 
-          <section class="accordion">
-            <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="flowWatchJsonBody">
-              <span class="accIcon" aria-hidden="true">{&thinsp;}</span>
-              <span class="accLabel">Raw JSON</span>
-              <span class="chevron" aria-hidden="true">&#x2228;</span>
-            </button>
-            <div class="accordionBody" id="flowWatchJsonBody" hidden>
-              <pre class="rawJsonPre">(no results yet)</pre>
-            </div>
-          </section>
+        <!-- Raw JSON for flow record -->
+        <section class="accordion" id="flowRecordJson">
+          <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="flowRecordJsonBody">
+            <span class="accIcon" aria-hidden="true">{&thinsp;}</span>
+            <span class="accLabel">Raw JSON</span>
+            <span class="chevron" aria-hidden="true">&#x2228;</span>
+          </button>
+          <div class="accordionBody" id="flowRecordJsonBody" hidden>
+            <pre class="rawJsonPre">(no session data yet)</pre>
+          </div>
+        </section>
 
-        </div><!-- /flowWatchView -->
+        <!-- Status line -->
+        <div class="lastStatusLine mono" id="lastStatusLine" role="status" aria-live="polite" aria-atomic="true" hidden>
+          Last status: IDLE
+        </div>
 
       </div><!-- /flowContent -->
 

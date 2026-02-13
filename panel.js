@@ -88,7 +88,6 @@ const els = {
   flowCounterRow: document.getElementById("flowCounterRow"),
   flowSessionInfoBody: document.getElementById("flowSessionInfoBody"),
   flowTimelineBody: document.getElementById("flowTimelineBody"),
-  flowWatchCtaBtn: document.getElementById("flowWatchCtaBtn"),
 };
 
 const ORDER = { high: 3, medium: 2, low: 1, info: 0 };
@@ -110,7 +109,6 @@ const state = {
   tabData: [],
   activeMode: "run",
   topTab: "snap",
-  flowSubTab: "record",
   pinnedFrameId: null,
   prioritizedFilter: false,
   lastDiffSummary: "—",
@@ -774,20 +772,6 @@ function showView(tab, sub) {
   if (state.topTab === "snap" && sub) {
     setPressed(sub);
     showMode(sub);
-  }
-
-  // Handle Flow subtab
-  if (state.topTab === "flow") {
-    if (sub) state.flowSubTab = sub;
-    document.querySelectorAll("#flowSubTabBar [role='tab']").forEach(btn => {
-      const isActive = btn.dataset.flowtab === state.flowSubTab;
-      btn.setAttribute("aria-selected", String(isActive));
-      btn.setAttribute("tabindex", isActive ? "0" : "-1");
-    });
-    const recordView = document.getElementById("flowRecordView");
-    const watchView = document.getElementById("flowWatchView");
-    if (recordView) recordView.classList.toggle("active", state.flowSubTab === "record");
-    if (watchView) watchView.classList.toggle("active", state.flowSubTab === "watch");
   }
 
   updateSessionButtons();
@@ -3657,27 +3641,6 @@ document.getElementById("snapSubTabBar").addEventListener("keydown", (e) => {
   tabs[next].focus();
 });
 
-// Flow subtab clicks
-document.querySelectorAll("#flowSubTabBar [role='tab']").forEach(btn => {
-  btn.addEventListener("click", () => showView("flow", btn.dataset.flowtab));
-});
-
-// Roving tabindex for flow subtabs
-document.getElementById("flowSubTabBar").addEventListener("keydown", (e) => {
-  const tabs = [...document.querySelectorAll("#flowSubTabBar [role='tab']")];
-  if (!tabs.length) return;
-  const idx = tabs.indexOf(e.target);
-  if (idx < 0) return;
-  let next = idx;
-  if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (idx + 1) % tabs.length;
-  else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (idx - 1 + tabs.length) % tabs.length;
-  else if (e.key === "Home") next = 0;
-  else if (e.key === "End") next = tabs.length - 1;
-  else return;
-  e.preventDefault();
-  showView("flow", tabs[next].dataset.flowtab);
-  tabs[next].focus();
-});
 
 // Run button: execute currently selected mode
 if (els.runCurrentMode) {
@@ -3729,10 +3692,6 @@ if (els.exportToggle && els.exportMenu) {
   });
 }
 
-// Flow Watch CTA button
-if (els.flowWatchCtaBtn) {
-  els.flowWatchCtaBtn.addEventListener("click", () => _lockedPreset(["watch"]));
-}
 
 els.refreshFrames.addEventListener("click", refreshFrames);
 els.target.addEventListener("change", () => {
@@ -4025,24 +3984,19 @@ window.addEventListener("keydown", (e) => {
   }
 
   if (state.topTab === "flow") {
-    if (state.flowSubTab === "record") {
-      // s = mark step (if session active), e = end session
-      if (key === "s" && sessionState.current && els.sessionMark && !els.sessionMark.disabled) {
-        els.sessionMark.click();
-        return;
-      }
-      if (key === "e" && sessionState.current && els.sessionEnd && !els.sessionEnd.disabled) {
-        els.sessionEnd.click();
-        return;
-      }
-      // r = start recording (if no session)
-      if (key === "r" && !sessionState.current && els.sessionStart && !els.sessionStart.disabled) {
-        els.sessionStart.click();
-        return;
-      }
+    // s = mark step (if session active), e = end session
+    if (key === "s" && sessionState.current && els.sessionMark && !els.sessionMark.disabled) {
+      els.sessionMark.click();
+      return;
     }
-    if (state.flowSubTab === "watch") {
-      if (key === "s" && els.flowWatchCtaBtn) { els.flowWatchCtaBtn.click(); return; }
+    if (key === "e" && sessionState.current && els.sessionEnd && !els.sessionEnd.disabled) {
+      els.sessionEnd.click();
+      return;
+    }
+    // r = start recording (if no session)
+    if (key === "r" && !sessionState.current && els.sessionStart && !els.sessionStart.disabled) {
+      els.sessionStart.click();
+      return;
     }
   }
 });

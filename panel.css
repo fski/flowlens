@@ -666,6 +666,10 @@ kbd {
 
 .ctaBtn:hover { filter: brightness(1.1); }
 
+.ctaBtn .tabSvg {
+  filter: brightness(0) invert(0.08);
+}
+
 .ctaBtn:focus-visible {
   outline: 2px solid var(--cyan);
   outline-offset: 2px;
@@ -721,15 +725,6 @@ kbd {
   flex-wrap: wrap;
 }
 
-/* ═══ FLOW VIEWS ═══ */
-.flowView {
-  display: none;
-}
-
-.flowView.active {
-  display: block;
-}
-
 /* ═══ FLOW RECORD BANNER / ACTIONS ═══ */
 .flowRecordingBanner {
   display: flex;
@@ -780,17 +775,21 @@ kbd {
   border-bottom: 2px solid var(--brd);
 }
 
+#flowContent .accordion:first-of-type {
+  border-top: 2px solid var(--brd);
+}
+
 .accordionToggle {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
   min-height: 40px;
-  padding: 0 16px;
+  padding: 7px 16px;
   border: 0;
-  background: transparent;
+  background: var(--raised);
   color: var(--tx3);
-  font: 700 11px/1 var(--font-mono);
+  font: 400 11px/1 var(--font-mono);
   text-transform: uppercase;
   letter-spacing: .06em;
   cursor: pointer;
