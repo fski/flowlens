@@ -300,15 +300,8 @@
       <!-- ═══════════════════════ SETTINGS PANEL ═══════════════════════ -->
       <div id="settingsContent" role="tabpanel" aria-labelledby="topTabSettings" hidden inert>
 
-        <!-- Global Settings -->
-        <section class="accordion settingsAccordion" id="settingsGlobal">
-          <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="settingsGlobalBody">
-            <span class="accIcon" aria-hidden="true">&#9881;</span>
-            <span class="accLabel">Global Settings</span>
-            <span class="chevron" aria-hidden="true">&#x2228;</span>
-          </button>
-          <div class="accordionBody" id="settingsGlobalBody" hidden>
-            <div class="settingsGrid">
+        <section class="settingsPane">
+          <div class="settingsGrid">
               <div class="settingsGroup">
                 <span class="settingsLabel">Display</span>
                 <div class="settingsToggles">
@@ -357,7 +350,6 @@
                 <span class="settingsLabel">Console logging</span>
                 <label class="switch"><input id="alsoConsole" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Log to console</span></label>
               </div>
-            </div>
           </div>
         </section>
 
