@@ -44,12 +44,8 @@ const els = {
   diff: document.getElementById("diff"),
 
   runSummary: document.getElementById("runSummary"),
-  sevBadges: document.getElementById("sevBadges"),
-  topCount: document.getElementById("topCount"),
   allCount: document.getElementById("allCount"),
   statsRow: document.getElementById("statsRow"),
-  topFilterChips: document.getElementById("topFilterChips"),
-  topBlockingAlert: document.getElementById("topBlockingAlert"),
   emptyState: document.getElementById("emptyState"),
   resultsZone: document.getElementById("resultsZone"),
 
@@ -62,7 +58,6 @@ const els = {
   allTableBody: document.querySelector("#allTable tbody"),
 
   toast: document.getElementById("toast"),
-  rerunCurrent: document.getElementById("rerunCurrent"),
   runIcon: document.getElementById("runIcon"),
   runLabel: document.getElementById("runLabel"),
   progressWrap: document.getElementById("progressWrap"),
@@ -85,7 +80,6 @@ const els = {
   snapHelper: document.getElementById("snapHelper"),
   flowRecordingBanner: document.getElementById("flowRecordingBanner"),
   flowRecordActions: document.getElementById("flowRecordActions"),
-  flowCounterRow: document.getElementById("flowCounterRow"),
   flowSessionInfoBody: document.getElementById("flowSessionInfoBody"),
   flowTimelineBody: document.getElementById("flowTimelineBody"),
 };
@@ -110,7 +104,6 @@ const state = {
   activeMode: "run",
   topTab: "snap",
   pinnedFrameId: null,
-  prioritizedFilter: false,
   lastDiffSummary: "—",
   lastUsedFramesSummary: "—",
   lastPersistentStatus: { status: "IDLE", reason: "-", detail: "" },
@@ -255,17 +248,12 @@ const profileState = { profiles: { ...BUILTIN_PROFILES }, active: ["helpcenter"]
 
 // --- Column sorting ---
 const sortState = {
-  top: { col: null, dir: 'asc' },
   explorer: { col: null, dir: 'asc' },
   contrast: { col: null, dir: 'asc' },
   tab: { col: null, dir: 'asc' },
 };
 
 const SORT_KEYS = {
-  top: [
-    f => ORDER[f.severity] ?? -1, f => f.product ?? '', f => f.type ?? '',
-    f => f.wcag ?? '', f => f.name ?? '', f => f.role ?? '', f => f.testId ?? '', f => f.note ?? '', f => f.fix ?? '',
-  ],
   explorer: [
     f => ORDER[f.severity] ?? -1, f => f.product ?? '', f => f.type ?? '',
     f => f.wcag ?? '', f => f.name ?? '', f => f.testId ?? '', f => f.path ?? '', f => f.note ?? '', f => f.fix ?? '',
@@ -677,28 +665,6 @@ function countBySeverity(findings = []) {
   return out;
 }
 
-function severityBadgeButtonsHtml(counts) {
-  const c = counts || { high: 0, medium: 0, low: 0, info: 0 };
-  return [
-    `<button class="badge high" type="button" data-sev="high" title="Filter by high severity">high: ${c.high}</button>`,
-    `<button class="badge medium" type="button" data-sev="medium" title="Filter by medium severity">medium: ${c.medium}</button>`,
-    `<button class="badge low" type="button" data-sev="low" title="Filter by low severity">low: ${c.low}</button>`,
-    `<button class="badge info" type="button" data-sev="info" title="Filter by info severity">info: ${c.info}</button>`,
-  ].join("");
-}
-
-function topFindings(findings = [], limit = 30) {
-  return [...findings]
-    .sort((a, b) =>
-      ((ORDER[b.severity] ?? 0) - (ORDER[a.severity] ?? 0))
-      || hashFinding(a).localeCompare(hashFinding(b))
-      || String(a?.wcag || "").localeCompare(String(b?.wcag || ""))
-      || String(a?.name || "").localeCompare(String(b?.name || ""))
-    )
-    .slice(0, limit);
-}
-
-
 function recordLabel(rec) {
   const at = rec?.at ? new Date(rec.at).toLocaleString() : "";
   const action = rec?.action || "—";
@@ -739,12 +705,10 @@ function updateSnapCta(mode) {
 }
 
 function showMode(mode) {
-  const findings = document.getElementById("findingsSection");
   const explorer = document.getElementById("explorerSection");
   const contrast = document.getElementById("contrastSection");
   const tab = document.getElementById("tabWalkSection");
   const runLike = mode === "run" || mode === "observe";
-  if (findings) findings.hidden = !runLike;
   if (explorer) explorer.hidden = !runLike;
   if (contrast) contrast.hidden = mode !== "contrast";
   if (tab) tab.hidden = mode !== "tabWalk";
@@ -786,14 +750,6 @@ function updateResultsVisibility(forceValue = null) {
     els.resultsZone.classList.toggle("visible", !!hasResults);
   }
   if (els.exportAnchor) els.exportAnchor.hidden = !(hasResults || hasSessionExport);
-  if (els.rerunCurrent) els.rerunCurrent.hidden = !hasResults || !!sessionState.current;
-}
-
-function updateTopCount(total = 0, shown = total) {
-  if (!els.topCount) return;
-  const t = Number(total) || 0;
-  const s = Number(shown);
-  els.topCount.textContent = Number.isFinite(s) && s !== t ? `${s} / ${t}` : `${t}`;
 }
 
 function clearStatsRow() {
@@ -829,26 +785,6 @@ function renderStatsRow(findings = []) {
     </div>
   `).join("");
   els.statsRow.hidden = false;
-}
-
-function updateViewSelect() {
-  if (!els.viewSelect) return;
-  const cur = String(state.currentId || "");
-  els.viewSelect.innerHTML = "";
-  if (!state.records.length) {
-    const o = document.createElement("option");
-    o.value = "";
-    o.textContent = "No results yet";
-    els.viewSelect.appendChild(o);
-    return;
-  }
-  for (const rec of state.records) {
-    const o = document.createElement("option");
-    o.value = String(rec.id);
-    o.textContent = recordLabel(rec);
-    els.viewSelect.appendChild(o);
-  }
-  if (cur && state.byId[cur]) els.viewSelect.value = cur;
 }
 
 async function persistRecords(scopeKey) {
@@ -982,7 +918,6 @@ function renderRecord(rec) {
   if (!rec) return;
   state.currentId = rec.id;
   setPressed(rec.action);
-  updateViewSelect();
   updateResultsVisibility(true);
   resetFilters();
 
@@ -990,12 +925,8 @@ function renderRecord(rec) {
   const mode = rec.action;
 
   // default reset
-  els.sevBadges.innerHTML = "";
   els.allTableBody.innerHTML = "";
-  if (els.topFilterChips) els.topFilterChips.innerHTML = "";
-  if (els.topBlockingAlert) els.topBlockingAlert.hidden = true;
   state.currentFindings = [];
-  updateTopCount(0);
   if (els.allCount) els.allCount.textContent = "0";
   clearStatsRow();
   showMode(mode);
@@ -1017,7 +948,6 @@ function renderRecord(rec) {
         <span class="runStat"><b>${escapeHtml(String(scanned))}</b> scanned</span>
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
-    els.sevBadges.innerHTML = `<span class="badge info">failures: ${escapeHtml(String(failures))}</span><span class="badge low">scanned: ${escapeHtml(String(scanned))}</span>`;
     clearStatsRow();
     renderContrast(bestResult);
   } else if (mode === "tabWalk") {
@@ -1031,7 +961,6 @@ function renderRecord(rec) {
         <span class="runStat">walked <b>${escapeHtml(String(walked))}</b>/<b>${escapeHtml(String(totalFoc))}</b></span>
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
-    els.sevBadges.innerHTML = `<span class="badge info">events: ${escapeHtml(String(evtCount))}</span><span class="badge low">walked: ${escapeHtml(String(walked))}/${escapeHtml(String(totalFoc))}</span>`;
     clearStatsRow();
     renderTabWalk(bestResult);
   } else if (mode === "observe" && bestResult) {
@@ -1046,14 +975,11 @@ function renderRecord(rec) {
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
     if (oFindings.length) {
-      const c = countBySeverity(oFindings);
-      els.sevBadges.innerHTML = severityBadgeButtonsHtml(c);
       renderStatsRow(oFindings);
       state.currentFindings = oFindings;
       showMode("observe");
       buildOptionsFromFindings(oFindings, els.prod, "product");
       buildOptionsFromFindings(oFindings, els.type, "type");
-      renderTopFindingsTable(oFindings);
       renderExplorer(oFindings);
     } else {
       clearStatsRow();
@@ -1072,9 +998,6 @@ function renderRecord(rec) {
         <span class="runStat"><b>${wEvents.length}</b> events</span>
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
-    els.sevBadges.innerHTML = overBudget
-      ? `<span class="badge high">Over budget: ${verdicts.map(v => escapeHtml(String(v.metric))).join(", ")}</span>`
-      : `<span class="badge info">Budgets OK</span>`;
     clearStatsRow();
   } else {
     const ts = (bestResult?.timestamp || bestResult?.endedAt || rec.at) ? new Date(bestResult?.timestamp || bestResult?.endedAt || rec.at).toLocaleTimeString() : "";
@@ -1675,23 +1598,6 @@ function renderFlowSessionInfo() {
   `;
 }
 
-function renderFlowCounters(stepDiff) {
-  const row = els.flowCounterRow;
-  if (!row) return;
-  if (!stepDiff) {
-    row.innerHTML = "";
-    return;
-  }
-  const added = stepDiff.added ?? 0;
-  const fixed = stepDiff.fixed ?? 0;
-  const unresolved = stepDiff.unresolved ?? 0;
-  row.innerHTML = `
-    <div class="counterPill"><span class="counterValue high">${added}</span><span class="counterLabel">Added</span></div>
-    <div class="counterPill"><span class="counterValue info">${fixed}</span><span class="counterLabel">Fixed</span></div>
-    <div class="counterPill"><span class="counterValue medium">${unresolved}</span><span class="counterLabel">Unresolved</span></div>
-  `;
-}
-
 function updateSessionButtons() {
   const hasSession = !!sessionState.current;
   const hasExportableSession = !!(sessionState.current || sessionState.lastEndedSession);
@@ -1723,10 +1629,6 @@ function updateSessionButtons() {
     els.exportSessionMdMenu.hidden = !hasExportableSession;
     const desc = els.exportSessionMdMenu.querySelector(".dd");
     if (desc) desc.textContent = hasSession ? "Active session" : "Last ended session";
-  }
-  if (els.rerunCurrent) {
-    els.rerunCurrent.hidden = !(state.records.length > 0) || hasSession;
-    els.rerunCurrent.disabled = panelBusy;
   }
   if (els.exportAnchor) els.exportAnchor.hidden = !((state.records.length > 0) || hasExportableSession);
   renderSessionHud();
@@ -2548,7 +2450,7 @@ function buildMarkdown({ inspectedUrl, best, perFrame, usedFrameIds, envTag }) {
   const normalized = best?.normalized || normalizeResultForExport(r);
   const findings = Array.isArray(r.findings) ? r.findings : [];
   const c = countBySeverity(findings);
-  const top = topFindings(findings, 10);
+  const top = [...findings].sort((a, b) => (ORDER[b.severity] || 0) - (ORDER[a.severity] || 0)).slice(0, 10);
   const withMeta = (item) => {
     const level = item?.level ? `, level=${item.level}` : "";
     const confidence = item?.confidence ? `, confidence=${item.confidence}` : "";
@@ -2625,47 +2527,10 @@ function actionIsWatch(resultObj) {
   return !!(resultObj && ("silentMs" in resultObj || "bursts" in resultObj) && ("focusLossCount" in resultObj));
 }
 
-function renderTopFilterMeta(findings = [], shown = []) {
-  const counts = countBySeverity(findings);
-  const summary = summarizeRunFindings(findings);
-  const blocking = Number(summary?.primaryCounts?.blockingFindings || (counts.high + counts.medium));
-  if (els.topFilterChips) {
-    els.topFilterChips.innerHTML = `
-      <button class="fChip${state.prioritizedFilter ? " active a-high" : ""}" type="button" data-filter="prioritized" aria-pressed="${state.prioritizedFilter ? "true" : "false"}">
-        Prioritized
-        <span class="ct">${escapeHtml(String(blocking))}</span>
-      </button>
-      <button class="fChip${!state.prioritizedFilter ? " active a-info" : ""}" type="button" data-filter="all" aria-pressed="${!state.prioritizedFilter ? "true" : "false"}">
-        All findings
-        <span class="ct">${escapeHtml(String(findings.length))}</span>
-      </button>`;
-  }
-  if (els.topBlockingAlert) {
-    els.topBlockingAlert.hidden = blocking <= 0;
-    els.topBlockingAlert.textContent = `${blocking} blocking issue${blocking === 1 ? "" : "s"} in prioritized view`;
-  }
-  updateTopCount(findings.length, shown.length);
-}
-
-function renderTopFindingsTable(findings = []) {
-  const shown = state.prioritizedFilter
-    ? findings.filter(f => isRunFindingBlocking(f))
-    : findings;
-  renderTopFilterMeta(findings, shown);
-}
-
 function renderRunSummary(r, rec = null) {
   if (!r) {
-    state.prioritizedFilter = false;
     els.runSummary.innerHTML = '<div class="emptyGuide">Pick a mode and hit <kbd>Run Audit</kbd>, or use a quick start preset.</div>';
-    els.sevBadges.innerHTML = "";
-    if (els.topFilterChips) els.topFilterChips.innerHTML = "";
-    if (els.topBlockingAlert) {
-      els.topBlockingAlert.hidden = true;
-      els.topBlockingAlert.textContent = "";
-    }
     clearStatsRow();
-    updateTopCount(0);
     return;
   }
 
@@ -2693,10 +2558,7 @@ function renderRunSummary(r, rec = null) {
     </div>
   `;
 
-  const c = countBySeverity(findings);
-  els.sevBadges.innerHTML = severityBadgeButtonsHtml(c);
   renderStatsRow(findings);
-  renderTopFindingsTable(findings);
 }
 
 function buildOptionsFromFindings(findings, elSelect, key) {
@@ -2715,9 +2577,6 @@ function applyExplorerFilters(findings) {
   const unique = !!els.unique.checked;
 
   let list = Array.isArray(findings) ? findings : [];
-  if (state.prioritizedFilter) {
-    list = list.filter(f => isRunFindingBlocking(f));
-  }
   if (sev) list = list.filter(f => f.severity === sev);
   if (prod) list = list.filter(f => f.product === prod);
   if (type) list = list.filter(f => f.type === type);
@@ -2883,9 +2742,7 @@ function refreshInspectedUrl(retries = 3) {
       state.currentId = null;
       state.currentFindings = [];
       renderRunSummary(null);
-      updateTopCount(0);
       if (els.allCount) els.allCount.textContent = "0";
-      updateViewSelect();
       showMode(state.activeMode || "run");
       updateResultsVisibility(false);
     }
@@ -3481,7 +3338,6 @@ async function exportSessionMarkdown() {
     const md = buildSessionMarkdown(payload);
     const ok = await copyText(md);
     if (ok) {
-      flashInlineHint(els.sessionMdHint);
       setExportMenuOpen(false);
       return true;
     }
@@ -3712,20 +3568,6 @@ if (els.frameSelect) {
 
 
 
-if (els.copyInspectedUrl) {
-  els.copyInspectedUrl.addEventListener("click", async () => {
-    const full = els.inspectedUrl?.dataset?.full || els.inspectedUrl?.textContent || "";
-    const ok = await copyText(full);
-    if (ok) toast("Copied inspected URL");
-  });
-}
-if (els.copyDetected) {
-  els.copyDetected.addEventListener("click", async () => {
-    const full = els.brandEnv?.dataset?.full || els.brandEnv?.textContent || "";
-    const ok = await copyText(full);
-    if (ok) toast("Copied detected");
-  });
-}
 if (els.copyFrameUrl) {
   els.copyFrameUrl.addEventListener("click", async () => {
     const selected = els.frameSelect.selectedOptions[0];
@@ -3782,62 +3624,12 @@ if (els.sessionStart) {
 }
 if (els.sessionMark) els.sessionMark.addEventListener("click", () => captureStepOptionC());
 if (els.sessionEnd) els.sessionEnd.addEventListener("click", () => endSession());
-if (els.sessionExportJson) els.sessionExportJson.addEventListener("click", () => exportSessionJson());
-if (els.sessionExportMd) els.sessionExportMd.addEventListener("click", () => exportSessionMarkdown());
-
 if (els.copyJsonRaw) {
   els.copyJsonRaw.addEventListener("click", async () => {
     await copyText(els.json.textContent || "");
     toast("Copied raw JSON");
   });
 }
-
-// --- Results view controls ---
-if (els.viewSelect) {
-  els.viewSelect.addEventListener("change", () => {
-    const id = String(els.viewSelect.value || "");
-    const rec = state.byId[id];
-    if (rec) renderRecord(rec);
-  });
-}
-
-if (els.rerunCurrent) {
-  els.rerunCurrent.addEventListener("click", () => _lockedPreset([state.activeMode || "run"]));
-}
-
-if (els.clearHistory) {
-  let _clearConfirm = null;
-  els.clearHistory.addEventListener("click", async () => {
-    if (_clearConfirm) {
-      clearTimeout(_clearConfirm);
-      _clearConfirm = null;
-      els.clearHistory.textContent = "Clear";
-      els.clearHistory.classList.remove("confirming");
-      const url0 = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
-      const scopeKey = `records::${originFrom(url0)}::${detectEnv(url0)}`;
-      state.records = [];
-      state.byId = {};
-      state.currentId = null;
-      await storageSet({ [scopeKey]: [] });
-      renderRunSummary(null);
-      updateTopCount(0);
-      if (els.allCount) els.allCount.textContent = "0";
-      showMode(state.activeMode || "run");
-      updateResultsVisibility(false);
-      updateViewSelect();
-      toast("Cleared stored results");
-    } else {
-      els.clearHistory.textContent = "Confirm?";
-      els.clearHistory.classList.add("confirming");
-      _clearConfirm = setTimeout(() => {
-        _clearConfirm = null;
-        els.clearHistory.textContent = "Clear";
-        els.clearHistory.classList.remove("confirming");
-      }, 3000);
-    }
-  });
-}
-
 
 // --- Cell copy (capture phase to intercept before table row handlers) ---
 document.addEventListener("click", (e) => {
@@ -3885,27 +3677,6 @@ if (els.allTableBody && !els.allTableBody.__bound) {
   });
 }
 
-
-if (els.topFilterChips) {
-  els.topFilterChips.addEventListener("click", (e) => {
-    const chip = e.target.closest(".fChip[data-filter]");
-    if (!chip) return;
-    const next = String(chip.dataset.filter || "all");
-    state.prioritizedFilter = next === "prioritized";
-    renderTopFindingsTable(state.currentFindings || []);
-    renderExplorer(state.currentFindings || []);
-  });
-}
-
-// Clickable severity badges → filter explorer
-els.sevBadges.addEventListener("click", (e) => {
-  const badge = e.target.closest('.badge[data-sev]');
-  if (!badge) return;
-  els.sev.value = badge.dataset.sev;
-  scheduleExplorerRender();
-  const explorer = document.getElementById('explorerSection');
-  if (explorer) explorer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-});
 
 if (els.density) {
   els.density.addEventListener("change", async () => {
