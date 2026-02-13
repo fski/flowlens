@@ -10,7 +10,6 @@
   --overlay: #2A2A2A;
   --emphasis: #333333;
   --stripe: rgba(255, 255, 255, 0.02);
-  --surfaceR: #1C1C1C;
 
   --tx: #D2D2D2;
   --tx2: #999999;
@@ -32,7 +31,6 @@
   --coral: #F4686A;
 
   --pri: #DB9F3E;
-  --pri2: #E5B04A;
   --priS: rgba(219, 159, 62, 0.08);
   --priB: rgba(219, 159, 62, 0.24);
   --okS: rgba(203, 219, 62, 0.08);
@@ -44,17 +42,13 @@
   --dangerS: rgba(255, 85, 113, 0.08);
   --dangerB: rgba(255, 85, 113, 0.24);
 
-  --shXs: 0 1px 2px rgba(0, 0, 0, 0.24);
   --shSm: 0 2px 4px rgba(0, 0, 0, 0.24), 0 1px 2px rgba(0, 0, 0, 0.16);
   --shMd: 0 4px 8px rgba(0, 0, 0, 0.24), 0 2px 4px rgba(0, 0, 0, 0.16);
   --shLg: 0 8px 16px rgba(0, 0, 0, 0.24), 0 4px 8px rgba(0, 0, 0, 0.16);
 
   --radius-xs: 4px;
   --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
 
-  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", SFMono-Regular, ui-monospace, Consolas, "Liberation Mono", monospace;
 }
 
@@ -79,7 +73,6 @@
   --overlay: #E8E8EC;
   --emphasis: #DCDCE0;
   --stripe: rgba(0, 0, 0, 0.02);
-  --surfaceR: #FFFFFF;
 
   --tx: #1D1D1F;
   --tx2: #6E6E73;
@@ -101,7 +94,6 @@
   --coral: #D04548;
 
   --pri: #B8842E;
-  --pri2: #C89435;
   --priS: rgba(184, 132, 46, 0.08);
   --priB: rgba(184, 132, 46, 0.2);
   --okS: rgba(138, 154, 40, 0.08);
@@ -113,7 +105,6 @@
   --dangerS: rgba(224, 48, 80, 0.08);
   --dangerB: rgba(224, 48, 80, 0.2);
 
-  --shXs: 0 1px 2px rgba(0, 0, 0, 0.06);
   --shSm: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
   --shMd: 0 4px 6px rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.04);
   --shLg: 0 8px 16px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.04);

@@ -283,7 +283,7 @@ function applySortState(arr, tableId) {
       ? (va - vb)
       : String(va).localeCompare(String(vb));
     if (primary !== 0) return primary;
-    if (tableId === "top" || tableId === "explorer") {
+    if (tableId === "explorer") {
       const ah = hashFinding(a);
       const bh = hashFinding(b);
       if (ah !== bh) return ah.localeCompare(bh);
