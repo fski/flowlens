@@ -581,31 +581,42 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         func: (finding) => {
           const HL_ATTR = "data-a11yflow-highlight";
           const STYLE_ID = "a11yflow-highlight-style";
+          const HL_NS = "__a11yflow_hl";
+
+          // Cancel previous highlight timeout (prevents premature removal on re-highlight)
+          if (window[HL_NS]?.tid) clearTimeout(window[HL_NS].tid);
+          if (!window[HL_NS]) window[HL_NS] = {};
 
           // Remove previous highlight from any element
           document.querySelectorAll(`[${HL_ATTR}]`).forEach(el => {
             el.removeAttribute(HL_ATTR);
           });
 
-          // Inject highlight + pulse animation style once
-          if (!document.getElementById(STYLE_ID)) {
-            const style = document.createElement("style");
-            style.id = STYLE_ID;
-            style.textContent = `
-              @keyframes a11yflow-pulse {
-                0%, 100% { outline-color: #ff79c6; box-shadow: 0 0 0 4px rgba(255,121,198,0.7); }
-                50% { outline-color: #ff92d0; box-shadow: 0 0 8px 6px rgba(255,121,198,0.3); }
-              }
-              [${HL_ATTR}] {
-                outline: 3px solid #ff79c6 !important;
-                outline-offset: 2px !important;
-                box-shadow: 0 0 0 4px rgba(255,121,198,0.7) !important;
-                animation: a11yflow-pulse 1s ease-in-out 3 !important;
-                transition: outline-color 0.4s ease, box-shadow 0.4s ease !important;
-              }
-            `;
-            (document.head || document.documentElement).appendChild(style);
-          }
+          // Always re-inject style (survives page JS removing or mutating it)
+          try { document.getElementById(STYLE_ID)?.remove(); } catch {}
+          const style = document.createElement("style");
+          style.id = STYLE_ID;
+          style.textContent = `
+            @keyframes a11yflow-flash {
+              0%   { outline-width: 6px; outline-color: #ff0080;
+                     box-shadow: inset 0 0 0 3px rgba(255,0,128,0.3), 0 0 0 8px rgba(255,0,128,0.7), 0 0 28px 14px rgba(255,0,128,0.4); }
+              100% { outline-width: 4px; outline-color: #ff2d95;
+                     box-shadow: inset 0 0 0 2px rgba(255,45,149,0.2), 0 0 0 5px rgba(255,45,149,0.55), 0 0 12px 8px rgba(255,45,149,0.2); }
+            }
+            @keyframes a11yflow-pulse {
+              0%, 100% { outline-color: #ff2d95;
+                         box-shadow: inset 0 0 0 2px rgba(255,45,149,0.2), 0 0 0 5px rgba(255,45,149,0.55), 0 0 12px 8px rgba(255,45,149,0.2); }
+              50%      { outline-color: #ff79c6;
+                         box-shadow: inset 0 0 0 2px rgba(255,121,198,0.12), 0 0 0 3px rgba(255,121,198,0.35), 0 0 6px 4px rgba(255,121,198,0.1); }
+            }
+            [${HL_ATTR}] {
+              outline: 4px solid #ff2d95 !important;
+              outline-offset: 3px !important;
+              box-shadow: inset 0 0 0 2px rgba(255,45,149,0.2), 0 0 0 5px rgba(255,45,149,0.55), 0 0 12px 8px rgba(255,45,149,0.2) !important;
+              animation: a11yflow-flash 0.4s ease-out, a11yflow-pulse 1.2s ease-in-out 0.4s 4 !important;
+            }
+          `;
+          (document.head || document.documentElement).appendChild(style);
 
           const norm = (s) => (s || "").replace(/\s+/g, " ").trim().toLowerCase();
 
@@ -701,11 +712,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             return null;
           };
 
-          const el = pick();
+          let el = pick();
           if (!el) {
             console.warn("[A11YFlow] Could not locate element to highlight.", finding);
             return { found: false };
           }
+
+          // If element is zero-size or invisible, try its parent
+          try {
+            const rect = el.getBoundingClientRect();
+            if (rect.width < 2 && rect.height < 2 && el.parentElement && el.parentElement !== document.body) {
+              el = el.parentElement;
+            }
+          } catch {}
 
           // Scroll into view
           try { el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" }); } catch {}
@@ -715,10 +734,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           requestAnimationFrame(() => {
             el.setAttribute(HL_ATTR, "1");
 
-            // Remove highlight after animation completes
-            setTimeout(() => {
+            // Remove highlight after animation completes (flash 0.4s + pulse 1.2s × 4)
+            window[HL_NS].tid = setTimeout(() => {
               el.removeAttribute(HL_ATTR);
-            }, 4000);
+              window[HL_NS].tid = null;
+            }, 6000);
           });
 
           return { found: true };

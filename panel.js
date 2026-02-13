@@ -43,18 +43,13 @@ const els = {
   usedFrames: document.getElementById("usedFrames"),
   diff: document.getElementById("diff"),
 
-  runSummary: document.getElementById("runSummary"),
-  allCount: document.getElementById("allCount"),
-  statsRow: document.getElementById("statsRow"),
+  runSummary: document.getElementById("runSummary"),  // may be null (removed from DOM)
+  sevTabs: document.getElementById("sevTabs"),
   emptyState: document.getElementById("emptyState"),
   resultsZone: document.getElementById("resultsZone"),
 
   // explorer
   q: document.getElementById("q"),
-  sev: document.getElementById("sev"),
-  prod: document.getElementById("prod"),
-  type: document.getElementById("type"),
-  unique: document.getElementById("unique"),
   allTableBody: document.querySelector("#allTable tbody"),
 
   toast: document.getElementById("toast"),
@@ -70,7 +65,8 @@ const els = {
   tabWalkSection: document.getElementById("tabWalkSection"),
   tabTbody: document.querySelector("#tabTable tbody"),
   contrastShowAll: document.getElementById("contrastShowAll"),
-  contrastTitle: document.getElementById("contrastTitle"),
+  contrastQ: document.getElementById("contrastQ"),
+  tabWalkQ: document.getElementById("tabWalkQ"),
   copyJsonRaw: document.getElementById("copyJsonRaw"),
 
   // new tab shell elements
@@ -102,6 +98,8 @@ const state = {
   contrastSamples: [],
   tabData: [],
   activeMode: "run",
+  sevFilter: "",
+  hasRun: false,
   topTab: "snap",
   pinnedFrameId: null,
   lastDiffSummary: "—",
@@ -328,6 +326,7 @@ class VirtualTable {
 
     this.data = [];
     this.rowHeight = estimateRowHeight;
+    this.selectedIdx = null;
 
     this._onScroll = this._onScroll.bind(this);
     this._onResize = this._onResize.bind(this);
@@ -344,7 +343,7 @@ class VirtualTable {
 
   setData(data) {
     this.data = Array.isArray(data) ? data : [];
-    // reset scroll window render
+    this.selectedIdx = null;
     this._render(true);
   }
 
@@ -378,6 +377,12 @@ class VirtualTable {
       rows.push(`<tr class="vt-spacer" aria-hidden="true"><td colspan="${this.colCount}" style="height:${botPad}px"></td></tr>`);
 
       this.tbodyEl.innerHTML = rows.join("");
+
+      // Re-apply selection highlight after render
+      if (this.selectedIdx != null) {
+        const sel = this.tbodyEl.querySelector(`tr[data-i="${this.selectedIdx}"]`);
+        if (sel) sel.classList.add("isSelected");
+      }
 
       // Measure row height from first real row if possible
       const firstRow = this.tbodyEl.querySelector("tr:not(.vt-spacer)");
@@ -697,7 +702,9 @@ const SNAP_CTA = {
 
 function updateSnapCta(mode) {
   const cta = SNAP_CTA[mode] || SNAP_CTA.run;
-  if (els.runLabel) els.runLabel.textContent = cta.label;
+  let label = cta.label;
+  if (mode === "run" && state.hasRun) label = "Re-run Audit";
+  if (els.runLabel) els.runLabel.textContent = label;
   if (els.runCurrentMode) {
     els.runCurrentMode.className = "ctaBtn " + cta.cls;
   }
@@ -712,6 +719,7 @@ function showMode(mode) {
   if (explorer) explorer.hidden = !runLike;
   if (contrast) contrast.hidden = mode !== "contrast";
   if (tab) tab.hidden = mode !== "tabWalk";
+  if (els.sevTabs) els.sevTabs.hidden = !runLike;
 }
 
 // ═══ VIEW ROUTING ═══
@@ -752,22 +760,24 @@ function updateResultsVisibility(forceValue = null) {
   if (els.exportAnchor) els.exportAnchor.hidden = !(hasResults || hasSessionExport);
 }
 
-function renderStatsRow(findings = null) {
-  if (!els.statsRow) return;
+function renderSevTabs(findings = null) {
+  if (!els.sevTabs) return;
   const c = findings ? countBySeverity(findings) : null;
-  const cards = [
-    { key: "high", label: "High" },
-    { key: "medium", label: "Medium" },
-    { key: "low", label: "Low" },
-    { key: "info", label: "Info" },
+  const total = c ? (c.high + c.medium + c.low + c.info) : null;
+  const tabs = [
+    { sev: "",       label: "All",    count: total },
+    { sev: "high",   label: "High",   count: c ? c.high : null },
+    { sev: "medium", label: "Medium", count: c ? c.medium : null },
+    { sev: "low",    label: "Low",    count: c ? c.low : null },
+    { sev: "info",   label: "Info",   count: c ? c.info : null },
   ];
-  els.statsRow.innerHTML = cards.map(({ key, label }) => `
-    <div class="statCard ${key}">
-      <span class="statValue ${key}">${c ? escapeHtml(String(c[key] ?? 0)) : "&ndash;"}</span>
-      <span class="statLabel">${escapeHtml(label)}</span>
-    </div>
-  `).join("");
-  els.statsRow.hidden = false;
+  els.sevTabs.innerHTML = tabs.map(t => {
+    const active = state.sevFilter === t.sev;
+    return `<button class="sevTab" role="tab" data-sev="${t.sev}" aria-selected="${active}" tabindex="${active ? 0 : -1}" type="button">
+      <span class="sevCount">${t.count != null ? t.count : "&ndash;"}</span>
+      <span class="sevLabel">${escapeHtml(t.label)}</span>
+    </button>`;
+  }).join("");
 }
 
 async function persistRecords(scopeKey) {
@@ -881,15 +891,13 @@ async function loadRecords(scopeKey) {
 
 function resetFilters() {
   els.q.value = "";
-  els.sev.value = "";
-  els.prod.value = "";
-  els.type.value = "";
-  els.unique.checked = true;
+  state.sevFilter = "";
 }
 
 function renderRecord(rec) {
   if (!rec) return;
   state.currentId = rec.id;
+  state.hasRun = true;
   setPressed(rec.action);
   updateResultsVisibility(true);
   resetFilters();
@@ -900,8 +908,7 @@ function renderRecord(rec) {
   // default reset
   els.allTableBody.innerHTML = "";
   state.currentFindings = [];
-  if (els.allCount) els.allCount.textContent = "0";
-  renderStatsRow();
+  renderSevTabs();
   showMode(mode);
 
   if (mode === "run") {
@@ -915,32 +922,32 @@ function renderRecord(rec) {
     const scanned = bestResult?.scanned ?? "—";
     const failures = bestResult?.failuresCount ?? bestResult?.failures?.length ?? "—";
     const ts = bestResult?.timestamp ? new Date(bestResult.timestamp).toLocaleTimeString() : "";
-    els.runSummary.innerHTML = `
+    if (els.runSummary) els.runSummary.innerHTML = `
       <div class="runStats">
         <span class="runStat"><b>${escapeHtml(String(failures))}</b> failures</span>
         <span class="runStat"><b>${escapeHtml(String(scanned))}</b> scanned</span>
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
-    renderStatsRow();
+    renderSevTabs();
     renderContrast(bestResult);
   } else if (mode === "tabWalk") {
     const walked = bestResult?.walked ?? "—";
     const totalFoc = bestResult?.totalFocusables ?? "—";
     const evtCount = bestResult?.events?.length ?? "—";
     const ts = bestResult?.timestamp ? new Date(bestResult.timestamp).toLocaleTimeString() : "";
-    els.runSummary.innerHTML = `
+    if (els.runSummary) els.runSummary.innerHTML = `
       <div class="runStats">
         <span class="runStat"><b>${escapeHtml(String(evtCount))}</b> events</span>
         <span class="runStat">walked <b>${escapeHtml(String(walked))}</b>/<b>${escapeHtml(String(totalFoc))}</b></span>
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
-    renderStatsRow();
+    renderSevTabs();
     renderTabWalk(bestResult);
   } else if (mode === "observe" && bestResult) {
     const snapshots = Array.isArray(bestResult.snapshots) ? bestResult.snapshots : [];
     const oFindings = Array.isArray(bestResult.findings) ? bestResult.findings : [];
     const ts = bestResult.timestamp ? new Date(bestResult.timestamp).toLocaleTimeString() : "";
-    els.runSummary.innerHTML = `
+    if (els.runSummary) els.runSummary.innerHTML = `
       <div class="runStats">
         <span class="runStat"><b>${oFindings.length}</b> findings</span>
         <span class="runStat"><b>${snapshots.length}</b> snapshots</span>
@@ -948,21 +955,21 @@ function renderRecord(rec) {
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
     if (oFindings.length) {
-      renderStatsRow(oFindings);
+      renderSevTabs(oFindings);
       state.currentFindings = oFindings;
       showMode("observe");
       buildOptionsFromFindings(oFindings, els.prod, "product");
       buildOptionsFromFindings(oFindings, els.type, "type");
       renderExplorer(oFindings);
     } else {
-      renderStatsRow();
+      renderSevTabs();
     }
   } else if (mode === "watch" && bestResult) {
     const verdicts = Array.isArray(bestResult.verdicts) ? bestResult.verdicts : [];
     const wEvents = Array.isArray(bestResult.events) ? bestResult.events : [];
     const overBudget = verdicts.length > 0;
     const ts = bestResult.timestamp ? new Date(bestResult.timestamp).toLocaleTimeString() : "";
-    els.runSummary.innerHTML = `
+    if (els.runSummary) els.runSummary.innerHTML = `
       <div class="runStats">
         <span class="runStat"><b>${escapeHtml(String(bestResult.bursts ?? "—"))}</b> bursts</span>
         <span class="runStat"><b>${escapeHtml(String(bestResult.totalLoadingMs ?? "—"))}</b>ms loading</span>
@@ -971,16 +978,16 @@ function renderRecord(rec) {
         <span class="runStat"><b>${wEvents.length}</b> events</span>
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
-    renderStatsRow();
+    renderSevTabs();
   } else {
     const ts = (bestResult?.timestamp || bestResult?.endedAt || rec.at) ? new Date(bestResult?.timestamp || bestResult?.endedAt || rec.at).toLocaleTimeString() : "";
-    els.runSummary.innerHTML = `
+    if (els.runSummary) els.runSummary.innerHTML = `
       <div class="runStats">
         <span class="runStat">${escapeHtml(mode)}</span>
         <span class="runStat">frame <b>${escapeHtml(String(rec?.best?.frameId ?? "—"))}</b></span>
         ${ts ? `<span class="runStatMuted">${escapeHtml(ts)}</span>` : ""}
       </div>`;
-    renderStatsRow();
+    renderSevTabs();
   }
 }
 
@@ -2512,8 +2519,8 @@ function actionIsWatch(resultObj) {
 
 function renderRunSummary(r, rec = null) {
   if (!r) {
-    els.runSummary.innerHTML = '<div class="emptyGuide">Pick a mode and hit <kbd>Run Audit</kbd>, or use a quick start preset.</div>';
-    renderStatsRow();
+    if (els.runSummary) els.runSummary.innerHTML = '<div class="emptyGuide">Pick a mode and hit <kbd>Run Audit</kbd>, or use a quick start preset.</div>';
+    renderSevTabs();
     return;
   }
 
@@ -2541,10 +2548,11 @@ function renderRunSummary(r, rec = null) {
     </div>
   `;
 
-  renderStatsRow(findings);
+  renderSevTabs(findings);
 }
 
 function buildOptionsFromFindings(findings, elSelect, key) {
+  if (!elSelect) return;
   const vals = [...new Set(findings.map(f => f?.[key]).filter(Boolean))].sort();
   const current = elSelect.value;
   elSelect.innerHTML = `<option value="">All ${key === "product" ? "products" : "types"}</option>` +
@@ -2554,15 +2562,10 @@ function buildOptionsFromFindings(findings, elSelect, key) {
 
 function applyExplorerFilters(findings) {
   const q = (els.q.value || "").trim().toLowerCase();
-  const sev = els.sev.value;
-  const prod = els.prod.value;
-  const type = els.type.value;
-  const unique = !!els.unique.checked;
+  const sev = state.sevFilter || "";
 
   let list = Array.isArray(findings) ? findings : [];
   if (sev) list = list.filter(f => f.severity === sev);
-  if (prod) list = list.filter(f => f.product === prod);
-  if (type) list = list.filter(f => f.type === type);
 
   if (q) {
     list = list.filter(f => {
@@ -2574,15 +2577,14 @@ function applyExplorerFilters(findings) {
     });
   }
 
-  if (unique) {
-    const seen = new Set();
-    list = list.filter(f => {
-      const h = hashFinding(f);
-      if (seen.has(h)) return false;
-      seen.add(h);
-      return true;
-    });
-  }
+  // Always dedup
+  const seen = new Set();
+  list = list.filter(f => {
+    const h = hashFinding(f);
+    if (seen.has(h)) return false;
+    seen.add(h);
+    return true;
+  });
 
   return [...list].sort((a, b) =>
     hashFinding(a).localeCompare(hashFinding(b))
@@ -2600,21 +2602,26 @@ function renderContrast(res) {
 
 function updateContrastView() {
   const showAll = els.contrastShowAll && els.contrastShowAll.checked;
-  const data = showAll ? state.contrastSamples : state.contrastData;
-  const sorted = applySortState(data, 'contrast');
-  if (els.contrastTitle) {
-    els.contrastTitle.textContent = showAll ? 'Color audit — All samples' : 'Color audit — Contrast failures';
+  let data = showAll ? state.contrastSamples : state.contrastData;
+  const q = (els.contrastQ?.value || "").trim().toLowerCase();
+  if (q) {
+    data = data.filter(f => {
+      const blob = [f.text, f.tag, f.testId, f.path, f.note, String(f.ratio ?? "")]
+        .filter(Boolean).join(" ").toLowerCase();
+      return blob.includes(q);
+    });
   }
+  const sorted = applySortState(data, 'contrast');
   if (VT.contrast) {
     VT.contrast.setData(sorted);
     return;
   }
   const tbody = els.contrastTbody;
   if (!tbody) return;
-  tbody.innerHTML = sorted.slice(0, 200).map((f) => {
+  tbody.innerHTML = sorted.slice(0, 200).map((f, idx) => {
     const pass = f.ratio >= f.required;
     return `
-    <tr class="trow${pass ? ' contrastPass' : ''}">
+    <tr class="trow${pass ? ' contrastPass' : ''}" data-i="${idx}">
       <td>${escapeHtml(String(f.ratio ?? ""))}</td>
       <td>${escapeHtml(String(f.required ?? ""))}</td>
       <td>${f.largeText ? "yes" : "no"}</td>
@@ -2631,7 +2638,16 @@ function updateContrastView() {
 function renderTabWalk(res) {
   const raw = Array.isArray(res?.events) ? res.events : [];
   state.tabData = raw;
-  const events = applySortState(raw, 'tab');
+  let filtered = raw;
+  const q = (els.tabWalkQ?.value || "").trim().toLowerCase();
+  if (q) {
+    filtered = filtered.filter(e => {
+      const blob = [e.type, e.name, e.path, e.note, String(e.tabIndex ?? "")]
+        .filter(Boolean).join(" ").toLowerCase();
+      return blob.includes(q);
+    });
+  }
+  const events = applySortState(filtered, 'tab');
   if (VT.tab) {
     VT.tab.setData(events);
     return;
@@ -2639,8 +2655,8 @@ function renderTabWalk(res) {
   // fallback (should not happen)
   const tbody = els.tabTbody;
   if (!tbody) return;
-  tbody.innerHTML = events.slice(0, 200).map((e) => `
-    <tr class="trow">
+  tbody.innerHTML = events.slice(0, 200).map((e, idx) => `
+    <tr class="trow" data-i="${idx}">
       <td>${escapeHtml(String(e.i ?? ""))}</td>
       <td>${escapeHtml(String(e.type ?? ""))}</td>
       <td>${escapeHtml(String(e.tabIndex ?? ""))}</td>
@@ -2675,23 +2691,6 @@ function renderExplorer(findings) {
     `).join("");
   }
 
-  // Update explorer section toggle with count
-  const total = (findings || []).length;
-  const countText = filtered.length < total ? `${filtered.length} / ${total}` : `${filtered.length}`;
-  if (els.allCount) {
-    els.allCount.textContent = countText;
-  } else {
-    const explorerToggle = document.querySelector('#explorerSection .sectionToggle');
-    if (explorerToggle) {
-      const countSpan = explorerToggle.querySelector('.toggleCount') || (() => {
-        const s = document.createElement('span');
-        s.className = 'toggleCount';
-        explorerToggle.appendChild(s);
-        return s;
-      })();
-      countSpan.textContent = countText;
-    }
-  }
 }
 
 
@@ -2725,7 +2724,6 @@ function refreshInspectedUrl(retries = 3) {
       state.currentId = null;
       state.currentFindings = [];
       renderRunSummary(null);
-      if (els.allCount) els.allCount.textContent = "0";
       showMode(state.activeMode || "run");
       updateResultsVisibility(false);
     }
@@ -3650,6 +3648,7 @@ if (els.allTableBody && !els.allTableBody.__bound) {
       els.allTableBody.__selected = tr;
 
       const idx = Number(tr.getAttribute("data-i"));
+      if (VT.all) VT.all.selectedIdx = idx;
       const finding = Number.isFinite(idx) ? state.explorer[idx] : null;
       if (!finding) return;
 
@@ -3661,6 +3660,58 @@ if (els.allTableBody && !els.allTableBody.__bound) {
   });
 }
 
+// Contrast table: click row → highlight element on page
+if (els.contrastTbody && !els.contrastTbody.__bound) {
+  els.contrastTbody.__bound = true;
+  els.contrastTbody.__selected = null;
+  els.contrastTbody.addEventListener("click", async (e) => {
+    try {
+      const tr = e?.target?.closest ? e.target.closest("tr.trow") : null;
+      if (!tr) return;
+
+      if (els.contrastTbody.__selected) els.contrastTbody.__selected.classList.remove("isSelected");
+      tr.classList.add("isSelected");
+      els.contrastTbody.__selected = tr;
+
+      const idx = Number(tr.getAttribute("data-i"));
+      if (VT.contrast) VT.contrast.selectedIdx = idx;
+      const item = Number.isFinite(idx) && VT.contrast ? VT.contrast.data[idx] : null;
+      if (!item || !item.path) return;
+
+      await highlightFinding({ path: item.path, testId: item.testId, tag: item.tag, name: item.text });
+    } catch (err) {
+      console.warn("Contrast table click failed", err);
+      toast("Could not highlight element");
+    }
+  });
+}
+
+// Tab walk table: click row → highlight element on page
+if (els.tabTbody && !els.tabTbody.__bound) {
+  els.tabTbody.__bound = true;
+  els.tabTbody.__selected = null;
+  els.tabTbody.addEventListener("click", async (e) => {
+    try {
+      const tr = e?.target?.closest ? e.target.closest("tr.trow") : null;
+      if (!tr) return;
+
+      if (els.tabTbody.__selected) els.tabTbody.__selected.classList.remove("isSelected");
+      tr.classList.add("isSelected");
+      els.tabTbody.__selected = tr;
+
+      const idx = Number(tr.getAttribute("data-i"));
+      if (VT.tab) VT.tab.selectedIdx = idx;
+      const item = Number.isFinite(idx) && VT.tab ? VT.tab.data[idx] : null;
+      if (!item) return;
+      if (!item.path) { toast("This event has no locatable element"); return; }
+
+      await highlightFinding({ path: item.path, name: item.name, role: item.role });
+    } catch (err) {
+      console.warn("Tab walk table click failed", err);
+      toast("Could not highlight element");
+    }
+  });
+}
 
 if (els.density) {
   els.density.addEventListener("change", async () => {
@@ -3712,10 +3763,41 @@ function scheduleExplorerRender() {
   }, 120);
 }
 
-[els.q, els.sev, els.prod, els.type, els.unique].forEach(el => {
-  el.addEventListener("input", scheduleExplorerRender);
-  el.addEventListener("change", scheduleExplorerRender);
-});
+els.q.addEventListener("input", scheduleExplorerRender);
+
+if (els.sevTabs) {
+  els.sevTabs.addEventListener("click", (e) => {
+    const tab = e.target.closest(".sevTab");
+    if (!tab) return;
+    state.sevFilter = tab.dataset.sev;
+    els.sevTabs.querySelectorAll(".sevTab").forEach(t => {
+      const active = t.dataset.sev === state.sevFilter;
+      t.setAttribute("aria-selected", String(active));
+      t.setAttribute("tabindex", active ? "0" : "-1");
+    });
+    scheduleExplorerRender();
+  });
+}
+
+// Contrast search
+if (els.contrastQ) {
+  let __contrastT = null;
+  els.contrastQ.addEventListener("input", () => {
+    clearTimeout(__contrastT);
+    __contrastT = setTimeout(updateContrastView, 120);
+  });
+}
+
+// Tab walk search
+if (els.tabWalkQ) {
+  let __tabT = null;
+  els.tabWalkQ.addEventListener("input", () => {
+    clearTimeout(__tabT);
+    __tabT = setTimeout(() => {
+      renderTabWalk({ events: state.tabData });
+    }, 120);
+  });
+}
 
 // keyboard shortcuts (tab-aware)
 window.addEventListener("keydown", (e) => {
@@ -3948,10 +4030,10 @@ function initVirtualTables() {
       wrapEl: contrastWrap,
       tbodyEl: els.contrastTbody,
       colCount: 8,
-      rowRenderer: (f) => {
+      rowRenderer: (f, idx) => {
         const pass = f.ratio >= f.required;
         return `
-        <tr class="trow${pass ? ' contrastPass' : ''}">
+        <tr class="trow${pass ? ' contrastPass' : ''}" data-i="${idx}">
           <td>${escapeHtml(String(f.ratio ?? ""))}</td>
           <td>${escapeHtml(String(f.required ?? ""))}</td>
           <td>${f.largeText ? "yes" : "no"}</td>
@@ -3975,8 +4057,8 @@ function initVirtualTables() {
       wrapEl: tabWrap,
       tbodyEl: els.tabTbody,
       colCount: 6,
-      rowRenderer: (e) => `
-        <tr class="trow">
+      rowRenderer: (e, idx) => `
+        <tr class="trow" data-i="${idx}">
           <td>${escapeHtml(String(e.i ?? ""))}</td>
           <td>${escapeHtml(String(e.type ?? ""))}</td>
           <td>${escapeHtml(String(e.tabIndex ?? ""))}</td>
@@ -4047,7 +4129,7 @@ function syncCollapsedSections() {
 // initial
 showView("snap", "run");
 syncCollapsedSections();
-renderStatsRow();
+renderSevTabs();
 updateResultsVisibility(false);
 initVirtualTables();
 initSortableHeaders();
