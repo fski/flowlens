@@ -655,7 +655,7 @@ kbd {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 4px 8px;
+  padding: 10px 8px;
   border: 2px solid transparent;
   border-bottom: none;
   border-radius: 6px 6px 0 0;
