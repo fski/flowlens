@@ -81,6 +81,12 @@ const els = {
   watchSummary: document.getElementById("watchSummary"),
   watchVerdicts: document.getElementById("watchVerdicts"),
   watchTbody: document.querySelector("#watchTable tbody"),
+  flowLabelInput: document.getElementById("flowLabelInput"),
+  flowLabelField: document.getElementById("flowLabelField"),
+  flowLabelSave: document.getElementById("flowLabelSave"),
+  flowLabelSkip: document.getElementById("flowLabelSkip"),
+  flowVerdict: document.getElementById("flowVerdict"),
+  autoCaptureNav: document.getElementById("autoCaptureNav"),
 };
 
 const ORDER = { high: 3, medium: 2, low: 1, info: 0 };
@@ -190,6 +196,9 @@ const sessionState = {
   captureSlow: false,
   lastPersistReasonCode: "-",
   hudTimer: null,
+  expandedStepIndex: null,
+  autoCapturePending: null,
+  lastAutoNavUrl: null,
 };
 
 function debugSession(...args) {
@@ -1219,6 +1228,14 @@ async function deriveStepRouteHint(url, activeProfileIds = []) {
   return "(unknown)";
 }
 
+async function deriveAutoLabel(url) {
+  const title = await fetchInspectedTitleBestEffort();
+  if (title && title.length > 2 && title.length < 80) return title;
+  const hint = await deriveStepRouteHint(url, [...profileState.active]);
+  if (hint && hint !== "(unknown)") return hint;
+  return null;
+}
+
 function formatTimeHms(isoValue) {
   if (!isoValue) return "—";
   const d = new Date(isoValue);
@@ -1390,6 +1407,17 @@ function getActiveModeForSessionCapture() {
   return "run";
 }
 
+function getSmartModeForCapture(isAutoCapture) {
+  if (!isAutoCapture) return getActiveModeForSessionCapture();
+  const steps = sessionState.current?.steps || [];
+  if (steps.length === 0) return "observe";
+  const prevStep = steps[steps.length - 1];
+  const prevDiff = prevStep?.diffs?.consolidated || {};
+  const prevMode = prevStep?.activeModeCaptured || "run";
+  if (prevMode === "observe" && prevDiff.blockingAdded > 0) return "watch";
+  return "observe";
+}
+
 function getCurrentScopeInfo() {
   const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
   const origin = originFrom(url) || "";
@@ -1459,10 +1487,23 @@ function ensureSessionHudTicker() {
   }
 }
 
+function expandAccordion(sectionEl) {
+  if (!sectionEl) return;
+  const btn = sectionEl.querySelector(".accordionToggle");
+  if (!btn) return;
+  if (btn.getAttribute("aria-expanded") === "true") return;
+  btn.setAttribute("aria-expanded", "true");
+  const body = sectionEl.querySelector(".accordionBody");
+  if (body) body.hidden = false;
+  const chevron = btn.querySelector(".chevron");
+  if (chevron) chevron.textContent = "\u2227";
+}
+
 function renderSessionHud() {
   renderFlowSessionInfo();
   renderFlowTimeline();
   renderFlowCounters();
+  renderFlowVerdict();
 }
 
 function renderFlowSessionInfo() {
@@ -1503,6 +1544,7 @@ function renderFlowTimeline() {
   const steps = Array.isArray(sess?.steps) ? sess.steps : [];
   const tbody = body.querySelector("tbody");
   if (!tbody) return;
+  sessionState.expandedStepIndex = null;
   if (!steps.length) {
     tbody.innerHTML = "";
     return;
@@ -1511,13 +1553,18 @@ function renderFlowTimeline() {
     const d = s.diffs?.consolidated || {};
     const route = s.routeHint || s.url || "—";
     const shortRoute = route.length > 40 ? route.slice(-38) : route;
-    const mode = s.activeModeCaptured || "—";
+    const rawMode = s.activeModeCaptured || "—";
+    const mode = rawMode === "run" || rawMode === "—" ? rawMode : `run + ${rawMode}`;
+    const label = s.label ? `<span class="stepLabel">${escapeHtml(s.label)}</span> ` : "";
     const blockers = [];
     if (d.blockingAdded) blockers.push(`+${d.blockingAdded} blocking`);
     if (d.blockingFixed) blockers.push(`-${d.blockingFixed} blocking`);
-    return `<tr class="trow">
-      <td>${s.index}</td>
-      <td title="${escapeHtml(route)}">${escapeHtml(shortRoute)}</td>
+    const delBtn = sessionState.current
+      ? ` <button class="stepDeleteBtn" data-delete-step="${s.index}" type="button" aria-label="Delete step ${s.index}" title="Delete step">&times;</button>`
+      : "";
+    return `<tr class="trow" data-step-index="${s.index}">
+      <td>${s.index}${delBtn}</td>
+      <td title="${escapeHtml(route)}">${label}${escapeHtml(shortRoute)}</td>
       <td>${escapeHtml(mode)}</td>
       <td>${d.added ?? 0}</td>
       <td>${d.fixed ?? 0}</td>
@@ -1533,19 +1580,235 @@ function renderFlowCounters() {
   const sess = sessionState.current || sessionState.lastEndedSession;
   const steps = Array.isArray(sess?.steps) ? sess.steps : [];
   if (!steps.length) { el.hidden = true; return; }
-  let added = 0, fixed = 0, unresolved = 0;
+  let added = 0, fixed = 0, persisting = 0, blockingAdded = 0, blockingFixed = 0;
   for (const s of steps) {
     const d = s.diffs?.consolidated || {};
     added += d.added || 0;
     fixed += d.fixed || 0;
-    unresolved += d.persisting || 0;
+    persisting += d.persisting || 0;
+    blockingAdded += d.blockingAdded || 0;
+    blockingFixed += d.blockingFixed || 0;
   }
+  const blocking = blockingAdded - blockingFixed;
   el.innerHTML = `
-    <div class="flowCounter"><span class="flowCounterValue">${added}</span><span class="flowCounterLabel">Added</span></div>
-    <div class="flowCounter"><span class="flowCounterValue">${fixed > 0 ? "-" : ""}${fixed}</span><span class="flowCounterLabel">Fixed</span></div>
-    <div class="flowCounter"><span class="flowCounterValue">${unresolved}</span><span class="flowCounterLabel">Unresolved</span></div>
+    <div class="flowCounter"><span class="flowCounterValue${added > 0 ? " flowCounterValue--red" : ""}">${added}</span><span class="flowCounterLabel">New issues</span></div>
+    <div class="flowCounter"><span class="flowCounterValue${fixed > 0 ? " flowCounterValue--green" : ""}">${fixed > 0 ? "-" : ""}${fixed}</span><span class="flowCounterLabel">Fixed</span></div>
+    <div class="flowCounter"><span class="flowCounterValue">${persisting}</span><span class="flowCounterLabel">Persisting</span></div>
+    <div class="flowCounter"><span class="flowCounterValue${blocking > 0 ? " flowCounterValue--red" : ""}">${blocking > 0 ? "+" : ""}${blocking}</span><span class="flowCounterLabel">Blocking</span></div>
   `;
   el.hidden = false;
+}
+
+function renderFlowVerdict() {
+  const el = els.flowVerdict;
+  if (!el) return;
+  const sess = sessionState.current || sessionState.lastEndedSession;
+  const steps = Array.isArray(sess?.steps) ? sess.steps : [];
+  if (!steps.length) { el.hidden = true; return; }
+  let totalBlockingAdded = 0;
+  const blockingSteps = [];
+  for (const s of steps) {
+    const ba = s.diffs?.consolidated?.blockingAdded || 0;
+    totalBlockingAdded += ba;
+    if (ba > 0) blockingSteps.push(s.index);
+  }
+  const pass = totalBlockingAdded === 0;
+  const badge = pass ? "PASS" : "FAIL";
+  const badgeCls = pass ? "flowVerdictBadge--pass" : "flowVerdictBadge--fail";
+  const wrapCls = pass ? "flowVerdict--pass" : "flowVerdict--fail";
+  let summary;
+  if (pass) {
+    summary = `${steps.length} step${steps.length !== 1 ? "s" : ""}, 0 blocking regressions`;
+  } else {
+    summary = `${totalBlockingAdded} blocking issue${totalBlockingAdded !== 1 ? "s" : ""} introduced in step${blockingSteps.length !== 1 ? "s" : ""} ${blockingSteps.join(", ")}`;
+  }
+  el.className = `flowVerdict ${wrapCls}`;
+  el.innerHTML = `<span class="flowVerdictBadge ${badgeCls}">${badge}</span><span class="flowVerdictText">${escapeHtml(summary)}</span>`;
+  el.hidden = false;
+}
+
+// ---- Step label input ----
+
+function showStepLabelInput(stepIndex) {
+  if (!els.flowLabelInput || !els.flowLabelField) return;
+  els.flowLabelInput.hidden = false;
+  els.flowLabelField.value = "";
+  els.flowLabelField.dataset.stepIndex = String(stepIndex);
+  requestAnimationFrame(() => els.flowLabelField.focus());
+}
+
+function hideStepLabelInput() {
+  if (els.flowLabelInput) els.flowLabelInput.hidden = true;
+  if (els.flowLabelField) {
+    els.flowLabelField.value = "";
+    delete els.flowLabelField.dataset.stepIndex;
+  }
+}
+
+function saveStepLabel() {
+  const field = els.flowLabelField;
+  if (!field) return;
+  const stepIndex = Number(field.dataset.stepIndex);
+  const label = (field.value || "").trim();
+  if (!label || !sessionState.current) {
+    hideStepLabelInput();
+    return;
+  }
+  const step = (sessionState.current.steps || []).find(s => s.index === stepIndex);
+  if (step) {
+    step.label = label;
+    renderSessionHud();
+    persistActiveSessionBestEffort(compactSessionForExport(sessionState.current));
+    toast(`Label saved for step ${stepIndex}`);
+  }
+  hideStepLabelInput();
+}
+
+// ---- Step drill-down ----
+
+function buildStepDrillDownData(stepIndex) {
+  const sess = sessionState.current || sessionState.lastEndedSession;
+  if (!sess) return null;
+  const steps = Array.isArray(sess.steps) ? sess.steps : [];
+  const step = steps.find(s => s.index === stepIndex);
+  if (!step) return null;
+  const prevStep = steps.find(s => s.index === stepIndex - 1) || null;
+  const rawAppendix = sess.rawAppendix || {};
+
+  const currRunRaw = resolveSnapshotRaw(step?.snapshots?.run, rawAppendix);
+  const prevRunRaw = resolveSnapshotRaw(prevStep?.snapshots?.run, rawAppendix);
+  const currFindings = Array.isArray(currRunRaw?.findings) ? currRunRaw.findings : [];
+  const prevFindings = Array.isArray(prevRunRaw?.findings) ? prevRunRaw.findings : [];
+
+  const currEntries = runSignatureEntries(step?.snapshots?.run, rawAppendix);
+  const prevEntries = runSignatureEntries(prevStep?.snapshots?.run, rawAppendix);
+
+  const currSigToFinding = new Map();
+  for (let i = 0; i < Math.min(currEntries.length, currFindings.length); i++) {
+    currSigToFinding.set(currEntries[i].sig, currFindings[i]);
+  }
+  const prevSigSet = new Set(prevEntries.map(e => e.sig));
+  const currSigSet = new Set(currEntries.map(e => e.sig));
+
+  const added = [];
+  const fixed = [];
+  const persisting = [];
+
+  for (const [sig, finding] of currSigToFinding) {
+    if (prevSigSet.has(sig)) {
+      persisting.push(finding);
+    } else {
+      added.push(finding);
+    }
+  }
+  // Fixed: in prev but not in current
+  const prevSigToFinding = new Map();
+  for (let i = 0; i < Math.min(prevEntries.length, prevFindings.length); i++) {
+    prevSigToFinding.set(prevEntries[i].sig, prevFindings[i]);
+  }
+  for (const [sig, finding] of prevSigToFinding) {
+    if (!currSigSet.has(sig)) {
+      fixed.push(finding);
+    }
+  }
+
+  return { step, added, fixed, persisting, diff: step.diffs?.consolidated || {} };
+}
+
+function renderStepDrillDown(stepIndex) {
+  const tbody = document.querySelector("#flowTimelineTable tbody");
+  if (!tbody) return;
+
+  // Remove existing detail row
+  const existing = tbody.querySelector(".stepDetailRow");
+  if (existing) existing.remove();
+  tbody.querySelectorAll("tr.isExpanded").forEach(r => r.classList.remove("isExpanded"));
+
+  // Toggle: if same step, just collapse
+  if (sessionState.expandedStepIndex === stepIndex) {
+    sessionState.expandedStepIndex = null;
+    return;
+  }
+
+  sessionState.expandedStepIndex = stepIndex;
+  const data = buildStepDrillDownData(stepIndex);
+  if (!data) return;
+
+  // Find and mark the target row
+  let targetRow = null;
+  for (const r of tbody.querySelectorAll("tr.trow")) {
+    if (Number(r.dataset.stepIndex) === stepIndex) {
+      targetRow = r;
+      r.classList.add("isExpanded");
+      break;
+    }
+  }
+  if (!targetRow) return;
+
+  const s = data.step;
+  const d = data.diff;
+
+  const renderFindingList = (findings, max = 30) => {
+    if (!findings.length) return '<span style="color:var(--tx3);font-size:11px;">None</span>';
+    return `<ul class="stepFindingList">${findings.slice(0, max).map(f => {
+      const sev = escapeHtml(f.severity || "info");
+      const type = escapeHtml(f.type || f.product || "");
+      const note = escapeHtml(txt(f.note || f.name || "", 100));
+      return `<li class="stepFindingItem"><span class="stepFindingSev ${sev}">${sev}</span><span class="stepFindingType">${type}</span><span class="stepFindingNote">${note}</span></li>`;
+    }).join("")}${findings.length > max ? `<li class="stepFindingItem"><span class="stepFindingNote">…and ${findings.length - max} more</span></li>` : ""}</ul>`;
+  };
+
+  const detailHtml = `
+    <dl class="stepDetailMeta">
+      <dt>Step</dt><dd>${s.index}</dd>
+      <dt>Label</dt><dd>${escapeHtml(s.label || "—")}</dd>
+      <dt>Time</dt><dd>${s.at ? new Date(s.at).toLocaleTimeString() : "—"}</dd>
+      <dt>Mode</dt><dd>${escapeHtml(s.activeModeCaptured || "run")}</dd>
+      <dt>URL</dt><dd title="${escapeHtml(s.url || "")}">${escapeHtml(txt(s.routeHint || s.url || "—", 60))}</dd>
+      <dt>Diff</dt><dd>+${d.added || 0} new, -${d.fixed || 0} fixed, ${d.persisting || 0} persisting</dd>
+    </dl>
+    <div class="stepDetailSection">
+      <div class="stepDetailSectionTitle">Added (${data.added.length})</div>
+      ${renderFindingList(data.added)}
+    </div>
+    <div class="stepDetailSection">
+      <div class="stepDetailSectionTitle">Fixed (${data.fixed.length})</div>
+      ${renderFindingList(data.fixed)}
+    </div>
+  `;
+
+  const detailRow = document.createElement("tr");
+  detailRow.className = "stepDetailRow";
+  detailRow.innerHTML = `<td colspan="7"><div class="stepDetail">${detailHtml}</div></td>`;
+  targetRow.after(detailRow);
+}
+
+// ---- Delete step ----
+
+async function deleteStep(stepIndex) {
+  if (!sessionState.current) {
+    toast("Cannot delete steps from an ended session");
+    return;
+  }
+  const steps = sessionState.current.steps || [];
+  const idx = steps.findIndex(s => s.index === stepIndex);
+  if (idx === -1) {
+    toast("Step not found");
+    return;
+  }
+  steps.splice(idx, 1);
+  const rawAppendix = sessionState.current.rawAppendix || {};
+  for (let i = 0; i < steps.length; i++) {
+    steps[i].index = i + 1;
+    const prevStep = i > 0 ? steps[i - 1] : null;
+    steps[i].diffs = buildStepDiffs(steps[i], prevStep, rawAppendix);
+  }
+  pruneSessionRawAppendix(sessionState.current);
+  const compacted = compactSessionForExport(sessionState.current);
+  await persistActiveSessionBestEffort(compacted);
+  sessionState.expandedStepIndex = null;
+  renderSessionHud();
+  toast(`Step deleted, ${steps.length} remaining`);
 }
 
 function updateSessionButtons() {
@@ -3021,6 +3284,7 @@ async function startSession() {
     steps: [],
   };
   sessionState.lastMarkStep = null;
+  sessionState.lastAutoNavUrl = null;
   await persistActiveSessionBestEffort(sessionState.current);
   updateSessionButtons();
   setPersistentStatus("OK", "SESSION_STARTED", "Session active");
@@ -3033,6 +3297,7 @@ async function endSession() {
     toast("No active session");
     return false;
   }
+  hideStepLabelInput();
   const exportableEndedSession = compactSessionForExport(normalizeLoadedSession(sessionState.current));
   const previousEndedAt = sessionState.current.endedAt || null;
   sessionState.current.endedAt = nowIso();
@@ -3047,13 +3312,39 @@ async function endSession() {
   sessionState.lastEndedSession = exportableEndedSession;
   sessionState.current = null;
   sessionState.lastMarkStep = null;
+  if (sessionState.autoCapturePending) {
+    clearTimeout(sessionState.autoCapturePending);
+    sessionState.autoCapturePending = null;
+  }
+  sessionState.lastAutoNavUrl = null;
   updateSessionButtons();
   setPersistentStatus("OK", "SESSION_ENDED", "Session archived");
-  toast("Session ended");
+
+  // Auto-copy verdict summary
+  const sess = exportableEndedSession;
+  if (sess) {
+    const steps = Array.isArray(sess.steps) ? sess.steps : [];
+    let totalBlockingAdded = 0;
+    const blockingSteps = [];
+    for (const s of steps) {
+      const ba = s.diffs?.consolidated?.blockingAdded || 0;
+      totalBlockingAdded += ba;
+      if (ba > 0) blockingSteps.push(s.index);
+    }
+    const pass = totalBlockingAdded === 0;
+    const verdict = pass
+      ? `PASS — ${steps.length} steps, 0 blocking regressions`
+      : `FAIL — ${totalBlockingAdded} blocking issues in steps ${blockingSteps.join(", ")}`;
+    const summary = `FlowLens: ${verdict} (${sess.inspectedOrigin || "—"})`;
+    await copyText(summary);
+    toast(pass ? "Session ended — PASS (copied)" : "Session ended — FAIL (copied)");
+  } else {
+    toast("Session ended");
+  }
   return true;
 }
 
-async function captureStepOptionC(label = null) {
+async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) {
   if (!sessionState.current) {
     toast("Start a session first");
     return false;
@@ -3072,6 +3363,7 @@ async function captureStepOptionC(label = null) {
 
   sessionState.inFlight = true;
   sessionState.captureSlow = false;
+  hideStepLabelInput();
   if (sessionState.captureSlowTimer) window.clearTimeout(sessionState.captureSlowTimer);
   sessionState.captureSlowTimer = window.setTimeout(() => {
     if (!sessionState.inFlight) return;
@@ -3082,7 +3374,7 @@ async function captureStepOptionC(label = null) {
   setRunTelemetry({ usedFrames: "Capturing step…" });
   const t0 = performance.now();
   try {
-    const activeMode = getActiveModeForSessionCapture();
+    const activeMode = getSmartModeForCapture(isAutoCapture);
     const target = getTargetSpec();
     const match = buildMatch();
     const baseTargeting = {
@@ -3229,6 +3521,8 @@ async function captureStepOptionC(label = null) {
     else setLastMarkStatus("OK", "-");
     updateSessionButtons();
     toast(`Step ${step.index} captured (${baselineFindings} baseline findings)`);
+    if (!label && !isAutoCapture) showStepLabelInput(step.index);
+    expandAccordion(document.getElementById("flowTimeline"));
     return true;
   } finally {
     sessionState.inFlight = false;
@@ -3568,6 +3862,76 @@ if (els.sessionStart) {
 }
 if (els.sessionMark) els.sessionMark.addEventListener("click", () => captureStepOptionC());
 if (els.sessionEnd) els.sessionEnd.addEventListener("click", () => endSession());
+
+// Step label input handlers
+if (els.flowLabelSave) els.flowLabelSave.addEventListener("click", saveStepLabel);
+if (els.flowLabelSkip) els.flowLabelSkip.addEventListener("click", hideStepLabelInput);
+if (els.flowLabelField) {
+  els.flowLabelField.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") saveStepLabel();
+    if (e.key === "Escape") hideStepLabelInput();
+  });
+}
+
+// Timeline drill-down + delete step + inline label edit
+{
+  const ftBody = document.getElementById("flowTimelineBody");
+  if (ftBody) {
+    // Click: delete button or drill-down
+    ftBody.addEventListener("click", (e) => {
+      const deleteBtn = e.target.closest(".stepDeleteBtn");
+      if (deleteBtn) {
+        e.stopPropagation();
+        const si = Number(deleteBtn.dataset.deleteStep);
+        if (Number.isFinite(si)) deleteStep(si);
+        return;
+      }
+      const tr = e.target.closest("tr.trow");
+      if (!tr) return;
+      const si = Number(tr.dataset.stepIndex);
+      if (Number.isFinite(si)) renderStepDrillDown(si);
+    });
+    // Double-click: inline label edit on route cell (2nd column)
+    ftBody.addEventListener("dblclick", (e) => {
+      const td = e.target.closest("td");
+      if (!td) return;
+      const tr = td.closest("tr.trow");
+      if (!tr) return;
+      const cells = [...tr.children];
+      if (cells.indexOf(td) !== 1) return;
+      const stepIndex = Number(tr.dataset.stepIndex);
+      if (!Number.isFinite(stepIndex)) return;
+      const sess = sessionState.current || sessionState.lastEndedSession;
+      const step = (sess?.steps || []).find(s => s.index === stepIndex);
+      if (!step) return;
+      e.preventDefault();
+      const originalContent = td.innerHTML;
+      const currentLabel = step.label || "";
+      td.innerHTML = `<input class="stepLabelEdit" type="text" value="${escapeHtml(currentLabel)}" maxlength="80" placeholder="Add label..." />`;
+      const input = td.querySelector("input");
+      input.focus();
+      input.select();
+      const commitEdit = () => {
+        const newLabel = (input.value || "").trim();
+        step.label = newLabel || null;
+        renderFlowTimeline();
+        if (sessionState.current) {
+          persistActiveSessionBestEffort(compactSessionForExport(sessionState.current));
+        }
+        if (newLabel) toast(`Label updated: ${newLabel}`);
+      };
+      input.addEventListener("blur", commitEdit, { once: true });
+      input.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") { input.blur(); }
+        if (ev.key === "Escape") {
+          input.removeEventListener("blur", commitEdit);
+          td.innerHTML = originalContent;
+        }
+      });
+    });
+  }
+}
+
 if (els.copyJsonRaw) {
   els.copyJsonRaw.addEventListener("click", async () => {
     await copyText(els.json.textContent || "");
@@ -4038,6 +4402,21 @@ chrome.devtools.network.onNavigated.addListener(async () => {
   await refreshInspectedUrl();
   await refreshFrames();
   toast("Navigated — refreshed frames");
+
+  // Auto-capture if enabled
+  if (sessionState.current && els.autoCaptureNav?.checked && !sessionState.inFlight) {
+    const { url } = getCurrentScopeInfo();
+    if (url && url !== sessionState.lastAutoNavUrl) {
+      if (sessionState.autoCapturePending) clearTimeout(sessionState.autoCapturePending);
+      sessionState.autoCapturePending = setTimeout(async () => {
+        sessionState.autoCapturePending = null;
+        if (!sessionState.current || sessionState.inFlight) return;
+        sessionState.lastAutoNavUrl = url;
+        const autoLabel = await deriveAutoLabel(url);
+        await captureStepOptionC(autoLabel, { isAutoCapture: true });
+      }, 2000);
+    }
+  }
 });
 
 // JSON toggle
