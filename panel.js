@@ -810,8 +810,8 @@ function renderSevTabs(findings = null) {
 
   const renderTab = (sev, label, count, active) =>
     `<button class="sevTab" role="tab" data-sev="${sev}" aria-selected="${active}" tabindex="${active ? 0 : -1}" type="button">
-      <span class="sevCount">${count != null ? count : "&ndash;"}</span>
       <span class="sevLabel">${escapeHtml(label)}</span>
+      <span class="sevCount">${count != null ? count : "&ndash;"}</span>
     </button>`;
 
   const allTab = renderTab("", "All", total, isAll);
