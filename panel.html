@@ -236,12 +236,24 @@
             <button class="ctaBtn ctaBtn--outline" id="sessionEnd" type="button" title="End active session" disabled>
               End <kbd class="keycap" aria-hidden="true">e</kbd>
             </button>
+            <label class="autoCapToggle" title="Auto-capture on navigation">
+              <input type="checkbox" id="autoCaptureNav" />
+              <span class="autoCapLabel">Auto</span>
+            </label>
+          </div>
+          <div class="flowLabelInput" id="flowLabelInput" hidden>
+            <input id="flowLabelField" type="text" class="flowLabelField" placeholder="Label this step (optional)" maxlength="80" autocomplete="off" />
+            <button class="flowLabelBtn" id="flowLabelSave" type="button">Save</button>
+            <button class="flowLabelBtn flowLabelBtn--skip" id="flowLabelSkip" type="button">Skip</button>
           </div>
           <p class="helperText" id="flowRecordHelper">Record a11y changes across a multi-step flow</p>
         </div>
 
-        <!-- Flow session counters (Added / Fixed / Unresolved) -->
+        <!-- Flow session counters -->
         <div class="flowCounterRow" id="flowCounterRow" hidden></div>
+
+        <!-- Flow verdict banner -->
+        <div class="flowVerdict" id="flowVerdict" hidden></div>
 
         <!-- Session info accordion -->
         <section class="accordion" id="flowSessionInfo">
@@ -277,7 +289,7 @@
                 <caption class="sr-only">Flow timeline</caption>
                 <thead>
                   <tr>
-                    <th scope="col">step</th><th scope="col">route</th><th scope="col">mode</th><th scope="col">new</th><th scope="col">fixed</th><th scope="col">unresolved</th><th scope="col">top blockers</th>
+                    <th scope="col">step</th><th scope="col">route</th><th scope="col">mode</th><th scope="col">new</th><th scope="col">fixed</th><th scope="col">persisting</th><th scope="col">top blockers</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
