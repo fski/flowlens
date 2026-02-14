@@ -22,13 +22,13 @@
   --brd3: #444444;
 
   --orange: #DB9F3E;
-  --yellow: #CBDB3E;
-  --cyan: #3EBEDB;
-  --green: #CBDB3E;
+  --yellow: #7BB85E;
+  --cyan: #54B8A6;
+  --green: #7BB85E;
   --red: #FF5571;
-  --teal: #2BE1E1;
-  --mint: #44E48C;
-  --coral: #F4686A;
+  --teal: #5AADDB;
+  --mint: #8B8EDB;
+  --coral: #DB6B6B;
 
   /* Audit severity accent colors (from Figma) */
   --sev-critical: #DB5A5A;
