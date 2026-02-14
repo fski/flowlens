@@ -87,9 +87,15 @@ const els = {
   flowLabelSkip: document.getElementById("flowLabelSkip"),
   flowVerdict: document.getElementById("flowVerdict"),
   autoCaptureNav: document.getElementById("autoCaptureNav"),
+  autoCaptureDelay: document.getElementById("autoCaptureDelay"),
 };
 
-const ORDER = { high: 3, medium: 2, low: 1, info: 0 };
+const ORDER = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
+const SEV_LIST = ["critical", "high", "medium", "low", "info"];
+const SEV_COLORS = {
+  critical: "#DB5A5A", high: "#D4864E", medium: "#C4A855",
+  low: "#5AB89A", info: "#7A8EA6",
+};
 
 const state = {
   explorer: [],
@@ -107,7 +113,7 @@ const state = {
   contrastSamples: [],
   tabData: [],
   activeMode: "run",
-  sevFilter: "",
+  sevFilter: new Set(),
   hasRun: false,
   topTab: "snap",
   pinnedFrameId: null,
@@ -199,6 +205,7 @@ const sessionState = {
   expandedStepIndex: null,
   autoCapturePending: null,
   lastAutoNavUrl: null,
+  queuedCapture: null,
 };
 
 function debugSession(...args) {
@@ -677,7 +684,7 @@ function modeLabel(mode) {
 
 
 function countBySeverity(findings = []) {
-  const out = { high: 0, medium: 0, low: 0, info: 0 };
+  const out = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
   for (const f of findings) out[f.severity] = (out[f.severity] || 0) + 1;
   return out;
 }
@@ -781,24 +788,67 @@ function updateResultsVisibility(forceValue = null) {
   if (els.exportAnchor) els.exportAnchor.hidden = !(hasResults || hasSessionExport);
 }
 
+function buildCombinedGradient(colors) {
+  const n = colors.length;
+  if (n < 2) return "#2F2F2F";
+  const stops = ["#2F2F2F 15%"];
+  const range = 50;
+  for (let i = 0; i < n; i++) {
+    const pct = 25 + (i / (n - 1)) * range;
+    stops.push(`${colors[i]} ${pct}%`);
+  }
+  stops.push("#2F2F2F 85%");
+  return `conic-gradient(from 180deg at 50% 50%, ${stops.join(", ")})`;
+}
+
 function renderSevTabs(findings = null) {
   if (!els.sevTabs) return;
   const c = findings ? countBySeverity(findings) : null;
-  const total = c ? (c.high + c.medium + c.low + c.info) : null;
-  const tabs = [
-    { sev: "",       label: "All",    count: total },
-    { sev: "high",   label: "High",   count: c ? c.high : null },
-    { sev: "medium", label: "Medium", count: c ? c.medium : null },
-    { sev: "low",    label: "Low",    count: c ? c.low : null },
-    { sev: "info",   label: "Info",   count: c ? c.info : null },
-  ];
-  els.sevTabs.innerHTML = tabs.map(t => {
-    const active = state.sevFilter === t.sev;
-    return `<button class="sevTab" role="tab" data-sev="${t.sev}" aria-selected="${active}" tabindex="${active ? 0 : -1}" type="button">
-      <span class="sevCount">${t.count != null ? t.count : "&ndash;"}</span>
-      <span class="sevLabel">${escapeHtml(t.label)}</span>
+  const total = c ? (c.critical + c.high + c.medium + c.low + c.info) : null;
+  const sel = state.sevFilter;
+  const isAll = sel.size === 0;
+
+  const renderTab = (sev, label, count, active) =>
+    `<button class="sevTab" role="tab" data-sev="${sev}" aria-selected="${active}" tabindex="${active ? 0 : -1}" type="button">
+      <span class="sevCount">${count != null ? count : "&ndash;"}</span>
+      <span class="sevLabel">${escapeHtml(label)}</span>
     </button>`;
-  }).join("");
+
+  const allTab = renderTab("", "All", total, isAll);
+
+  const sevTabs = SEV_LIST.map(sev => ({
+    sev,
+    label: sev === "critical" ? "Crit." : sev === "medium" ? "Med." : sev.charAt(0).toUpperCase() + sev.slice(1),
+    count: c ? c[sev] : null,
+    active: sel.has(sev),
+  }));
+
+  // Group consecutive active tabs into runs
+  const groups = [];
+  for (const tab of sevTabs) {
+    if (tab.active && groups.length > 0 && groups[groups.length - 1].combined) {
+      groups[groups.length - 1].tabs.push(tab);
+    } else {
+      groups.push({ tabs: [tab], combined: tab.active });
+    }
+  }
+
+  const parts = [allTab];
+  for (const group of groups) {
+    if (group.combined && group.tabs.length >= 2) {
+      const colors = group.tabs.map(t => SEV_COLORS[t.sev]);
+      const gradient = buildCombinedGradient(colors);
+      const inner = group.tabs.map((t, i) => {
+        const btn = renderTab(t.sev, t.label, t.count, t.active);
+        return i < group.tabs.length - 1 ? btn + `<span class="sevPlus">+</span>` : btn;
+      }).join("");
+      parts.push(`<div class="sevCombined" style="--comb-gradient:${gradient};--comb-n:${group.tabs.length}">${inner}</div>`);
+    } else {
+      parts.push(renderTab(group.tabs[0].sev, group.tabs[0].label, group.tabs[0].count, group.tabs[0].active));
+    }
+  }
+
+  els.sevTabs.innerHTML = parts.join("");
 }
 
 async function persistRecords(scopeKey) {
@@ -912,7 +962,7 @@ async function loadRecords(scopeKey) {
 
 function resetFilters() {
   els.q.value = "";
-  state.sevFilter = "";
+  state.sevFilter = new Set();
 }
 
 function renderRecord(rec) {
@@ -1544,8 +1594,8 @@ function renderFlowTimeline() {
   const steps = Array.isArray(sess?.steps) ? sess.steps : [];
   const tbody = body.querySelector("tbody");
   if (!tbody) return;
-  sessionState.expandedStepIndex = null;
   if (!steps.length) {
+    sessionState.expandedStepIndex = null;
     tbody.innerHTML = "";
     return;
   }
@@ -1572,6 +1622,17 @@ function renderFlowTimeline() {
       <td>${escapeHtml(blockers.join(", ") || "—")}</td>
     </tr>`;
   }).join("");
+  // Restore drill-down if step still exists
+  if (sessionState.expandedStepIndex != null) {
+    const restoreIndex = sessionState.expandedStepIndex;
+    const stillExists = steps.some(s => s.index === restoreIndex);
+    if (stillExists) {
+      sessionState.expandedStepIndex = null;
+      renderStepDrillDown(restoreIndex);
+    } else {
+      sessionState.expandedStepIndex = null;
+    }
+  }
 }
 
 function renderFlowCounters() {
@@ -1823,8 +1884,11 @@ function updateSessionButtons() {
     els.sessionStart.hidden = hasSession;
   }
   if (els.sessionMark) {
-    els.sessionMark.disabled = !hasSession || panelBusy;
-    els.sessionMark.innerHTML = inFlight ? "Capturing\u2026" : 'Mark step <kbd class="keycap" aria-hidden="true">s</kbd>';
+    els.sessionMark.disabled = !hasSession || state.running;
+    const hasQueued = !!sessionState.queuedCapture;
+    els.sessionMark.innerHTML = inFlight
+      ? (hasQueued ? "Queued (1)\u2026" : "Capturing\u2026")
+      : 'Mark step <kbd class="keycap" aria-hidden="true">s</kbd>';
   }
   if (els.sessionEnd) {
     els.sessionEnd.disabled = !hasSession || panelBusy;
@@ -2752,10 +2816,10 @@ function renderRunSummary(r, rec = null) {
 
 function applyExplorerFilters(findings) {
   const q = (els.q.value || "").trim().toLowerCase();
-  const sev = state.sevFilter || "";
+  const sevSet = state.sevFilter;
 
   let list = Array.isArray(findings) ? findings : [];
-  if (sev) list = list.filter(f => f.severity === sev);
+  if (sevSet.size > 0) list = list.filter(f => sevSet.has(f.severity));
 
   if (q) {
     list = list.filter(f => {
@@ -2897,12 +2961,19 @@ function renderExplorer(findings) {
   const filtered = applySortState(applyExplorerFilters(findings), 'explorer');
   state.explorer = filtered;
 
+  // Clear row selection/dimming on re-render
+  if (els.allTableBody) {
+    els.allTableBody.__selected = null;
+    const tw = els.allTableBody.closest(".tableWrap");
+    if (tw) tw.classList.remove("hasSelection");
+  }
+
   if (VT.all) {
     VT.all.setData(filtered);
   } else {
     // fallback
     els.allTableBody.innerHTML = filtered.slice(0, 200).map((f, idx) => `
-      <tr class="trow" data-i="${idx}">
+      <tr class="trow" data-i="${idx}" data-sev="${escapeHtml(f.severity)}">
         <td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span></td>
         <td>${escapeHtml(f.product ?? "")}</td>
         <td>${escapeHtml(f.type ?? "")}</td>
@@ -3317,6 +3388,7 @@ async function endSession() {
     sessionState.autoCapturePending = null;
   }
   sessionState.lastAutoNavUrl = null;
+  sessionState.queuedCapture = null;
   updateSessionButtons();
   setPersistentStatus("OK", "SESSION_ENDED", "Session archived");
 
@@ -3359,7 +3431,12 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     toast(`Step limit reached (${MAX_STEPS})`);
     return false;
   }
-  if (sessionState.inFlight) return false;
+  if (sessionState.inFlight) {
+    sessionState.queuedCapture = { isAutoCapture };
+    if (!isAutoCapture) toast("Queued \u2014 will capture after current step");
+    updateSessionButtons();
+    return false;
+  }
 
   sessionState.inFlight = true;
   sessionState.captureSlow = false;
@@ -3532,6 +3609,15 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
       sessionState.captureSlowTimer = null;
     }
     updateSessionButtons();
+    // Drain queued capture
+    const queued = sessionState.queuedCapture;
+    sessionState.queuedCapture = null;
+    if (queued && sessionState.current) {
+      const qLabel = queued.isAutoCapture
+        ? await deriveAutoLabel(getCurrentScopeInfo().url || "")
+        : null;
+      setTimeout(() => captureStepOptionC(qLabel, { isAutoCapture: queued.isAutoCapture }), 0);
+    }
   }
 }
 
@@ -3627,6 +3713,8 @@ function setVersionBadge() {
     const v = (__runtime && __runtime.getManifest) ? __runtime.getManifest().version : (badge.dataset.version || badge.textContent.replace(/^v/, ""));
     badge.dataset.version = v;
     badge.textContent = v + " DH";
+    const emptyVer = document.getElementById("emptyVersion");
+    if (emptyVer) emptyVer.textContent = "v" + v;
   } catch {}
 }
 
@@ -3969,9 +4057,11 @@ if (els.allTableBody && !els.allTableBody.__bound) {
       const tr = e?.target?.closest ? e.target.closest("tr.trow") : null;
       if (!tr) return;
 
+      const tableWrap = els.allTableBody.closest(".tableWrap");
       if (els.allTableBody.__selected) els.allTableBody.__selected.classList.remove("isSelected");
       tr.classList.add("isSelected");
       els.allTableBody.__selected = tr;
+      if (tableWrap) tableWrap.classList.add("hasSelection");
 
       const idx = Number(tr.getAttribute("data-i"));
       if (VT.all) VT.all.selectedIdx = idx;
@@ -4091,17 +4181,43 @@ function scheduleExplorerRender() {
 
 els.q.addEventListener("input", scheduleExplorerRender);
 
+// Search clear button
+const searchClearBtn = document.getElementById("searchClear");
+if (searchClearBtn) {
+  searchClearBtn.addEventListener("click", () => {
+    els.q.value = "";
+    els.q.focus();
+    scheduleExplorerRender();
+  });
+}
+
 if (els.sevTabs) {
   els.sevTabs.addEventListener("click", (e) => {
     const tab = e.target.closest(".sevTab");
     if (!tab) return;
-    state.sevFilter = tab.dataset.sev;
-    els.sevTabs.querySelectorAll(".sevTab").forEach(t => {
-      const active = t.dataset.sev === state.sevFilter;
-      t.setAttribute("aria-selected", String(active));
-      t.setAttribute("tabindex", active ? "0" : "-1");
-    });
+    const sev = tab.dataset.sev;
+
+    if (!sev) {
+      // "All" tab: clear selection
+      state.sevFilter = new Set();
+    } else if (e.shiftKey) {
+      // Shift+click: toggle severity in/out
+      const next = new Set(state.sevFilter);
+      if (next.has(sev)) next.delete(sev); else next.add(sev);
+      state.sevFilter = next;
+    } else {
+      // Regular click: sole-select or toggle to All
+      if (state.sevFilter.size === 1 && state.sevFilter.has(sev)) {
+        state.sevFilter = new Set();
+      } else {
+        state.sevFilter = new Set([sev]);
+      }
+    }
+
+    renderSevTabs(state.currentFindings);
     scheduleExplorerRender();
+    const refocus = els.sevTabs.querySelector(`.sevTab[data-sev="${sev}"]`);
+    if (refocus) refocus.focus();
   });
 }
 
@@ -4329,7 +4445,7 @@ function initVirtualTables() {
       tbodyEl: els.allTableBody,
       colCount: 9,
       rowRenderer: (f, idx) => `
-        <tr class="trow" data-i="${idx}">
+        <tr class="trow" data-i="${idx}" data-sev="${escapeHtml(f.severity)}">
           <td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span></td>
           <td>${escapeHtml(f.product ?? "")}</td>
           <td>${escapeHtml(f.type ?? "")}</td>
@@ -4404,17 +4520,18 @@ chrome.devtools.network.onNavigated.addListener(async () => {
   toast("Navigated — refreshed frames");
 
   // Auto-capture if enabled
-  if (sessionState.current && els.autoCaptureNav?.checked && !sessionState.inFlight) {
+  if (sessionState.current && els.autoCaptureNav?.checked) {
     const { url } = getCurrentScopeInfo();
     if (url && url !== sessionState.lastAutoNavUrl) {
       if (sessionState.autoCapturePending) clearTimeout(sessionState.autoCapturePending);
+      const debounceMs = Number(els.autoCaptureDelay?.value) || 500;
       sessionState.autoCapturePending = setTimeout(async () => {
         sessionState.autoCapturePending = null;
-        if (!sessionState.current || sessionState.inFlight) return;
+        if (!sessionState.current) return;
         sessionState.lastAutoNavUrl = url;
         const autoLabel = await deriveAutoLabel(url);
         await captureStepOptionC(autoLabel, { isAutoCapture: true });
-      }, 2000);
+      }, debounceMs);
     }
   }
 });
