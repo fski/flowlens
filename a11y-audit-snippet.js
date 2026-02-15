@@ -1191,13 +1191,14 @@
       if (Number.isFinite(v) && v > 0) add(findings, { type: "POSITIVE_TABINDEX", el, severity: "low", wcag: "2.4.3", extra: { tabindex: v } });
     });
 
-    // -------- Chat-aware “soft” checks --------
+    // -------- Chat-aware "soft" checks --------
     const mode = config.mode;
     if (mode === "chat" || mode === "auto") {
       const liveHook = hasAnnouncementHook();
+      const logEls = doc.querySelectorAll("[role='log']");
 
       // 4.1.3 Status Messages: role=log usually expects announcements; soft-flag if no aria-live on log.
-      doc.querySelectorAll("[role='log']").forEach(log => {
+      logEls.forEach(log => {
         if (isHidden(log)) return;
         if (!log.getAttribute("aria-live")) {
           add(findings, {
@@ -1230,7 +1231,7 @@
       });
 
       // CHAT_MESSAGE_NO_ROLE: Direct children of role=log without semantic role
-      doc.querySelectorAll("[role='log']").forEach(log => {
+      logEls.forEach(log => {
         if (isHidden(log)) return;
         [...log.children].forEach(child => {
           if (!isEl(child) || isHidden(child)) return;
@@ -1249,7 +1250,7 @@
 
       // CHAT_INPUT_NO_LABEL: Textarea/input near role=log without label
       const seenChatInputs = new Set();
-      doc.querySelectorAll("[role='log']").forEach(log => {
+      logEls.forEach(log => {
         if (isHidden(log)) return;
         const container = log.parentElement || doc.body;
         container.querySelectorAll("textarea, input[type='text'], input:not([type])").forEach(inp => {
@@ -1268,7 +1269,7 @@
       });
 
       // CHAT_TIMESTAMP_INACCESSIBLE: Timestamp elements in role=log that are aria-hidden with no alt
-      doc.querySelectorAll("[role='log']").forEach(log => {
+      logEls.forEach(log => {
         if (isHidden(log)) return;
         log.querySelectorAll("[aria-hidden='true']").forEach(hidden => {
           const text = (hidden.textContent || "").trim();
@@ -1289,7 +1290,7 @@
       });
 
       // CHAT_SEND_NO_LABEL: Send/submit button near chat input with no accessible name (icon-only)
-      doc.querySelectorAll("[role='log']").forEach(log => {
+      logEls.forEach(log => {
         if (isHidden(log)) return;
         const container = log.parentElement || doc.body;
         container.querySelectorAll("button,[role='button'],input[type='submit']").forEach(btn => {
@@ -1304,7 +1305,7 @@
       });
 
       // CHAT_AVATAR_NO_ALT: Avatar images inside role=log without alt
-      doc.querySelectorAll("[role='log'] img").forEach(img => {
+      logEls.forEach(log => log.querySelectorAll("img").forEach(img => {
         if (isHidden(img)) return;
         if (!img.hasAttribute("alt")) {
           const src = (img.getAttribute("src") || "").toLowerCase();
@@ -1314,10 +1315,10 @@
               note: "Avatar image in chat log has no alt attribute. AT will read the filename." });
           }
         }
-      });
+      }));
 
       // CHAT_NO_ARIA_RELEVANT: role=log without aria-relevant
-      doc.querySelectorAll("[role='log']").forEach(log => {
+      logEls.forEach(log => {
         if (isHidden(log)) return;
         if (!log.hasAttribute("aria-relevant")) {
           add(findings, { type: "CHAT_NO_ARIA_RELEVANT", el: log, severity: "low", wcag: "4.1.3",
@@ -1327,7 +1328,7 @@
       });
 
       // CHAT_TYPING_NO_ANNOUNCEMENT: Typing indicator with no live region
-      doc.querySelectorAll("[role='log']").forEach(log => {
+      logEls.forEach(log => {
         if (isHidden(log)) return;
         const container = log.parentElement || doc.body;
         const typingEls = container.querySelectorAll("[class*='typing'],[class*='Typing'],[data-testid*='typing'],[data-testid*='Typing']");
@@ -2614,6 +2615,8 @@
         maxTotalLoadingMs: 7000,
         maxFocusLossEvents: 1,
         maxFocusJumps: 3,
+        maxEmptyAnnouncements: 0,
+        maxAnnouncementLatency: 3000,
         ...budget
       };
 
@@ -2638,6 +2641,16 @@
       let pendingLoaderRecalc = null;
       let lastLoaderRecalcAt = 0;
       let timer = null;
+
+      // Announcement tracking
+      const announcements = [];
+      let announcementCount = 0;
+      let emptyAnnouncementCount = 0;
+      let firstAnnouncementAt = null;
+      const observedRegions = new WeakSet();
+      const lastAnnouncementText = new WeakMap();
+      let announcementFlushPending = false;
+      const pendingAnnouncements = new Map();
 
       const isLikelyLoaderCandidate = (el) => {
         if (!isEl(el)) return false;
@@ -2712,12 +2725,75 @@
         // Keep watch deterministic even if observe() fails.
       }
 
+      // Live-region announcement observer (microtask-batched, deduped)
+      const flushAnnouncements = () => {
+        announcementFlushPending = false;
+        for (const [liveRegion, { t, text }] of pendingAnnouncements) {
+          lastAnnouncementText.set(liveRegion, text);
+          if (firstAnnouncementAt === null) firstAnnouncementAt = t;
+          announcementCount++;
+          if (!text) emptyAnnouncementCount++;
+          if (announcements.length < 200) {
+            announcements.push({
+              t,
+              text: text || "(empty)",
+              ariaLive: liveRegion.getAttribute("aria-live") || "",
+              role: liveRegion.getAttribute("role") || "",
+              path: cssPath(liveRegion),
+            });
+          }
+          events.push({
+            t,
+            type: "announcement",
+            note: `[${liveRegion.getAttribute("aria-live") || liveRegion.getAttribute("role")}] ${text || "(empty)"}`,
+          });
+        }
+        pendingAnnouncements.clear();
+      };
+
+      const liveRegionObserver = new MutationObserver((mutations) => {
+        if (settled) return;
+        const t = +(performance.now() - start).toFixed(0);
+        for (const m of mutations) {
+          const region = m.type === "characterData" ? m.target.parentElement : m.target;
+          if (!region || !isEl(region)) continue;
+          const liveRegion = region.closest("[aria-live],[role='status'],[role='alert'],[role='log']");
+          if (!liveRegion) continue;
+          const text = (liveRegion.textContent || "").trim().slice(0, 200);
+          if (lastAnnouncementText.get(liveRegion) === text) continue;
+          pendingAnnouncements.set(liveRegion, { t, text });
+        }
+        if (!announcementFlushPending && pendingAnnouncements.size > 0) {
+          announcementFlushPending = true;
+          queueMicrotask(flushAnnouncements);
+        }
+      });
+
+      const observeLiveRegions = () => {
+        try {
+          const regions = doc.querySelectorAll(
+            "[aria-live]:not([aria-live='off']),[role='status'],[role='alert'],[role='log']"
+          );
+          regions.forEach(r => {
+            if (observedRegions.has(r)) return;
+            observedRegions.add(r);
+            liveRegionObserver.observe(r, {
+              childList: true,
+              characterData: true,
+              subtree: true,
+            });
+          });
+        } catch {}
+      };
+      observeLiveRegions();
+
       const finalize = () => {
         if (settled) return;
         settled = true;
         if (timer) clearInterval(timer);
         if (pendingLoaderRecalc) clearTimeout(pendingLoaderRecalc);
         try { observer.disconnect(); } catch {}
+        try { liveRegionObserver.disconnect(); } catch {}
         watchInFlight = null;
 
         const verdicts = [];
@@ -2726,8 +2802,14 @@
         if (totalLoadingMs > B.maxTotalLoadingMs) verdicts.push({ metric: "totalLoadingMs", value: totalLoadingMs, budget: B.maxTotalLoadingMs });
         if (focusLoss > B.maxFocusLossEvents) verdicts.push({ metric: "focusLossEvents", value: focusLoss, budget: B.maxFocusLossEvents });
         if (focusJumps > B.maxFocusJumps) verdicts.push({ metric: "focusJumps", value: focusJumps, budget: B.maxFocusJumps });
+        if (emptyAnnouncementCount > B.maxEmptyAnnouncements) verdicts.push({ metric: "emptyAnnouncements", value: emptyAnnouncementCount, budget: B.maxEmptyAnnouncements });
+        if (firstAnnouncementAt != null && totalLoadingMs > 0 && firstAnnouncementAt > B.maxAnnouncementLatency) verdicts.push({ metric: "announcementLatency", value: firstAnnouncementAt, budget: B.maxAnnouncementLatency });
 
-        const result = { timestamp: nowIso(), seconds, bursts, totalLoadingMs, silentMs, focusLossCount: focusLoss, focusJumps, budget: B, verdicts, events, href: w.location.href };
+        const result = {
+          timestamp: nowIso(), seconds, bursts, totalLoadingMs, silentMs, focusLossCount: focusLoss, focusJumps, budget: B, verdicts, events, href: w.location.href,
+          announcements, announcementCount, emptyAnnouncementCount, firstAnnouncementAt,
+          announcementLatency: (firstAnnouncementAt != null && totalLoadingMs > 0) ? firstAnnouncementAt : null,
+        };
         api.lastWatch = result;
 
         console.groupCollapsed(`⏱️ A11YFlowAudit.watch — ${seconds}s — bursts=${bursts} loading=${totalLoadingMs}ms silent=${silentMs}ms focusLoss=${focusLoss}`);
@@ -2748,6 +2830,9 @@
 
         if (loaderNow && !lastLoader) bursts += 1;
         lastLoader = loaderNow;
+
+        // Re-discover live regions every ~2s (new regions may appear dynamically)
+        if (t % 2000 < tickMs) observeLiveRegions();
 
         if (doc.activeElement === doc.body) {
           if (bodyFocusSince === null) { bodyFocusSince = performance.now(); bodyFocusCounted = false; }

@@ -187,7 +187,7 @@ function scoreWatchLikeResult(result) {
   return {
     blockingCount: verdicts.length + focusLossCount,
     summaryScore: summaryScore + (verdicts.length ? 50 : 0),
-    primaryCounts: { verdicts: verdicts.length, focusLossCount, bursts, totalLoadingMs },
+    primaryCounts: { verdicts: verdicts.length, focusLossCount, bursts, totalLoadingMs, announcementCount: asNumber(result?.announcementCount, 0), emptyAnnouncements: asNumber(result?.emptyAnnouncementCount, 0) },
   };
 }
 
@@ -556,6 +556,15 @@ async function executeAuditAcrossFrames({
   };
 }
 
+const _auditLockByTab = new Map();
+async function acquireAuditLock(tabId) {
+  while (_auditLockByTab.get(tabId)) await _auditLockByTab.get(tabId);
+  let release;
+  const p = new Promise(r => { release = r; });
+  _auditLockByTab.set(tabId, p);
+  return () => { _auditLockByTab.delete(tabId); release(); };
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     const validation = validateIncomingMessage(msg, sender);
@@ -566,7 +575,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     if (msg.type === "LIST_FRAMES") {
       const tabId = Number(msg.tabId);
-      const frames = await chrome.webNavigation.getAllFrames({ tabId });
+      let frames;
+      try { frames = await chrome.webNavigation.getAllFrames({ tabId }); } catch { frames = []; }
       sendResponse({ ok: true, frames: frames || [] });
       return;
     }
@@ -620,24 +630,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
           const norm = (s) => (s || "").replace(/\s+/g, " ").trim().toLowerCase();
 
-          // Traverse shadow DOM roots looking for a match
+          // Traverse shadow DOM roots looking for a match (depth-limited)
           const queryDeep = (selector) => {
             const el = document.querySelector(selector);
             if (el) return el;
-            const walk = (root) => {
+            const walk = (root, depth) => {
+              if (depth > 5) return null;
               for (const node of root.querySelectorAll("*")) {
                 if (node.shadowRoot) {
                   try {
                     const hit = node.shadowRoot.querySelector(selector);
                     if (hit) return hit;
-                    const deeper = walk(node.shadowRoot);
+                    const deeper = walk(node.shadowRoot, depth + 1);
                     if (deeper) return deeper;
                   } catch {}
                 }
               }
               return null;
             };
-            return walk(document);
+            return walk(document, 0);
           };
 
           const pick = () => {
@@ -752,34 +763,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     if (msg.type === "RUN_AUDIT") {
       const tabId = Number(msg.tabId);
-      const action = String(msg.action);
-      const target = isPlainObject(msg.target) ? msg.target : {};
-      const match = isPlainObject(msg.match) ? msg.match : null;
-      const modeHints = isPlainObject(msg.modeHints) ? msg.modeHints : null;
-      const appMarkers = typeof msg.appMarkers === "string" ? msg.appMarkers : null;
-      const alsoConsole = !!msg.alsoConsole;
-      const wcagLevel = sanitizeWcagLevel(msg.wcagLevel);
-      const frames = await chrome.webNavigation.getAllFrames({ tabId });
-      const resolved = await resolveTargetFrameIds({ tabId, target, frames, match });
-      const frameProbeById = await collectFrameProbeData({ tabId, frames, match });
-      const out = await executeAuditAcrossFrames({
-        tabId,
-        action,
-        target,
-        match,
-        modeHints,
-        appMarkers,
-        alsoConsole,
-        wcagLevel,
-        frames,
-        finalTarget: resolved,
-        frameProbeById,
-      });
-      sendResponse(out);
+      const release = await acquireAuditLock(tabId);
+      try {
+        const action = String(msg.action);
+        const target = isPlainObject(msg.target) ? msg.target : {};
+        const match = isPlainObject(msg.match) ? msg.match : null;
+        const modeHints = isPlainObject(msg.modeHints) ? msg.modeHints : null;
+        const appMarkers = typeof msg.appMarkers === "string" ? msg.appMarkers : null;
+        const alsoConsole = !!msg.alsoConsole;
+        const wcagLevel = sanitizeWcagLevel(msg.wcagLevel);
+        let frames;
+        try { frames = await chrome.webNavigation.getAllFrames({ tabId }); } catch { frames = []; }
+        const resolved = await resolveTargetFrameIds({ tabId, target, frames, match });
+        const frameProbeById = await collectFrameProbeData({ tabId, frames, match });
+        const out = await executeAuditAcrossFrames({
+          tabId,
+          action,
+          target,
+          match,
+          modeHints,
+          appMarkers,
+          alsoConsole,
+          wcagLevel,
+          frames,
+          finalTarget: resolved,
+          frameProbeById,
+        });
+        sendResponse(out);
+      } finally { release(); }
       return;
     }
 
     if (msg.type === "CAPTURE_STEP") {
+      const tabId = Number(msg.tabId);
+      const release = await acquireAuditLock(tabId);
+      try {
       const startedAt = Date.now();
       const {
         target,
@@ -790,7 +808,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         wcagLevel,
         activeMode,
       } = msg;
-      const tabId = Number(msg.tabId);
       const safeTarget = isPlainObject(target) ? target : {};
       const safeMatch = isPlainObject(match) ? match : null;
       const safeModeHints = isPlainObject(modeHints) ? modeHints : null;
@@ -799,7 +816,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const safeWcagLevel = sanitizeWcagLevel(wcagLevel);
       const safeActiveMode = AUDIT_ACTIONS.has(String(activeMode)) ? String(activeMode) : "run";
 
-      const frames = await chrome.webNavigation.getAllFrames({ tabId });
+      let frames;
+      try { frames = await chrome.webNavigation.getAllFrames({ tabId }); } catch { frames = []; }
       const resolved = await resolveTargetFrameIds({ tabId, target: safeTarget, frames, match: safeMatch });
       const frameProbeById = await collectFrameProbeData({ tabId, frames, match: safeMatch });
 
@@ -856,6 +874,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         active,
         frameKeyByFrameId: mergedFrameKeyByFrameId,
       });
+      } finally { release(); }
       return;
     }
 
