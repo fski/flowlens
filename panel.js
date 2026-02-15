@@ -54,6 +54,7 @@ const els = {
   toast: document.getElementById("toast"),
   runIcon: document.getElementById("runIcon"),
   runLabel: document.getElementById("runLabel"),
+  runTimer: document.getElementById("runTimer"),
   progressWrap: document.getElementById("progressWrap"),
   progressBar: document.getElementById("progressBar"),
   progressLabel: document.getElementById("progressLabel"),
@@ -150,7 +151,7 @@ const CAPTURE_SLOW_MS = 4000;
 const MODE_LABELS = {
   run: "Audit",
   contrast: "Contrast",
-  tabWalk: "Tab Walk",
+  tabWalk: "Tab\u00A0Walk",
   watch: "Watch",
   observe: "Observe",
 };
@@ -488,30 +489,44 @@ function showProgress(action, durationSec) {
   const time = els.progressTime;
   const status = els.progressStatus;
   if (!wrap || !bar) return;
-  wrap.hidden = false;
-  wrap.classList.add("active");
-  wrap.setAttribute("aria-busy", "true");
+  const isObserve = action === "observe";
+  // Observe uses inline CTA timer — hide the separate progress panel
+  if (isObserve) {
+    wrap.hidden = true;
+  } else {
+    wrap.hidden = false;
+    wrap.classList.add("active");
+    wrap.setAttribute("aria-busy", "true");
+  }
   state._progressStartedAt = performance.now();
-  bar.style.transition = 'none';
-  bar.style.width = '0%';
-  bar.offsetWidth;
-  bar.style.transition = `width ${durationSec}s linear`;
-  bar.style.width = '100%';
+  if (!isObserve) {
+    bar.style.transition = 'none';
+    bar.style.width = '0%';
+    bar.offsetWidth;
+    bar.style.transition = `width ${durationSec}s linear`;
+    bar.style.width = '100%';
+  }
   const prefix = PROGRESS_LABELS[action] || "Running";
   let remaining = durationSec;
-  if (label) label.textContent = `${prefix}`;
-  if (time) time.textContent = "0.0s";
+  if (!isObserve && label) label.textContent = `${prefix}`;
+  if (!isObserve && time) time.textContent = "0.0s";
   if (status) status.textContent = `${prefix}, ${remaining} seconds remaining`;
   setProgressA11y(bar, 0, `${remaining}s remaining`);
+  // Seed the inline CTA timer for observe
+  if (isObserve && els.runTimer) els.runTimer.textContent = `${durationSec}s`;
   clearInterval(state._progressInterval);
   state._progressInterval = setInterval(() => {
     const elapsed = Math.max(0, (performance.now() - state._progressStartedAt) / 1000);
     remaining--;
     const pct = durationSec > 0 ? ((durationSec - Math.max(remaining, 0)) / durationSec) * 100 : 100;
-    if (time) time.textContent = `${elapsed.toFixed(1)}s`;
+    if (!isObserve && time) time.textContent = `${elapsed.toFixed(1)}s`;
+    // Update inline CTA timer for observe
+    if (isObserve && els.runTimer) {
+      els.runTimer.textContent = remaining > 0 ? `${Math.max(remaining, 0)}s` : "\u2026";
+    }
     if (remaining <= 0) {
       clearInterval(state._progressInterval);
-      if (label) label.textContent = `${prefix} • finishing\u2026`;
+      if (!isObserve && label) label.textContent = `${prefix} \u2022 finishing\u2026`;
       if (status) status.textContent = `${prefix}, finishing`;
       setProgressA11y(bar, pct, "finishing");
     } else {
@@ -565,8 +580,15 @@ function setRunButtonBusy(busy) {
   if (!els.runCurrentMode) return;
   els.runCurrentMode.classList.toggle("running", !!busy);
   els.runCurrentMode.classList.toggle("busy", !!busy);
+  const isObserve = state.activeMode === "observe";
   if (els.runIcon) {
     els.runIcon.textContent = busy ? "" : "\u25B6";
+    if (busy) els.runIcon.hidden = true;
+    else els.runIcon.hidden = false;
+  }
+  if (els.runTimer) {
+    els.runTimer.hidden = !(busy && isObserve);
+    if (!busy) els.runTimer.textContent = "";
   }
   if (els.runLabel) {
     if (busy) {
@@ -715,7 +737,7 @@ function setPressed(action) {
 const SNAP_CTA = {
   run:      { label: "Run Audit",      cls: "ctaBtn--amber", helper: "Perform a strict WCAG Audit" },
   contrast: { label: "Check Contrast", cls: "ctaBtn--cyan",  helper: "Check contrast on up to 250 text nodes" },
-  tabWalk:  { label: "Run Tab Walk",   cls: "ctaBtn--lime",  helper: "Walk 80 focusable elements" },
+  tabWalk:  { label: "Run Tab\u00A0Walk",   cls: "ctaBtn--lime",  helper: "Walk 80 focusable elements" },
   observe:  { label: "Start Observe",  cls: "ctaBtn--teal",  helper: "Re-run WCAG check every ~1s for 12s" },
   watch:    { label: "Start Watch",    cls: "ctaBtn--mint",   helper: "Monitor loaders and focus bar for 40s" },
 };
@@ -748,6 +770,8 @@ function showMode(mode) {
     state.currentFindings = state.findingsByMode[mode];
     renderSevTabs(state.currentFindings);
     renderExplorer(state.currentFindings);
+  } else if (runLike) {
+    renderSevTabs();
   }
 
   // Render contrast-specific tabs when switching to contrast

@@ -637,6 +637,25 @@ kbd {
   color: var(--tx3);
 }
 
+/* Observe running state — inline progress CTA */
+.ctaBtn.running.ctaBtn--teal {
+  background: var(--brd);
+  border: none;
+  border-bottom: 4px solid transparent;
+  border-image: linear-gradient(90deg, #7BB85E 0%, #54B8A6 20%, #5AADDB 40%, #8B8EDB 60%, #D4A054 80%, #DB6B6B 100%) 1;
+  justify-content: space-between;
+  padding: 12px 16px;
+  font-weight: 600;
+  color: var(--tx2);
+}
+.runTimer {
+  display: none;
+}
+.ctaBtn.running.ctaBtn--teal .runTimer:not([hidden]) {
+  display: inline;
+  font-weight: 600;
+}
+
 
 /* ═══ HELPER TEXT ═══ */
 .helperText {
