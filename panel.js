@@ -583,21 +583,25 @@ function setRunButtonBusy(busy) {
   const isObserve = state.activeMode === "observe";
   if (els.runIcon) {
     els.runIcon.textContent = busy ? "" : "\u25B6";
-    if (busy) els.runIcon.hidden = true;
-    else els.runIcon.hidden = false;
+    els.runIcon.hidden = !!busy;
   }
   if (els.runTimer) {
     els.runTimer.hidden = !(busy && isObserve);
     if (!busy) els.runTimer.textContent = "";
   }
-  if (els.runLabel) {
-    if (busy) {
+  if (busy) {
+    if (els.runLabel) {
       const busyLabels = { run: "Running\u2026", contrast: "Checking\u2026", tabWalk: "Walking\u2026", observe: "Observing\u2026", watch: "Watching\u2026" };
       els.runLabel.textContent = busyLabels[state.activeMode] || "Running\u2026";
-    } else {
-      const cta = SNAP_CTA[state.activeMode] || SNAP_CTA.run;
-      els.runLabel.textContent = cta.label;
     }
+  } else {
+    // Fully restore CTA appearance after run completes
+    const cta = SNAP_CTA[state.activeMode] || SNAP_CTA.run;
+    let label = cta.label;
+    if (state.activeMode === "run" && state.hasRun) label = "Re-run Audit";
+    if (els.runLabel) els.runLabel.textContent = label;
+    els.runCurrentMode.className = "ctaBtn " + cta.cls;
+    if (els.snapHelper) els.snapHelper.textContent = cta.helper;
   }
 }
 
@@ -743,6 +747,7 @@ const SNAP_CTA = {
 };
 
 function updateSnapCta(mode) {
+  if (state.running) return;
   const cta = SNAP_CTA[mode] || SNAP_CTA.run;
   let label = cta.label;
   if (mode === "run" && state.hasRun) label = "Re-run Audit";
