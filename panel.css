@@ -701,22 +701,22 @@ kbd {
 
 /* Active standalone tab — gradient border top+sides */
 .sevTab[data-sev=""][aria-selected="true"] {
-  background: var(--surface) padding-box, linear-gradient(180deg, #A1A1A1, #2F2F2F) border-box;
+  background: linear-gradient(var(--surface), var(--surface)) padding-box, linear-gradient(180deg, #A1A1A1, #2F2F2F) border-box;
 }
 .sevTab[data-sev="critical"][aria-selected="true"] {
-  background: var(--surface) padding-box, linear-gradient(180deg, var(--sev-critical), #2F2F2F) border-box;
+  background: linear-gradient(var(--surface), var(--surface)) padding-box, linear-gradient(180deg, var(--sev-critical), #2F2F2F) border-box;
 }
 .sevTab[data-sev="high"][aria-selected="true"] {
-  background: var(--surface) padding-box, linear-gradient(180deg, var(--sev-high), #2F2F2F) border-box;
+  background: linear-gradient(var(--surface), var(--surface)) padding-box, linear-gradient(180deg, var(--sev-high), #2F2F2F) border-box;
 }
 .sevTab[data-sev="medium"][aria-selected="true"] {
-  background: var(--surface) padding-box, linear-gradient(180deg, var(--sev-medium), #2F2F2F) border-box;
+  background: linear-gradient(var(--surface), var(--surface)) padding-box, linear-gradient(180deg, var(--sev-medium), #2F2F2F) border-box;
 }
 .sevTab[data-sev="low"][aria-selected="true"] {
-  background: var(--surface) padding-box, linear-gradient(180deg, var(--sev-low), #2F2F2F) border-box;
+  background: linear-gradient(var(--surface), var(--surface)) padding-box, linear-gradient(180deg, var(--sev-low), #2F2F2F) border-box;
 }
 .sevTab[data-sev="info"][aria-selected="true"] {
-  background: var(--surface) padding-box, linear-gradient(180deg, var(--sev-info), #2F2F2F) border-box;
+  background: linear-gradient(var(--surface), var(--surface)) padding-box, linear-gradient(180deg, var(--sev-info), #2F2F2F) border-box;
 }
 
 /* Active tab text — bright for "All", severity color for others */
@@ -742,7 +742,7 @@ kbd {
   border: 2px solid transparent;
   border-bottom: none;
   background:
-    var(--surface) padding-box,
+    linear-gradient(var(--surface), var(--surface)) padding-box,
     var(--comb-gradient) border-box;
 }
 .sevCombined .sevTab,
