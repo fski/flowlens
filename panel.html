@@ -186,29 +186,51 @@
 
         </div><!-- /resultsZone -->
 
-        <!-- Export + Raw JSON -->
-        <section class="out">
-          <div class="outHeader">
-            <div class="exportAnchor" id="exportAnchor" hidden>
-              <button class="exportBtn" id="exportToggle" type="button" aria-expanded="false" aria-haspopup="menu" aria-controls="exportMenu">&#8595; Export &#x25BE;</button>
-              <div class="exportMenu" id="exportMenu" role="menu" aria-labelledby="exportToggle" hidden>
-                <div class="emLabel">Single run</div>
-                <button class="emItem" id="copyJson" type="button" role="menuitem"><span class="l">Copy JSON</span><span class="dd">Result as JSON</span></button>
-                <button class="emItem" id="copyMd" type="button" role="menuitem"><span class="l">Copy Markdown</span><span class="dd">Formatted report</span></button>
-                <button class="emItem" id="downloadJson" type="button" role="menuitem"><span class="l">Download .json</span><span class="dd">Save to file</span></button>
-                <div class="emLabel" id="sessionExportMenuLabel" hidden>Session</div>
-                <button class="emItem" id="exportSessionJsonMenu" type="button" role="menuitem" hidden><span class="l">Session JSON</span><span class="dd">Last ended session</span></button>
-                <button class="emItem" id="exportSessionMdMenu" type="button" role="menuitem" hidden><span class="l">Session Markdown</span><span class="dd">Last ended session</span></button>
-                <span class="inlineHint sr-only" id="copyMdHint" aria-live="polite"></span>
+        <!-- Bottom Sheets -->
+        <div class="bottomSheets" id="bottomSheets">
+          <section class="bottomSheet bottomSheet--runs">
+            <button class="sheetHeader" id="pastRunsToggle" type="button" aria-expanded="false" aria-controls="pastRunsBody">
+              <svg class="sheetIcon" width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M6 3v3.5l2.5 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="sheetLabel">Past runs</span>
+              <span class="sheetCount" id="pastRunsCount"></span>
+              <span class="sheetChevron" aria-hidden="true">&#x25B6;</span>
+            </button>
+            <div class="sheetBody" id="pastRunsBody" hidden>
+              <div class="pastRunsList" id="pastRunsList"></div>
+              <div class="pastRunsActions" id="pastRunsActions">
+                <button class="sheetActionBtn sheetActionBtn--danger" id="deleteAllRuns" type="button">Delete all</button>
               </div>
             </div>
-            <button class="outToggle" id="jsonToggle" type="button" aria-expanded="false" aria-controls="json">
-              <span class="outToggleIcon">&#x25B6;</span> Raw JSON
-            </button>
-            <button class="btn xs" id="copyJsonRaw" type="button" aria-label="Copy raw JSON">Copy</button>
-          </div>
-          <pre id="json" class="collapsed" role="region" aria-label="Raw JSON output" hidden>(no results yet)</pre>
-        </section>
+          </section>
+          <section class="bottomSheet bottomSheet--json">
+            <div class="sheetHeaderWrap">
+              <button class="sheetHeader sheetHeader--flex" id="rawJsonToggle" type="button" aria-expanded="false" aria-controls="rawJsonBody">
+                <span class="sheetIcon" aria-hidden="true">{&thinsp;}</span>
+                <span class="sheetLabel">Raw JSON</span>
+                <span class="sheetChevron" aria-hidden="true">&#x25B6;</span>
+              </button>
+              <div class="sheetExport" id="exportAnchor" hidden>
+                <button class="sheetExportBtn" id="exportToggle" type="button" aria-expanded="false" aria-haspopup="menu" aria-controls="exportMenu">
+                  <svg class="sheetExportIcon" width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M6 1v7M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 9v1.5h8V9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  EXPORT &#x25BE;
+                </button>
+                <div class="exportMenu" id="exportMenu" role="menu" aria-labelledby="exportToggle" hidden>
+                  <button class="emItem" id="copyMd" type="button" role="menuitem"><span class="l">Export as Markdown</span></button>
+                  <button class="emItem" id="copyJson" type="button" role="menuitem"><span class="l">Export as JSON</span></button>
+                  <button class="emItem" id="downloadJson" type="button" role="menuitem"><span class="l">Download .json</span></button>
+                  <button class="emItem" id="sheetCopyRaw" type="button" role="menuitem"><span class="l">Copy</span></button>
+                  <div class="emLabel" id="sessionExportMenuLabel" hidden>Session</div>
+                  <button class="emItem" id="exportSessionJsonMenu" type="button" role="menuitem" hidden><span class="l">Session JSON</span><span class="dd">Last ended session</span></button>
+                  <button class="emItem" id="exportSessionMdMenu" type="button" role="menuitem" hidden><span class="l">Session Markdown</span><span class="dd">Last ended session</span></button>
+                  <span class="inlineHint sr-only" id="copyMdHint" aria-live="polite"></span>
+                </div>
+              </div>
+            </div>
+            <div class="sheetBody" id="rawJsonBody" hidden>
+              <pre id="json" role="region" aria-label="Raw JSON output">(no results yet)</pre>
+            </div>
+          </section>
+        </div>
 
       </div><!-- /snapContent -->
 

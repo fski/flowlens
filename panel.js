@@ -66,7 +66,15 @@ const els = {
   tabTbody: document.querySelector("#tabTable tbody"),
   contrastQ: document.getElementById("contrastQ"),
   tabWalkQ: document.getElementById("tabWalkQ"),
-  copyJsonRaw: document.getElementById("copyJsonRaw"),
+  pastRunsToggle: document.getElementById("pastRunsToggle"),
+  pastRunsBody: document.getElementById("pastRunsBody"),
+  pastRunsList: document.getElementById("pastRunsList"),
+  pastRunsCount: document.getElementById("pastRunsCount"),
+  pastRunsActions: document.getElementById("pastRunsActions"),
+  deleteAllRuns: document.getElementById("deleteAllRuns"),
+  rawJsonToggle: document.getElementById("rawJsonToggle"),
+  rawJsonBody: document.getElementById("rawJsonBody"),
+  sheetCopyRaw: document.getElementById("sheetCopyRaw"),
 
   // new tab shell elements
   snapContent: document.getElementById("snapContent"),
@@ -116,7 +124,7 @@ const state = {
   sevFilter: new Set(),
   findingsByMode: {},
   contrastFilter: "all",
-  hasRun: false,
+  hasRunMode: new Set(),
   topTab: "snap",
   pinnedFrameId: null,
   lastDiffSummary: "—",
@@ -365,6 +373,7 @@ class VirtualTable {
   setData(data) {
     this.data = Array.isArray(data) ? data : [];
     this.selectedIdx = null;
+    this.wrapEl.scrollTop = 0;
     this._render(true);
   }
 
@@ -598,7 +607,7 @@ function setRunButtonBusy(busy) {
     // Fully restore CTA appearance after run completes
     const cta = SNAP_CTA[state.activeMode] || SNAP_CTA.run;
     let label = cta.label;
-    if (state.activeMode === "run" && state.hasRun) label = "Re-run Audit";
+    if (state.hasRunMode.has(state.activeMode)) label = SNAP_CTA_RERUN[state.activeMode] || label;
     if (els.runLabel) els.runLabel.textContent = label;
     els.runCurrentMode.className = "ctaBtn " + cta.cls;
     if (els.snapHelper) els.snapHelper.textContent = cta.helper;
@@ -746,11 +755,19 @@ const SNAP_CTA = {
   watch:    { label: "Start Watch",    cls: "ctaBtn--mint",   helper: "Monitor loaders and focus bar for 40s" },
 };
 
+const SNAP_CTA_RERUN = {
+  run:      "Re-run Audit",
+  contrast: "Re-check Contrast",
+  tabWalk:  "Re-run Tab\u00A0Walk",
+  observe:  "Re-start Observe",
+  watch:    "Re-start Watch",
+};
+
 function updateSnapCta(mode) {
   if (state.running) return;
   const cta = SNAP_CTA[mode] || SNAP_CTA.run;
   let label = cta.label;
-  if (mode === "run" && state.hasRun) label = "Re-run Audit";
+  if (state.hasRunMode.has(mode)) label = SNAP_CTA_RERUN[mode] || label;
   if (els.runLabel) els.runLabel.textContent = label;
   if (els.runCurrentMode) {
     els.runCurrentMode.className = "ctaBtn " + cta.cls;
@@ -1033,7 +1050,7 @@ function resetFilters() {
 function renderRecord(rec) {
   if (!rec) return;
   state.currentId = rec.id;
-  state.hasRun = true;
+  state.hasRunMode.add(rec.action);
   setPressed(rec.action);
   updateResultsVisibility(true);
   resetFilters();
@@ -1076,6 +1093,115 @@ function renderRecord(rec) {
   } else {
     renderSevTabs();
   }
+}
+
+// ═══ PAST RUNS BOTTOM SHEET ═══
+
+const MODE_COLORS = { run: "var(--orange)", contrast: "#54B8A6", tabWalk: "#7BB85E", observe: "#5AADDB", watch: "#8B8EDB" };
+
+function formatRunTime(isoString) {
+  if (!isoString) return "";
+  try {
+    const d = new Date(isoString);
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  } catch { return ""; }
+}
+
+function getRunCount(rec) {
+  const r = rec?.best?.result;
+  if (!r) return "";
+  if (Array.isArray(r.findings)) return `${r.findings.length} findings`;
+  if (Array.isArray(r.failures)) return `${r.failures.length} issues`;
+  if (Array.isArray(r.events)) return `${r.events.length} events`;
+  return "";
+}
+
+function renderPastRuns() {
+  if (!els.pastRunsList) return;
+  const runs = state.records;
+  els.pastRunsList.innerHTML = "";
+  if (els.pastRunsCount) {
+    els.pastRunsCount.textContent = runs.length ? `(${runs.length})` : "";
+  }
+  if (!runs.length) {
+    els.pastRunsList.innerHTML = `<div style="padding:12px 16px;color:var(--tx3);font-size:10px;">No past runs</div>`;
+    if (els.pastRunsActions) els.pastRunsActions.hidden = true;
+    return;
+  }
+  if (els.pastRunsActions) els.pastRunsActions.hidden = false;
+  for (const rec of runs) {
+    const div = document.createElement("div");
+    div.className = "pastRunItem";
+    if (String(rec.id) === String(state.currentId)) div.classList.add("isActive");
+    div.dataset.id = String(rec.id);
+    const mode = rec.action || "run";
+    const color = MODE_COLORS[mode] || "var(--tx3)";
+    div.innerHTML =
+      `<span class="pastRunDot" style="background:${color}"></span>` +
+      `<span class="pastRunInfo">` +
+        `<span class="pastRunMode">${MODE_LABELS[mode] || mode}</span>` +
+        `<span class="pastRunTime">${formatRunTime(rec.at)}</span>` +
+      `</span>` +
+      `<span class="pastRunCount">${getRunCount(rec)}</span>` +
+      `<button class="pastRunDelete" type="button" title="Delete this run" aria-label="Delete run">&times;</button>`;
+    div.addEventListener("click", (e) => {
+      if (e.target.closest(".pastRunDelete")) return;
+      const found = state.byId[String(rec.id)];
+      if (found) {
+        renderRecord(found);
+        renderPastRuns();
+      }
+    });
+    const delBtn = div.querySelector(".pastRunDelete");
+    if (delBtn) {
+      delBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        await deleteSingleRun(rec.id);
+      });
+    }
+    els.pastRunsList.appendChild(div);
+  }
+}
+
+async function deleteSingleRun(id) {
+  const idStr = String(id);
+  state.records = state.records.filter(x => String(x.id) !== idStr);
+  delete state.byId[idStr];
+  if (String(state.currentId) === idStr) {
+    if (state.records.length) {
+      state.currentId = state.records[0].id;
+      renderRecord(state.records[0]);
+    } else {
+      state.currentId = null;
+      state.currentFindings = [];
+      state.lastResult = null;
+      els.json.textContent = "(no results yet)";
+      updateResultsVisibility(false);
+    }
+  }
+  renderPastRuns();
+  const { origin, env } = getCurrentScopeInfo();
+  const scopeKey = `records::${origin || ""}::${env}`;
+  await persistRecords(scopeKey);
+  toast("Run deleted");
+}
+
+async function deleteAllRunsAction() {
+  if (!state.records.length) return;
+  state.records = [];
+  state.byId = {};
+  state.currentId = null;
+  state.currentFindings = [];
+  state.lastResult = null;
+  state.hasRunMode = new Set();
+  state.findingsByMode = {};
+  els.json.textContent = "(no results yet)";
+  updateResultsVisibility(false);
+  renderPastRuns();
+  const { origin, env } = getCurrentScopeInfo();
+  const scopeKey = `records::${origin || ""}::${env}`;
+  await persistRecords(scopeKey);
+  toast("All runs deleted");
 }
 
 function summarizeFrames(perFrame = []) {
@@ -3101,6 +3227,7 @@ function refreshInspectedUrl(retries = 3) {
       showMode(state.activeMode || "run");
       updateResultsVisibility(false);
     }
+    renderPastRuns();
 
     // load pinned frame preference for this origin
     if (origin) {
@@ -3369,6 +3496,7 @@ async function runAction(action, opts = {}) {
   state.records = [rec, ...state.records.filter(x => String(x.id) !== String(rec.id))];
   state.byId[String(rec.id)] = rec;
   renderRecord(rec);
+  renderPastRuns();
   const persisted = await persistRecords(scopeKey);
   if (!persisted) {
     console.warn("Record rendered but history persistence failed");
@@ -4098,9 +4226,10 @@ if (els.flowLabelField) {
   }
 }
 
-if (els.copyJsonRaw) {
-  els.copyJsonRaw.addEventListener("click", async () => {
+if (els.sheetCopyRaw) {
+  els.sheetCopyRaw.addEventListener("click", async () => {
     await copyText(els.json.textContent || "");
+    setExportMenuOpen(false);
     toast("Copied raw JSON");
   });
 }
@@ -4599,6 +4728,7 @@ function initVirtualTables() {
 // auto refresh on navigation
 chrome.devtools.network.onNavigated.addListener(async () => {
   state.findingsByMode = {};
+  state.hasRunMode = new Set();
   state.contrastFilter = "all";
   await refreshInspectedUrl();
   await refreshFrames();
@@ -4621,15 +4751,26 @@ chrome.devtools.network.onNavigated.addListener(async () => {
   }
 });
 
-// JSON toggle
-const _jsonToggle = document.getElementById('jsonToggle');
-if (_jsonToggle) {
-  _jsonToggle.addEventListener('click', () => {
-    const expanded = _jsonToggle.getAttribute('aria-expanded') === 'true';
-    _jsonToggle.setAttribute('aria-expanded', String(!expanded));
-    els.json.classList.toggle('collapsed', expanded);
-    els.json.hidden = expanded;
+// Bottom sheet toggles
+if (els.pastRunsToggle) {
+  els.pastRunsToggle.addEventListener("click", () => {
+    const expanded = els.pastRunsToggle.getAttribute("aria-expanded") === "true";
+    els.pastRunsToggle.setAttribute("aria-expanded", String(!expanded));
+    if (els.pastRunsBody) els.pastRunsBody.hidden = expanded;
+    if (!expanded) renderPastRuns();
   });
+}
+
+if (els.rawJsonToggle) {
+  els.rawJsonToggle.addEventListener("click", () => {
+    const expanded = els.rawJsonToggle.getAttribute("aria-expanded") === "true";
+    els.rawJsonToggle.setAttribute("aria-expanded", String(!expanded));
+    if (els.rawJsonBody) els.rawJsonBody.hidden = expanded;
+  });
+}
+
+if (els.deleteAllRuns) {
+  els.deleteAllRuns.addEventListener("click", deleteAllRunsAction);
 }
 
 // Accordion toggles
@@ -4645,8 +4786,9 @@ document.querySelectorAll('.accordionToggle').forEach(btn => {
 });
 
 function syncCollapsedSections() {
-  if (els.json) {
-    els.json.hidden = els.json.classList.contains("collapsed");
+  // Raw JSON body visibility synced via sheetHeader toggle
+  if (els.rawJsonBody) {
+    els.rawJsonBody.hidden = els.rawJsonToggle?.getAttribute("aria-expanded") !== "true";
   }
 }
 
