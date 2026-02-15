@@ -674,6 +674,7 @@ kbd {
   background: var(--raised);
   border-bottom: 2px solid var(--brd);
 }
+.sevTabs[hidden] { display: none; }
 
 .sevTab {
   flex: 1;
