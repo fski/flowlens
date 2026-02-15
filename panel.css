@@ -733,6 +733,18 @@ kbd {
 .sevTab[data-sev="info"][aria-selected="true"] .sevCount,
 .sevTab[data-sev="info"][aria-selected="true"] .sevLabel { color: var(--sev-info); }
 
+/* Contrast fail/pass tab gradient borders */
+.sevTab[data-sev="fail"][aria-selected="true"] {
+  background: linear-gradient(var(--surface), var(--surface)) padding-box, linear-gradient(180deg, #DB5A5A, #2F2F2F) border-box;
+}
+.sevTab[data-sev="pass"][aria-selected="true"] {
+  background: linear-gradient(var(--surface), var(--surface)) padding-box, linear-gradient(180deg, #5AB89A, #2F2F2F) border-box;
+}
+.sevTab[data-sev="fail"][aria-selected="true"] .sevCount,
+.sevTab[data-sev="fail"][aria-selected="true"] .sevLabel { color: #DB5A5A; }
+.sevTab[data-sev="pass"][aria-selected="true"] .sevCount,
+.sevTab[data-sev="pass"][aria-selected="true"] .sevLabel { color: #5AB89A; }
+
 /* ═══ COMBINED SEVERITY TABS ═══ */
 .sevCombined {
   display: flex;

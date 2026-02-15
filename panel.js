@@ -114,6 +114,8 @@ const state = {
   tabData: [],
   activeMode: "run",
   sevFilter: new Set(),
+  findingsByMode: {},
+  contrastFilter: "all",
   hasRun: false,
   topTab: "snap",
   pinnedFrameId: null,
@@ -740,7 +742,19 @@ function showMode(mode) {
   if (contrast) contrast.hidden = mode !== "contrast";
   if (tab) tab.hidden = mode !== "tabWalk";
   if (watch) watch.hidden = mode !== "watch";
-  if (els.sevTabs) els.sevTabs.hidden = !runLike;
+  if (els.sevTabs) els.sevTabs.hidden = !(runLike || mode === "contrast");
+
+  // Restore cached findings when switching between run/observe
+  if (runLike && state.findingsByMode[mode]) {
+    state.currentFindings = state.findingsByMode[mode];
+    renderSevTabs(state.currentFindings);
+    renderExplorer(state.currentFindings);
+  }
+
+  // Render contrast-specific tabs when switching to contrast
+  if (mode === "contrast") {
+    renderContrastSevTabs();
+  }
 }
 
 // ═══ VIEW ROUTING ═══
@@ -849,6 +863,26 @@ function renderSevTabs(findings = null) {
   }
 
   els.sevTabs.innerHTML = parts.join("");
+}
+
+function renderContrastSevTabs() {
+  if (!els.sevTabs) return;
+  const total = state.contrastSamples.length;
+  const fail = state.contrastData.length;
+  const pass = total - fail;
+  const f = state.contrastFilter;
+
+  const renderTab = (sev, label, count, active) =>
+    `<button class="sevTab" role="tab" data-sev="${sev}" aria-selected="${active}" tabindex="${active ? 0 : -1}" type="button">
+      <span class="sevLabel">${escapeHtml(label)}</span>
+      <span class="sevCount">${count != null ? count : "&ndash;"}</span>
+    </button>`;
+
+  els.sevTabs.innerHTML = [
+    renderTab("", "All", total || null, f === "all"),
+    renderTab("fail", "Fail", fail || null, f === "fail"),
+    renderTab("pass", "Pass", pass || null, f === "pass"),
+  ].join("");
 }
 
 async function persistRecords(scopeKey) {
@@ -986,10 +1020,12 @@ function renderRecord(rec) {
     renderRunSummary(bestResult, rec);
     const findings = Array.isArray(bestResult?.findings) ? bestResult.findings : [];
     state.currentFindings = findings;
+    state.findingsByMode.run = findings;
     renderExplorer(findings);
   } else if (mode === "contrast") {
-    renderSevTabs();
+    state.contrastFilter = "all";
     renderContrast(bestResult);
+    renderContrastSevTabs();
   } else if (mode === "tabWalk") {
     renderSevTabs();
     renderTabWalk(bestResult);
@@ -998,6 +1034,7 @@ function renderRecord(rec) {
     if (oFindings.length) {
       renderSevTabs(oFindings);
       state.currentFindings = oFindings;
+      state.findingsByMode.observe = oFindings;
       showMode("observe");
       renderExplorer(oFindings);
     } else {
@@ -2855,8 +2892,16 @@ function renderContrast(res) {
 }
 
 function updateContrastView() {
-  const showAll = els.contrastShowAll && els.contrastShowAll.checked;
-  let data = showAll ? state.contrastSamples : state.contrastData;
+  let data;
+  if (state.contrastFilter === "fail") {
+    data = state.contrastData;
+  } else if (state.contrastFilter === "pass") {
+    data = state.contrastSamples.filter(s => s.ratio >= s.required);
+  } else {
+    // "all" — show all samples
+    data = state.contrastSamples;
+  }
+  data = data || [];
   const q = (els.contrastQ?.value || "").trim().toLowerCase();
   if (q) {
     data = data.filter(f => {
@@ -4196,6 +4241,16 @@ if (els.sevTabs) {
     const tab = e.target.closest(".sevTab");
     if (!tab) return;
     const sev = tab.dataset.sev;
+
+    // Handle contrast mode tabs (all/fail/pass)
+    if (state.activeMode === "contrast") {
+      state.contrastFilter = sev || "all";
+      renderContrastSevTabs();
+      updateContrastView();
+      const refocus = els.sevTabs.querySelector(`.sevTab[data-sev="${sev}"]`);
+      if (refocus) refocus.focus();
+      return;
+    }
 
     if (!sev) {
       // "All" tab: clear selection
