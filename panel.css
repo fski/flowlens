@@ -662,7 +662,7 @@ kbd {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 10px 8px;
+  padding: 6px 8px;
   border: 2px solid transparent;
   border-bottom: none;
   border-radius: 6px 6px 0 0;
@@ -685,6 +685,18 @@ kbd {
   line-height: 1.32;
   color: var(--tx2);
   text-transform: uppercase;
+}
+
+/* Active tab overlaps container border to connect with content below */
+.sevTabs > .sevTab[aria-selected="true"] {
+  margin-bottom: -2px;
+  padding-bottom: 8px;
+  z-index: 1;
+}
+.sevTabs > .sevCombined {
+  margin-bottom: -2px;
+  padding-bottom: 2px;
+  z-index: 1;
 }
 
 /* Active standalone tab — gradient border top+sides */
@@ -1361,16 +1373,14 @@ kbd {
 .tbl tbody tr { transition: background .12s; }
 .tbl tbody tr:hover { background: var(--raised); }
 .tbl tbody tr.isSelected {
-  outline: 2px solid var(--row-sev, var(--tx2));
-  outline-offset: -2px;
-  background: transparent !important;
+  background: color-mix(in srgb, var(--row-sev, var(--tx2)) 10%, transparent) !important;
 }
 .tbl tbody tr.isSelected td {
   color: var(--tx);
-  font-weight: 600;
 }
-/* Hide accent bar on selected row (outline replaces it) */
-.tbl tbody tr.isSelected::before { background: transparent !important; }
+.tbl tbody tr.isSelected td:first-child {
+  background: color-mix(in srgb, var(--row-sev, var(--tx2)) 10%, var(--surface));
+}
 
 /* First 4 columns fill panel width; remaining scroll horizontally */
 #allTable th:nth-child(1), #allTable td:nth-child(1) { min-width: 56px; }
@@ -1410,7 +1420,7 @@ kbd {
 .trow::before { background: var(--row-sev); }
 
 /* Row dimming when a row is selected */
-.tableWrap.hasSelection .trow { opacity: 0.2; transition: opacity .15s; }
+.tableWrap.hasSelection .trow { opacity: 0.4; transition: opacity .15s; }
 .tableWrap.hasSelection .trow.isSelected { opacity: 1; }
 
 /* ═══ SEARCH TOOLBAR ═══ */
