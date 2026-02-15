@@ -170,14 +170,232 @@ body {
   display: none;
 }
 
-.out {
+/* ═══ BOTTOM SHEETS ═══ */
+.bottomSheets {
   margin-top: auto;
-  background: var(--surface);
-  border: 1px solid var(--brd);
-  border-radius: 2px;
-  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+}
+
+.bottomSheet {
   overflow: hidden;
+}
+
+.bottomSheet--runs {
+  background: var(--raised);
+  border-top-left-radius: var(--radius-sm);
+  border-top-right-radius: var(--radius-sm);
+}
+
+.bottomSheet--json {
+  background: var(--overlay);
+}
+
+.sheetHeaderWrap {
+  display: flex;
+  align-items: center;
+}
+
+.sheetHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--tx2);
+  font: 400 11px/1 var(--font-mono);
+  cursor: pointer;
+  transition: color .12s;
+}
+
+.sheetHeader--flex {
+  flex: 1;
+}
+
+.sheetHeader:hover { color: var(--tx); }
+
+.sheetHeader:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+.sheetIcon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.sheetLabel {
+  flex: 0 0 auto;
+  text-align: left;
+}
+
+.sheetCount {
+  font-size: 10px;
+  color: var(--tx3);
+  font-weight: 500;
+}
+
+.sheetChevron {
+  font-size: 8px;
+  margin-left: auto;
+  transition: transform .18s;
+  display: inline-block;
+}
+
+.sheetHeader[aria-expanded="true"] .sheetChevron {
+  transform: rotate(90deg);
+}
+
+.sheetBody {
+  background: rgba(28, 28, 28, 0.4);
+}
+
+.sheetBody[hidden] { display: none; }
+
+.sheetBody pre {
+  margin: 0;
+  padding: 12px 16px;
+  color: var(--tx3);
+  font: 500 8px/1.6 var(--font-mono);
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+/* Past runs list */
+.pastRunsList {
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.pastRunItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  cursor: pointer;
+  transition: background .12s;
+  border-bottom: 1px solid var(--brd0);
+}
+
+.pastRunItem:hover { background: rgba(255, 255, 255, 0.04); }
+
+.pastRunItem.isActive {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.pastRunItem.isActive .pastRunMode {
+  color: var(--tx);
+  font-weight: 700;
+}
+
+.pastRunDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pastRunInfo {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pastRunMode {
+  font: 500 11px/1 var(--font-mono);
+  color: var(--tx2);
+  white-space: nowrap;
+}
+
+.pastRunTime {
+  font: 400 10px/1 var(--font-mono);
+  color: var(--tx3);
+  white-space: nowrap;
+}
+
+.pastRunCount {
+  font: 500 10px/1 var(--font-mono);
+  color: var(--tx3);
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.pastRunDelete {
+  display: none;
+  width: 16px;
+  height: 16px;
   padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--tx3);
+  font: 500 12px/1 var(--font-mono);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.pastRunItem:hover .pastRunDelete { display: flex; align-items: center; justify-content: center; }
+.pastRunDelete:hover { color: var(--red); }
+
+.pastRunsActions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 16px;
+  border-top: 1px solid var(--brd0);
+}
+
+.sheetActionBtn {
+  padding: 4px 10px;
+  border: 1px solid var(--brd);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--tx3);
+  font: 500 10px/1 var(--font-mono);
+  cursor: pointer;
+  transition: color .12s, border-color .12s;
+}
+
+.sheetActionBtn:hover { color: var(--tx2); border-color: var(--brd2); }
+.sheetActionBtn--danger:hover { color: var(--red); border-color: var(--red); }
+
+/* Sheet export */
+.sheetExport {
+  position: relative;
+  margin-right: 16px;
+  flex-shrink: 0;
+}
+
+.sheetExportBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--tx2);
+  font: 600 9px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  cursor: pointer;
+  transition: color .12s;
+}
+
+.sheetExportBtn:hover { color: var(--tx); }
+
+.sheetExportIcon {
+  width: 12px;
+  height: 12px;
 }
 
 .findingsCard {
@@ -1278,36 +1496,7 @@ kbd {
 }
 
 
-.outToggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  border: 0;
-  border-bottom: 2px solid var(--brd);
-  background: transparent;
-  color: var(--tx2);
-  padding: 10px 16px;
-  cursor: pointer;
-  font: 400 11px/1 var(--font-mono);
-  transition: color .12s;
-}
-
-.outToggle:hover { color: var(--tx); }
-
-.outToggleIcon {
-  transition: transform .18s;
-  font-size: 10px;
-  display: inline-block;
-}
-
-.outToggle[aria-expanded="true"] .outToggleIcon {
-  transform: rotate(90deg);
-}
-
-.out pre.collapsed {
-  display: none;
-}
+/* Legacy out toggle (removed — kept for reference) */
 
 
 .pill {
@@ -1341,6 +1530,7 @@ kbd {
 
 .tbl {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   min-width: 600px;
   font-size: 12px;
@@ -1415,10 +1605,21 @@ kbd {
 }
 
 /* First 4 columns fill panel width; remaining scroll horizontally */
-#allTable th:nth-child(1), #allTable td:nth-child(1) { min-width: 56px; }
-#allTable th:nth-child(2), #allTable td:nth-child(2) { min-width: 56px; }
-#allTable th:nth-child(3), #allTable td:nth-child(3) { min-width: 112px; }
-#allTable th:nth-child(4), #allTable td:nth-child(4) { min-width: 40px; }
+/* Explorer column widths (fixed layout) */
+#allTable th:nth-child(1), #allTable td:nth-child(1) { width: 72px; }
+#allTable th:nth-child(2), #allTable td:nth-child(2) { width: 72px; }
+#allTable th:nth-child(3), #allTable td:nth-child(3) { width: 140px; }
+#allTable th:nth-child(4), #allTable td:nth-child(4) { width: 56px; }
+
+/* Contrast column widths */
+#contrastTable th:nth-child(1), #contrastTable td:nth-child(1) { width: 64px; }
+#contrastTable th:nth-child(2), #contrastTable td:nth-child(2) { width: 48px; }
+#contrastTable th:nth-child(3), #contrastTable td:nth-child(3) { width: 48px; }
+
+/* Tab Walk column widths */
+#tabTable th:nth-child(1), #tabTable td:nth-child(1) { width: 40px; }
+#tabTable th:nth-child(2), #tabTable td:nth-child(2) { width: 80px; }
+#tabTable th:nth-child(3), #tabTable td:nth-child(3) { width: 64px; }
 
 .tbl th:first-child,
 .tbl td:first-child {
@@ -1618,33 +1819,11 @@ kbd {
 .settingsToggles { display: flex; flex-direction: column; gap: 6px; }
 .settingsGroup select { max-width: 220px; }
 
-.outHeader {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.outHeader .outToggle {
-  flex: 1;
-  border-bottom: 1px solid var(--brd0);
-}
-
-.outHeader .btn {
-  margin-right: 12px;
-}
-
-.out pre {
-  margin: 0;
-  padding: 16px 20px;
-  border-top: 1px solid var(--brd0);
-  background: var(--surface);
-  color: var(--tx3);
-  font-size: 11px;
-  line-height: 1.6;
-  font-family: var(--font-mono);
-  max-height: 200px;
-  overflow: auto;
-  white-space: pre-wrap;
+/* Export menu repositioned for bottom sheet — opens upward */
+.sheetExport .exportMenu {
+  top: auto;
+  bottom: calc(100% + 6px);
+  right: 0;
 }
 
 
