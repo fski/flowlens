@@ -27,6 +27,7 @@
         </button>
         <button class="topTab topTab--settings" id="topTabSettings" role="tab" data-tab="settings" aria-controls="settingsContent" aria-selected="false" tabindex="-1" type="button">
           <img class="tabSvg" src="icons/Settings Icon.svg" alt="" width="16" height="16" aria-hidden="true" />
+          <span class="tabLabel">Settings</span>
           <kbd class="keycap" aria-hidden="true">3</kbd>
         </button>
       </nav>
@@ -332,7 +333,7 @@
               <div class="settingsGroup">
                 <span class="settingsLabel">WCAG level</span>
                 <label class="sr-only" for="wcagLevel">WCAG compliance level</label>
-                <select id="wcagLevel" aria-label="WCAG compliance level">
+                <select id="wcagLevel">
                   <option value="2.1-AA">WCAG 2.1 AA</option>
                   <option value="2.1-AAA">WCAG 2.1 AAA</option>
                   <option value="2.2-AA" selected>WCAG 2.2 AA</option>
@@ -346,7 +347,7 @@
               <div class="settingsGroup">
                 <span class="settingsLabel">Target scope</span>
                 <label class="sr-only" for="target">Scope</label>
-                <select id="target" aria-label="Scope">
+                <select id="target">
                   <option value="primary">Primary frame</option>
                   <option value="host">Host page only</option>
                   <option value="embedded">Embedded frame only</option>
@@ -357,7 +358,7 @@
                 <span class="settingsLabel">Frame</span>
                 <span id="frameSelectWrap">
                   <label class="sr-only" for="frameSelect">Select a frame</label>
-                  <select id="frameSelect" aria-label="Select a frame" disabled></select>
+                  <select id="frameSelect" disabled></select>
                 </span>
                 <label class="switch switchSm"><input id="pinFrame" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Pin</span></label>
                 <button class="btn xs" id="refreshFrames" type="button">&#8635; Refresh</button>

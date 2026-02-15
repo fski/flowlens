@@ -995,6 +995,8 @@ async function loadRecords(scopeKey) {
 
 function resetFilters() {
   els.q.value = "";
+  if (els.contrastQ) els.contrastQ.value = "";
+  if (els.tabWalkQ) els.tabWalkQ.value = "";
   state.sevFilter = new Set();
   state.contrastFilter = "all";
 }

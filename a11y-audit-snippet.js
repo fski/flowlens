@@ -1191,13 +1191,14 @@
       if (Number.isFinite(v) && v > 0) add(findings, { type: "POSITIVE_TABINDEX", el, severity: "low", wcag: "2.4.3", extra: { tabindex: v } });
     });
 
-    // -------- Chat-aware “soft” checks --------
+    // -------- Chat-aware "soft" checks --------
     const mode = config.mode;
     if (mode === "chat" || mode === "auto") {
       const liveHook = hasAnnouncementHook();
+      const logEls = doc.querySelectorAll("[role='log']");
 
       // 4.1.3 Status Messages: role=log usually expects announcements; soft-flag if no aria-live on log.
-      doc.querySelectorAll("[role='log']").forEach(log => {
+      logEls.forEach(log => {
         if (isHidden(log)) return;
         if (!log.getAttribute("aria-live")) {
           add(findings, {
@@ -1230,7 +1231,7 @@
       });
 
       // CHAT_MESSAGE_NO_ROLE: Direct children of role=log without semantic role
-      doc.querySelectorAll("[role='log']").forEach(log => {
+      logEls.forEach(log => {
         if (isHidden(log)) return;
         [...log.children].forEach(child => {
           if (!isEl(child) || isHidden(child)) return;
@@ -1249,7 +1250,7 @@
 
       // CHAT_INPUT_NO_LABEL: Textarea/input near role=log without label
       const seenChatInputs = new Set();
-      doc.querySelectorAll("[role='log']").forEach(log => {
+      logEls.forEach(log => {
         if (isHidden(log)) return;
         const container = log.parentElement || doc.body;
         container.querySelectorAll("textarea, input[type='text'], input:not([type])").forEach(inp => {
@@ -1268,7 +1269,7 @@
       });
 
       // CHAT_TIMESTAMP_INACCESSIBLE: Timestamp elements in role=log that are aria-hidden with no alt
-      doc.querySelectorAll("[role='log']").forEach(log => {
+      logEls.forEach(log => {
         if (isHidden(log)) return;
         log.querySelectorAll("[aria-hidden='true']").forEach(hidden => {
           const text = (hidden.textContent || "").trim();
@@ -1289,7 +1290,7 @@
       });
 
       // CHAT_SEND_NO_LABEL: Send/submit button near chat input with no accessible name (icon-only)
-      doc.querySelectorAll("[role='log']").forEach(log => {
+      logEls.forEach(log => {
         if (isHidden(log)) return;
         const container = log.parentElement || doc.body;
         container.querySelectorAll("button,[role='button'],input[type='submit']").forEach(btn => {
@@ -1304,7 +1305,7 @@
       });
 
       // CHAT_AVATAR_NO_ALT: Avatar images inside role=log without alt
-      doc.querySelectorAll("[role='log'] img").forEach(img => {
+      logEls.forEach(log => log.querySelectorAll("img").forEach(img => {
         if (isHidden(img)) return;
         if (!img.hasAttribute("alt")) {
           const src = (img.getAttribute("src") || "").toLowerCase();
@@ -1314,10 +1315,10 @@
               note: "Avatar image in chat log has no alt attribute. AT will read the filename." });
           }
         }
-      });
+      }));
 
       // CHAT_NO_ARIA_RELEVANT: role=log without aria-relevant
-      doc.querySelectorAll("[role='log']").forEach(log => {
+      logEls.forEach(log => {
         if (isHidden(log)) return;
         if (!log.hasAttribute("aria-relevant")) {
           add(findings, { type: "CHAT_NO_ARIA_RELEVANT", el: log, severity: "low", wcag: "4.1.3",
@@ -1327,7 +1328,7 @@
       });
 
       // CHAT_TYPING_NO_ANNOUNCEMENT: Typing indicator with no live region
-      doc.querySelectorAll("[role='log']").forEach(log => {
+      logEls.forEach(log => {
         if (isHidden(log)) return;
         const container = log.parentElement || doc.body;
         const typingEls = container.querySelectorAll("[class*='typing'],[class*='Typing'],[data-testid*='typing'],[data-testid*='Typing']");
