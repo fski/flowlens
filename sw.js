@@ -187,7 +187,7 @@ function scoreWatchLikeResult(result) {
   return {
     blockingCount: verdicts.length + focusLossCount,
     summaryScore: summaryScore + (verdicts.length ? 50 : 0),
-    primaryCounts: { verdicts: verdicts.length, focusLossCount, bursts, totalLoadingMs },
+    primaryCounts: { verdicts: verdicts.length, focusLossCount, bursts, totalLoadingMs, announcementCount: asNumber(result?.announcementCount, 0), emptyAnnouncements: asNumber(result?.emptyAnnouncementCount, 0) },
   };
 }
 

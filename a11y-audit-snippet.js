@@ -2614,6 +2614,8 @@
         maxTotalLoadingMs: 7000,
         maxFocusLossEvents: 1,
         maxFocusJumps: 3,
+        maxEmptyAnnouncements: 0,
+        maxAnnouncementLatency: 3000,
         ...budget
       };
 
@@ -2638,6 +2640,12 @@
       let pendingLoaderRecalc = null;
       let lastLoaderRecalcAt = 0;
       let timer = null;
+
+      // Announcement tracking
+      const announcements = [];
+      let announcementCount = 0;
+      let emptyAnnouncementCount = 0;
+      let firstAnnouncementAt = null;
 
       const isLikelyLoaderCandidate = (el) => {
         if (!isEl(el)) return false;
@@ -2712,12 +2720,57 @@
         // Keep watch deterministic even if observe() fails.
       }
 
+      // Live-region announcement observer
+      const liveRegionObserver = new MutationObserver((mutations) => {
+        if (settled) return;
+        const t = +(performance.now() - start).toFixed(0);
+        for (const m of mutations) {
+          const region = m.type === "characterData" ? m.target.parentElement : m.target;
+          if (!region || !isEl(region)) continue;
+          const liveRegion = region.closest("[aria-live],[role='status'],[role='alert'],[role='log']");
+          if (!liveRegion) continue;
+          const text = (liveRegion.textContent || "").trim().slice(0, 200);
+          if (firstAnnouncementAt === null) firstAnnouncementAt = t;
+          announcementCount++;
+          if (!text) emptyAnnouncementCount++;
+          announcements.push({
+            t,
+            text: text || "(empty)",
+            ariaLive: liveRegion.getAttribute("aria-live") || "",
+            role: liveRegion.getAttribute("role") || "",
+            path: cssPath(liveRegion),
+          });
+          events.push({
+            t,
+            type: "announcement",
+            note: `[${liveRegion.getAttribute("aria-live") || liveRegion.getAttribute("role")}] ${text || "(empty)"}`,
+          });
+        }
+      });
+
+      const observeLiveRegions = () => {
+        try {
+          const regions = doc.querySelectorAll(
+            "[aria-live]:not([aria-live='off']),[role='status'],[role='alert'],[role='log']"
+          );
+          regions.forEach(r => {
+            liveRegionObserver.observe(r, {
+              childList: true,
+              characterData: true,
+              subtree: true,
+            });
+          });
+        } catch {}
+      };
+      observeLiveRegions();
+
       const finalize = () => {
         if (settled) return;
         settled = true;
         if (timer) clearInterval(timer);
         if (pendingLoaderRecalc) clearTimeout(pendingLoaderRecalc);
         try { observer.disconnect(); } catch {}
+        try { liveRegionObserver.disconnect(); } catch {}
         watchInFlight = null;
 
         const verdicts = [];
@@ -2726,8 +2779,14 @@
         if (totalLoadingMs > B.maxTotalLoadingMs) verdicts.push({ metric: "totalLoadingMs", value: totalLoadingMs, budget: B.maxTotalLoadingMs });
         if (focusLoss > B.maxFocusLossEvents) verdicts.push({ metric: "focusLossEvents", value: focusLoss, budget: B.maxFocusLossEvents });
         if (focusJumps > B.maxFocusJumps) verdicts.push({ metric: "focusJumps", value: focusJumps, budget: B.maxFocusJumps });
+        if (emptyAnnouncementCount > B.maxEmptyAnnouncements) verdicts.push({ metric: "emptyAnnouncements", value: emptyAnnouncementCount, budget: B.maxEmptyAnnouncements });
+        if (firstAnnouncementAt != null && totalLoadingMs > 0 && firstAnnouncementAt > B.maxAnnouncementLatency) verdicts.push({ metric: "announcementLatency", value: firstAnnouncementAt, budget: B.maxAnnouncementLatency });
 
-        const result = { timestamp: nowIso(), seconds, bursts, totalLoadingMs, silentMs, focusLossCount: focusLoss, focusJumps, budget: B, verdicts, events, href: w.location.href };
+        const result = {
+          timestamp: nowIso(), seconds, bursts, totalLoadingMs, silentMs, focusLossCount: focusLoss, focusJumps, budget: B, verdicts, events, href: w.location.href,
+          announcements, announcementCount, emptyAnnouncementCount, firstAnnouncementAt,
+          announcementLatency: (firstAnnouncementAt != null && totalLoadingMs > 0) ? firstAnnouncementAt : null,
+        };
         api.lastWatch = result;
 
         console.groupCollapsed(`⏱️ A11YFlowAudit.watch — ${seconds}s — bursts=${bursts} loading=${totalLoadingMs}ms silent=${silentMs}ms focusLoss=${focusLoss}`);
@@ -2748,6 +2807,9 @@
 
         if (loaderNow && !lastLoader) bursts += 1;
         lastLoader = loaderNow;
+
+        // Re-discover live regions every ~2s (new regions may appear dynamically)
+        if (t % 2000 < tickMs) observeLiveRegions();
 
         if (doc.activeElement === doc.body) {
           if (bodyFocusSince === null) { bodyFocusSince = performance.now(); bodyFocusCounted = false; }

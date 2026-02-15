@@ -2976,6 +2976,9 @@ function renderWatch(res) {
       { label: "Silent", value: `${((res.silentMs ?? 0) / 1000).toFixed(1)}s` },
       { label: "Focus loss", value: res.focusLossCount ?? 0 },
       { label: "Focus jumps", value: res.focusJumps ?? 0 },
+      { label: "Announcements", value: res.announcementCount ?? 0 },
+      { label: "Empty", value: res.emptyAnnouncementCount ?? 0 },
+      { label: "1st announce", value: res.firstAnnouncementAt != null ? `${(res.firstAnnouncementAt / 1000).toFixed(1)}s` : "\u2013" },
     ];
     els.watchSummary.innerHTML = metrics.map(m =>
       `<div class="watchMetric"><span class="watchMetricValue">${escapeHtml(String(m.value))}</span><span class="watchMetricLabel">${escapeHtml(m.label)}</span></div>`
