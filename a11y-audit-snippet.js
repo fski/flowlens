@@ -2646,6 +2646,10 @@
       let announcementCount = 0;
       let emptyAnnouncementCount = 0;
       let firstAnnouncementAt = null;
+      const observedRegions = new WeakSet();
+      const lastAnnouncementText = new WeakMap();
+      let announcementFlushPending = false;
+      const pendingAnnouncements = new Map();
 
       const isLikelyLoaderCandidate = (el) => {
         if (!isEl(el)) return false;
@@ -2720,7 +2724,32 @@
         // Keep watch deterministic even if observe() fails.
       }
 
-      // Live-region announcement observer
+      // Live-region announcement observer (microtask-batched, deduped)
+      const flushAnnouncements = () => {
+        announcementFlushPending = false;
+        for (const [liveRegion, { t, text }] of pendingAnnouncements) {
+          lastAnnouncementText.set(liveRegion, text);
+          if (firstAnnouncementAt === null) firstAnnouncementAt = t;
+          announcementCount++;
+          if (!text) emptyAnnouncementCount++;
+          if (announcements.length < 200) {
+            announcements.push({
+              t,
+              text: text || "(empty)",
+              ariaLive: liveRegion.getAttribute("aria-live") || "",
+              role: liveRegion.getAttribute("role") || "",
+              path: cssPath(liveRegion),
+            });
+          }
+          events.push({
+            t,
+            type: "announcement",
+            note: `[${liveRegion.getAttribute("aria-live") || liveRegion.getAttribute("role")}] ${text || "(empty)"}`,
+          });
+        }
+        pendingAnnouncements.clear();
+      };
+
       const liveRegionObserver = new MutationObserver((mutations) => {
         if (settled) return;
         const t = +(performance.now() - start).toFixed(0);
@@ -2730,21 +2759,12 @@
           const liveRegion = region.closest("[aria-live],[role='status'],[role='alert'],[role='log']");
           if (!liveRegion) continue;
           const text = (liveRegion.textContent || "").trim().slice(0, 200);
-          if (firstAnnouncementAt === null) firstAnnouncementAt = t;
-          announcementCount++;
-          if (!text) emptyAnnouncementCount++;
-          announcements.push({
-            t,
-            text: text || "(empty)",
-            ariaLive: liveRegion.getAttribute("aria-live") || "",
-            role: liveRegion.getAttribute("role") || "",
-            path: cssPath(liveRegion),
-          });
-          events.push({
-            t,
-            type: "announcement",
-            note: `[${liveRegion.getAttribute("aria-live") || liveRegion.getAttribute("role")}] ${text || "(empty)"}`,
-          });
+          if (lastAnnouncementText.get(liveRegion) === text) continue;
+          pendingAnnouncements.set(liveRegion, { t, text });
+        }
+        if (!announcementFlushPending && pendingAnnouncements.size > 0) {
+          announcementFlushPending = true;
+          queueMicrotask(flushAnnouncements);
         }
       });
 
@@ -2754,6 +2774,8 @@
             "[aria-live]:not([aria-live='off']),[role='status'],[role='alert'],[role='log']"
           );
           regions.forEach(r => {
+            if (observedRegions.has(r)) return;
+            observedRegions.add(r);
             liveRegionObserver.observe(r, {
               childList: true,
               characterData: true,

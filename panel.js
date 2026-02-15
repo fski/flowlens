@@ -63,7 +63,6 @@ const els = {
   contrastTbody: document.querySelector("#contrastTable tbody"),
   tabWalkSection: document.getElementById("tabWalkSection"),
   tabTbody: document.querySelector("#tabTable tbody"),
-  contrastShowAll: document.getElementById("contrastShowAll"),
   contrastQ: document.getElementById("contrastQ"),
   tabWalkQ: document.getElementById("tabWalkQ"),
   copyJsonRaw: document.getElementById("copyJsonRaw"),
@@ -879,9 +878,9 @@ function renderContrastSevTabs() {
     </button>`;
 
   els.sevTabs.innerHTML = [
-    renderTab("", "All", total || null, f === "all"),
-    renderTab("fail", "Fail", fail || null, f === "fail"),
-    renderTab("pass", "Pass", pass || null, f === "pass"),
+    renderTab("", "All", total, f === "all"),
+    renderTab("fail", "Fail", fail, f === "fail"),
+    renderTab("pass", "Pass", pass, f === "pass"),
   ].join("");
 }
 
@@ -997,6 +996,7 @@ async function loadRecords(scopeKey) {
 function resetFilters() {
   els.q.value = "";
   state.sevFilter = new Set();
+  state.contrastFilter = "all";
 }
 
 function renderRecord(rec) {
@@ -1013,7 +1013,7 @@ function renderRecord(rec) {
   // default reset
   els.allTableBody.innerHTML = "";
   state.currentFindings = [];
-  renderSevTabs();
+  if (mode !== "contrast") renderSevTabs();
   showMode(mode);
 
   if (mode === "run") {
@@ -2887,7 +2887,6 @@ function applyExplorerFilters(findings) {
 function renderContrast(res) {
   state.contrastData = Array.isArray(res?.failures) ? res.failures : [];
   state.contrastSamples = Array.isArray(res?.samples) ? res.samples : [];
-  if (els.contrastShowAll) els.contrastShowAll.checked = false;
   updateContrastView();
 }
 
@@ -4213,11 +4212,6 @@ if (els.alsoConsole) {
   });
 }
 
-if (els.contrastShowAll) {
-  els.contrastShowAll.addEventListener("change", updateContrastView);
-}
-
-
 // Explorer reactive filters (debounced)
 let __explorerT = null;
 function scheduleExplorerRender() {
@@ -4573,6 +4567,8 @@ function initVirtualTables() {
 
 // auto refresh on navigation
 chrome.devtools.network.onNavigated.addListener(async () => {
+  state.findingsByMode = {};
+  state.contrastFilter = "all";
   await refreshInspectedUrl();
   await refreshFrames();
   toast("Navigated — refreshed frames");
