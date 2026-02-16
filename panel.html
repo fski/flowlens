@@ -112,7 +112,7 @@
                 <caption class="sr-only">All findings</caption>
                 <thead>
                   <tr>
-                    <th scope="col">sev</th><th scope="col">product</th><th scope="col">type</th><th scope="col">wcag</th><th scope="col">name</th><th scope="col">testId</th><th scope="col">path</th><th scope="col">note</th><th scope="col">fix</th>
+                    <th scope="col" title="Severity">sev</th><th scope="col" title="Product">product</th><th scope="col" title="Issue type">type</th><th scope="col" title="WCAG criterion">wcag</th><th scope="col" title="Element name">name</th><th scope="col" title="Test ID">testId</th><th scope="col" title="CSS selector path">path</th><th scope="col" title="Note">note</th><th scope="col" title="Suggested fix">fix</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -131,12 +131,13 @@
                 <span class="highlightHint">Click a row to highlight</span>
               </div>
             </div>
+            <div class="sectionEmpty" id="contrastEmpty">Run a Contrast check to see results</div>
             <div class="tableWrap vscroll">
               <table class="tbl" id="contrastTable">
                 <caption class="sr-only">Contrast results</caption>
                 <thead>
                   <tr>
-                    <th scope="col">ratio</th><th scope="col">req</th><th scope="col">large</th><th scope="col">text</th><th scope="col">tag</th><th scope="col">testId</th><th scope="col">path</th><th scope="col">note</th>
+                    <th scope="col" title="Contrast ratio">ratio</th><th scope="col" title="Required ratio">req</th><th scope="col" title="Large text">large</th><th scope="col" title="Text content">text</th><th scope="col" title="HTML tag">tag</th><th scope="col" title="Test ID">testId</th><th scope="col" title="CSS selector path">path</th><th scope="col" title="Note">note</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -155,12 +156,13 @@
                 <span class="highlightHint">Click a row to highlight</span>
               </div>
             </div>
+            <div class="sectionEmpty" id="tabWalkEmpty">Run a Tab Walk to see results</div>
             <div class="tableWrap vscroll">
               <table class="tbl" id="tabTable">
                 <caption class="sr-only">Tab walk events</caption>
                 <thead>
                   <tr>
-                    <th scope="col">i</th><th scope="col">type</th><th scope="col">tabIndex</th><th scope="col">name</th><th scope="col">path</th><th scope="col">note</th>
+                    <th scope="col" title="Tab order index">i</th><th scope="col" title="Element type">type</th><th scope="col" title="Tab index value">tabIndex</th><th scope="col" title="Element name">name</th><th scope="col" title="CSS selector path">path</th><th scope="col" title="Note">note</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -170,6 +172,7 @@
 
           <!-- Watch section -->
           <section class="findingsCard" id="watchSection" role="region" aria-label="Watch results" hidden>
+            <div class="sectionEmpty" id="watchEmpty">Run Watch to monitor live a11y events</div>
             <div class="watchSummary" id="watchSummary"></div>
             <div class="watchVerdicts" id="watchVerdicts"></div>
             <div class="tableWrap vscroll">
@@ -177,7 +180,7 @@
                 <caption class="sr-only">Watch events</caption>
                 <thead>
                   <tr>
-                    <th scope="col">time</th><th scope="col">type</th><th scope="col">note</th>
+                    <th scope="col" title="Timestamp">time</th><th scope="col" title="Event type">type</th><th scope="col" title="Event details">note</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -314,7 +317,7 @@
                 <caption class="sr-only">Flow timeline</caption>
                 <thead>
                   <tr>
-                    <th scope="col">step</th><th scope="col">route</th><th scope="col">mode</th><th scope="col">new</th><th scope="col">fixed</th><th scope="col">persisting</th><th scope="col">top blockers</th>
+                    <th scope="col" title="Step number">step</th><th scope="col" title="Page route">route</th><th scope="col" title="Audit mode">mode</th><th scope="col" title="New issues">new</th><th scope="col" title="Fixed issues">fixed</th><th scope="col" title="Persisting issues">persisting</th><th scope="col" title="Top blockers">top blockers</th>
                   </tr>
                 </thead>
                 <tbody></tbody>

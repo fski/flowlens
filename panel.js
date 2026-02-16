@@ -98,6 +98,9 @@ const els = {
   flowVerdict: document.getElementById("flowVerdict"),
   autoCaptureNav: document.getElementById("autoCaptureNav"),
   autoCaptureDelay: document.getElementById("autoCaptureDelay"),
+  contrastEmpty: document.getElementById("contrastEmpty"),
+  tabWalkEmpty: document.getElementById("tabWalkEmpty"),
+  watchEmpty: document.getElementById("watchEmpty"),
 };
 
 const ORDER = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
@@ -431,10 +434,6 @@ class VirtualTable {
         if (sel) sel.classList.add("isSelected");
       }
 
-      // Toggle hasSelection on wrapper
-      const tw = this.tbodyEl.closest(".tableWrap");
-      if (tw) tw.classList.toggle("hasSelection", this.selectedIdx != null);
-
       // Measure row height from first real row if possible
       const firstRow = this.tbodyEl.querySelector("tr.trow");
       if (firstRow) {
@@ -506,7 +505,7 @@ function toast(message, action) {
   }
   els.toast.classList.add("show");
   clearTimeout(state._toastTimer);
-  state._toastTimer = setTimeout(() => els.toast.classList.remove("show"), action ? 4000 : 1800);
+  state._toastTimer = setTimeout(() => els.toast.classList.remove("show"), action ? 4000 : 2500);
 }
 
 const DURATIONS = { watch: 40, observe: 12, tabWalk: 5, contrast: 3, run: 2 };
@@ -2234,6 +2233,7 @@ async function persistActiveSessionBestEffort(session) {
     return true;
   } catch (err) {
     console.warn("persist active session failed", err);
+    toast("Session save failed \u2014 data may be lost if DevTools closes");
     sessionState.lastPersistReasonCode = classifyPersistReason(err);
     debugSession("persist_active_fail", { estimatedBytes, error: String(err?.message || err) });
     return false;
@@ -2255,6 +2255,7 @@ async function archiveSessionBestEffort(session) {
     return true;
   } catch (err) {
     console.warn("archive session failed", err);
+    toast("Session archive failed");
     debugSession("archive_fail", { estimatedBytes, error: String(err?.message || err) });
     return false;
   }
@@ -3208,6 +3209,8 @@ function updateContrastView() {
     data = state.contrastSamples;
   }
   data = data || [];
+  const hasData = state.contrastData.length > 0 || state.contrastSamples.length > 0;
+  if (els.contrastEmpty) els.contrastEmpty.hidden = hasData;
   const q = (els.contrastQ?.value || "").trim().toLowerCase();
   if (q) {
     data = data.filter(f => {
@@ -3233,6 +3236,7 @@ function updateContrastView() {
 function renderTabWalk(res) {
   const raw = Array.isArray(res?.events) ? res.events : [];
   state.tabData = raw;
+  if (els.tabWalkEmpty) els.tabWalkEmpty.hidden = raw.length > 0;
   let filtered = raw;
   const q = (els.tabWalkQ?.value || "").trim().toLowerCase();
   if (q) {
@@ -3258,6 +3262,7 @@ function renderTabWalk(res) {
 
 function renderWatch(res) {
   if (!res) return;
+  if (els.watchEmpty) els.watchEmpty.hidden = true;
   // Summary metrics
   if (els.watchSummary) {
     const metrics = [
@@ -4550,64 +4555,54 @@ document.addEventListener("keydown", (e) => {
 /** Build detail row HTML for a finding */
 function buildDetailRow(finding, colCount) {
   const fields = [
-    { label: 'Severity', value: finding.severity },
-    { label: 'Product', value: finding.product },
-    { label: 'Type', value: finding.type },
-    { label: 'WCAG', value: finding.wcag },
-    { label: 'Name', value: finding.name },
-    { label: 'Test ID', value: finding.testId },
-    { label: 'Path', value: finding.path },
-    { label: 'Note', value: finding.note },
-    { label: 'Fix', value: finding.fix },
+    ['Severity', finding.severity], ['Product', finding.product],
+    ['Type', finding.type], ['WCAG', finding.wcag],
+    ['Name', finding.name], ['Test ID', finding.testId],
+    ['Path', finding.path], ['Note', finding.note],
+    ['Fix', finding.fix],
   ];
-  const sevClass = escapeHtml(finding.severity || '');
+  const sev = escapeHtml(finding.severity || '');
   const pairs = fields
-    .filter(f => f.value)
-    .map(f => `<span class="detailLabel">${escapeHtml(f.label)}</span><span class="detailValue">${escapeHtml(String(f.value))}</span>`)
+    .filter(([, v]) => v)
+    .map(([k, v]) => `<span class="detailLabel">${escapeHtml(k)}</span><span class="detailValue">${escapeHtml(String(v))}</span>`)
     .join('');
-  return `<tr class="detailRow" data-sev="${sevClass}" style="--row-sev:var(--sev-${sevClass})"><td colspan="${colCount}"><div class="detailInner">${pairs}<div class="detailActions"><button class="btn xs detailHighlight" type="button">Highlight</button><button class="btn xs detailCopy" type="button">Copy</button></div></div></td></tr>`;
+  return `<tr class="detailRow" style="--row-sev:var(--sev-${sev})"><td colspan="${colCount}"><div class="detailInner">${pairs}<div class="detailActions"><button class="btn xs detailCopy" type="button">Copy</button></div></div></td></tr>`;
 }
 
 if (els.allTableBody && !els.allTableBody.__bound) {
   els.allTableBody.__bound = true;
   els.allTableBody.addEventListener("click", async (e) => {
     try {
-      // Handle detail row button clicks
-      const highlightBtn = e.target.closest(".detailHighlight");
-      const copyBtn = e.target.closest(".detailCopy");
-      if (highlightBtn) {
+      // Copy button inside detail row
+      if (e.target.closest(".detailCopy")) {
         const idx = VT.all ? VT.all.expandedIdx : null;
-        const finding = Number.isFinite(idx) ? state.explorer[idx] : null;
-        if (finding) await highlightFinding(finding);
-        return;
-      }
-      if (copyBtn) {
-        const idx = VT.all ? VT.all.expandedIdx : null;
-        const finding = Number.isFinite(idx) ? state.explorer[idx] : null;
-        if (finding) {
-          const text = Object.entries(finding)
-            .filter(([k, v]) => v && !k.startsWith('_'))
-            .map(([k, v]) => `${k}: ${v}`)
-            .join('\n');
+        const f = Number.isFinite(idx) ? state.explorer[idx] : null;
+        if (f) {
+          const text = Object.entries(f).filter(([k, v]) => v && !k.startsWith('_')).map(([k, v]) => `${k}: ${v}`).join('\n');
           await copyText(text);
           toast("Copied to clipboard");
         }
         return;
       }
 
-      const tr = e?.target?.closest ? e.target.closest("tr.trow") : null;
-      if (!tr) return;
-
-      const idx = Number(tr.getAttribute("data-i"));
-      const finding = Number.isFinite(idx) ? state.explorer[idx] : null;
-      if (!finding) return;
-
-      // Toggle expand via VirtualTable (handles selection + detail rendering)
-      if (VT.all) {
-        VT.all.toggleExpanded(idx);
-        // Highlight on the inspected page when expanding
-        if (VT.all.expandedIdx === idx) await highlightFinding(finding);
+      // Highlight button inside a row — highlight without toggling expand
+      if (e.target.closest(".rowAct")) {
+        const tr = e.target.closest("tr.trow");
+        const idx = tr ? Number(tr.getAttribute("data-i")) : NaN;
+        const f = Number.isFinite(idx) ? state.explorer[idx] : null;
+        if (f) await highlightFinding(f);
+        return;
       }
+
+      // Row click — toggle expand + highlight on expand
+      const tr = e.target.closest("tr.trow");
+      if (!tr) return;
+      const idx = Number(tr.getAttribute("data-i"));
+      const f = Number.isFinite(idx) ? state.explorer[idx] : null;
+      if (!f || !VT.all) return;
+
+      VT.all.toggleExpanded(idx);
+      if (VT.all.expandedIdx === idx) await highlightFinding(f);
     } catch (err) {
       console.warn("Explorer table click failed", err);
       toast("Could not highlight element");
@@ -5080,6 +5075,7 @@ chrome.devtools.network.onNavigated.addListener(async () => {
           await captureStepOptionC(autoLabel, { isAutoCapture: true });
         } catch (e) {
           console.error("Auto-capture failed:", e);
+          toast("Auto-capture failed");
         }
       }, debounceMs);
     }
