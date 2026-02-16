@@ -423,6 +423,7 @@ body {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  width: 100%;
   background: var(--surface);
   overflow: hidden;
 }
@@ -1593,9 +1594,10 @@ kbd {
 .pill.info{color:var(--sev-info);background:rgba(122,142,166,0.2)}
 
 .tableWrap {
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: hidden;
   position: relative;
+  width: 100%;
 }
 
 .tableWrap.scrollRight::after {
@@ -1622,6 +1624,7 @@ kbd {
 
 .tbl {
   width: 100%;
+  min-width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
   font-size: 12px;
@@ -2042,6 +2045,7 @@ kbd {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  width: 100%;
   animation: fadeUp .2s ease-out;
 }
 
@@ -2261,12 +2265,15 @@ body.compact .brandLogo { width: 72px; height: auto; }
   #flowTimelineTable th:nth-child(6),
   #flowTimelineTable td:nth-child(6),
   #flowTimelineTable th:nth-child(7),
-  #flowTimelineTable td:nth-child(7) { display: none; }
+  #flowTimelineTable td:nth-child(7),
   /* Hide product + testId in explorer */
   #allTable th:nth-child(2), #allTable td:nth-child(2),
-  #allTable th:nth-child(5), #allTable td:nth-child(5) { display: none; }
+  #allTable th:nth-child(5), #allTable td:nth-child(5),
   /* Hide testId in contrast */
-  #contrastTable th:nth-child(6), #contrastTable td:nth-child(6) { display: none; }
+  #contrastTable th:nth-child(6), #contrastTable td:nth-child(6) {
+    width: 0 !important; max-width: 0 !important; padding: 0 !important;
+    border: none !important; overflow: hidden; font-size: 0; line-height: 0; visibility: hidden;
+  }
 }
 
 @media (max-width: 380px) {
@@ -2277,9 +2284,12 @@ body.compact .brandLogo { width: 72px; height: auto; }
   .searchToolbar { padding: 2px 4px; }
 
   /* Hide more columns at very narrow */
-  #allTable th:nth-child(4), #allTable td:nth-child(4) { display: none; } /* wcag */
-  #contrastTable th:nth-child(3), #contrastTable td:nth-child(3) { display: none; } /* large */
-  #tabTable th:nth-child(3), #tabTable td:nth-child(3) { display: none; } /* tabIndex */
+  #allTable th:nth-child(4), #allTable td:nth-child(4),
+  #contrastTable th:nth-child(3), #contrastTable td:nth-child(3),
+  #tabTable th:nth-child(3), #tabTable td:nth-child(3) {
+    width: 0 !important; max-width: 0 !important; padding: 0 !important;
+    border: none !important; overflow: hidden; font-size: 0; line-height: 0; visibility: hidden;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
