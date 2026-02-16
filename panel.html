@@ -321,6 +321,23 @@
           </div>
         </section>
 
+        <!-- Session comparison -->
+        <section class="accordion" id="flowCompare" hidden>
+          <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="flowCompareBody">
+            <span class="accIcon" aria-hidden="true">&#8644;</span>
+            <span class="accLabel">Compare sessions</span>
+            <span class="chevron" aria-hidden="true">&#x2228;</span>
+          </button>
+          <div class="accordionBody" id="flowCompareBody" hidden>
+            <div class="compareControls">
+              <label class="compareLabel">A <select id="compareSelectA" class="compareSelect"></select></label>
+              <label class="compareLabel">B <select id="compareSelectB" class="compareSelect"></select></label>
+              <button class="btn btn--sm" id="compareRunBtn" type="button">Compare</button>
+            </div>
+            <div id="compareResult" hidden></div>
+          </div>
+        </section>
+
         <!-- Raw JSON for flow record -->
         <section class="accordion" id="flowRecordJson">
           <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="flowRecordJsonBody">

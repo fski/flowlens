@@ -1065,6 +1065,33 @@ kbd {
   color: var(--tx2);
 }
 
+/* ═══ SESSION COMPARE ═══ */
+.compareControls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.compareLabel { font: 500 11px/1.4 var(--font-mono); color: var(--tx2); display: flex; align-items: center; gap: 4px; }
+.compareSelect { flex: 1; min-width: 120px; padding: 4px 6px; border: 1px solid var(--brd); border-radius: var(--radius-sm); background: var(--bg); color: var(--tx); font: 500 11px/1.4 var(--font-mono); }
+.compareTable { width: 100%; margin-top: 12px; font: 500 11px/1.5 var(--font-mono); border-collapse: collapse; }
+.compareTable th { text-align: left; color: var(--tx3); font-weight: 700; padding: 4px 8px; border-bottom: 1px solid var(--brd); }
+.compareTable td { padding: 4px 8px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.compareDelta--better { color: var(--green); }
+.compareDelta--worse { color: var(--red); }
+.compareDelta--same { color: var(--tx3); }
+
+/* ═══ SESSION RESUME BANNER ═══ */
+.sessionResumeBanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--infoS);
+  border: 1px solid var(--infoB);
+  border-radius: var(--radius-sm);
+  margin: 8px 16px;
+  font: 500 12px/1.4 var(--font-mono);
+  color: var(--tx);
+}
+.sessionResumeText { flex: 1; }
+.sessionResumeBtn { flex-shrink: 0; }
+
 /* ═══ FLOW RECORD BANNER / ACTIONS ═══ */
 .flowRecordingBanner {
   display: flex;
@@ -1133,6 +1160,8 @@ kbd {
 /* ═══ FLOW COUNTER COLORS ═══ */
 .flowCounterValue--red { color: var(--red); }
 .flowCounterValue--green { color: var(--green); }
+.flowCounterSparkline { padding: 6px 12px; }
+.flowCounterSparkline svg { display: block; }
 
 /* ═══ FLOW VERDICT ═══ */
 .flowVerdict { display: flex; align-items: center; gap: 10px; padding: 10px 16px; font: 600 12px/1.4 var(--font-mono); border-bottom: 2px solid var(--brd); }
@@ -1161,15 +1190,21 @@ kbd {
 .stepFindingSev.info { color: var(--cyan); }
 .stepFindingType { flex-shrink: 0; color: var(--tx2); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stepFindingNote { flex: 1; color: var(--tx3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stepHighlight { flex-shrink: 0; padding: 1px 6px; border: 1px solid var(--brd); border-radius: var(--radius-sm); background: transparent; color: var(--tx3); font: 500 10px/1.4 var(--font-mono); cursor: pointer; opacity: 0; transition: opacity .12s; }
+.stepFindingItem:hover .stepHighlight { opacity: 1; }
+.stepHighlight:hover { color: var(--cyan); border-color: var(--cyan); }
+.stepHighlight:focus-visible { opacity: 1; outline: 2px solid var(--cyan); outline-offset: 1px; }
 #flowTimelineTable tbody tr.trow { cursor: pointer; }
 #flowTimelineTable tbody tr.trow:hover { background: var(--raised); }
+#flowTimelineTable tbody tr.trow:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; background: var(--raised); }
 #flowTimelineTable tbody tr.trow.isExpanded { background: var(--raised); font-weight: 600; }
 
 /* ═══ DELETE STEP ═══ */
-.stepDeleteBtn { width: 16px; height: 16px; padding: 0; border: none; background: transparent; color: var(--tx3); font: 600 12px/1 var(--font-mono); cursor: pointer; opacity: 0; transition: opacity .12s; vertical-align: middle; margin-left: 4px; }
-#flowTimelineTable tbody tr:hover .stepDeleteBtn { opacity: 1; }
+.stepDeleteBtn { min-width: 24px; min-height: 24px; padding: 4px; border: none; background: transparent; color: var(--tx3); font: 600 12px/1 var(--font-mono); cursor: pointer; opacity: 0; transition: opacity .12s; vertical-align: middle; margin-left: 4px; }
+#flowTimelineTable tbody tr:hover .stepDeleteBtn,
+#flowTimelineTable tbody tr:focus-within .stepDeleteBtn { opacity: 1; }
 .stepDeleteBtn:hover { color: var(--red); }
-.stepDeleteBtn:focus-visible { opacity: 1; }
+.stepDeleteBtn:focus-visible { opacity: 1; outline: 2px solid var(--cyan); outline-offset: 1px; }
 
 /* ═══ INLINE LABEL EDIT ═══ */
 .stepLabelEdit { padding: 2px 6px; border: 1px solid var(--infoB); border-radius: 4px; background: var(--raised); color: var(--tx); font: 500 12px/1.4 var(--font-mono); width: 100%; max-width: 200px; }
@@ -1981,6 +2016,17 @@ kbd {
   opacity: 1;
   pointer-events: auto;
 }
+.toastAction {
+  margin-left: 10px;
+  padding: 2px 8px;
+  border: 1px solid var(--cyan);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--cyan);
+  font: 500 11px/1.4 var(--font-mono);
+  cursor: pointer;
+}
+.toastAction:hover { background: var(--cyan); color: var(--bg); }
 
 /* ═══ TAB PANELS ═══ */
 [role="tabpanel"][hidden] { display: none; }
@@ -2034,6 +2080,7 @@ body.compact .brandLogo { width: 72px; height: auto; }
 @media (max-width: 640px) {
   .settingsGrid { grid-template-columns: 1fr; gap: 12px; }
   .cellWrap { max-width: 160px; }
+  .sessionInfoGrid { grid-template-columns: auto 1fr; }
 }
 
 @media (max-width: 480px) {
@@ -2042,6 +2089,14 @@ body.compact .brandLogo { width: 72px; height: auto; }
   .tbl { min-width: 400px; }
   .ctaSlot { padding: 8px 12px 0; }
   .accordionBody { padding: 8px 12px; }
+  .flowCounterRow { gap: 2px; }
+  .flowCounter { padding: 6px 8px; }
+  .flowCounterValue { font-size: 12px; padding: 4px; min-width: 22px; }
+  .flowCounterLabel { font-size: 10px; }
+  #flowTimelineTable th:nth-child(6),
+  #flowTimelineTable td:nth-child(6),
+  #flowTimelineTable th:nth-child(7),
+  #flowTimelineTable td:nth-child(7) { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
