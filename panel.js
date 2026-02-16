@@ -1087,7 +1087,7 @@ function renderRecord(rec) {
 
   if (mode === "run") {
     renderRunSummary(bestResult, rec);
-    const findings = applyFixSuggestions(Array.isArray(bestResult?.findings) ? bestResult.findings : []);
+    const findings = Array.isArray(bestResult?.findings) ? bestResult.findings : [];
     state.currentFindings = findings;
     state.findingsByMode.run = findings;
     renderExplorer(findings);
@@ -1099,7 +1099,7 @@ function renderRecord(rec) {
     renderSevTabs();
     renderTabWalk(bestResult);
   } else if (mode === "observe" && bestResult) {
-    const oFindings = applyFixSuggestions(Array.isArray(bestResult.findings) ? bestResult.findings : []);
+    const oFindings = Array.isArray(bestResult.findings) ? bestResult.findings : [];
     if (oFindings.length) {
       renderSevTabs(oFindings);
       state.currentFindings = oFindings;
@@ -3698,6 +3698,10 @@ async function runAction(action, opts = {}) {
   }
 
   state.lastResult = r;
+  // Inject fix suggestions into raw payload so Raw JSON / export includes them
+  if (r?.bestEntry?.result?.findings) {
+    r.bestEntry.result.findings = applyFixSuggestions(r.bestEntry.result.findings);
+  }
   els.json.textContent = pretty(r);
   if (!r?.ok) {
     const noScope = r?.reason === "NO_SCOPE_MATCH" || r?.error === "NO_SCOPE_MATCH";
@@ -3738,7 +3742,7 @@ async function runAction(action, opts = {}) {
   state.bestFrameId = bestEntry?.frameId ?? 0;
 
   const bestResult = bestEntry?.result || null;
-  const findings = applyFixSuggestions(Array.isArray(bestResult?.findings) ? bestResult.findings : []);
+  const findings = Array.isArray(bestResult?.findings) ? bestResult.findings : [];
 
   // History/diff (only if we have findings)
   const key = `snap::${originFrom(url)}::${detectEnv(url)}::${bestEntry?.frameUrl || ""}`;
