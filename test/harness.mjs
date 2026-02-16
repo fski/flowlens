@@ -1,0 +1,248 @@
+/**
+ * Test harness — loads panel.js function definitions into a vm context
+ * with mocked browser/Chrome globals. Zero npm dependencies.
+ *
+ * Usage:
+ *   import { createContext } from './harness.mjs';
+ *   const ctx = createContext();
+ *   ctx.escapeHtml('<b>') // '&lt;b&gt;'
+ */
+
+import { readFileSync } from 'node:fs';
+import { createContext as vmCreateContext, Script } from 'node:vm';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PANEL_JS = join(__dirname, '..', 'panel.js');
+
+// Cut source before the "wire up" section where imperative DOM binding code begins.
+const INIT_MARKER = '\n// --- wire up ---\n';
+
+function buildMockEls() {
+  const noop = () => {};
+  const mockEl = (overrides = {}) => ({
+    textContent: '',
+    innerHTML: '',
+    hidden: false,
+    disabled: false,
+    checked: false,
+    value: '',
+    dataset: {},
+    style: {},
+    classList: { add: noop, remove: noop, toggle: noop, contains: () => false },
+    setAttribute: noop,
+    getAttribute: () => null,
+    addEventListener: noop,
+    removeEventListener: noop,
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    closest: () => null,
+    focus: noop,
+    blur: noop,
+    append: noop,
+    appendChild: noop,
+    remove: noop,
+    before: noop,
+    after: noop,
+    insertAdjacentHTML: noop,
+    ...overrides,
+  });
+
+  // Build an els proxy: any property access returns a mock element
+  return new Proxy({}, {
+    get(target, prop) {
+      if (prop in target) return target[prop];
+      target[prop] = mockEl();
+      return target[prop];
+    },
+    set(target, prop, value) {
+      target[prop] = value;
+      return true;
+    },
+  });
+}
+
+function buildMockChrome() {
+  const storage = {};
+  return {
+    devtools: {
+      inspectedWindow: { tabId: 1, eval: (expr, cb) => cb && cb('', null) },
+      network: { onNavigated: { addListener: () => {} } },
+    },
+    runtime: {
+      sendMessage: () => Promise.resolve({ ok: true }),
+      onMessage: { addListener: () => {} },
+      getURL: (path) => `chrome-extension://mock/${path}`,
+      getManifest: () => ({ version: '0.0.0-test' }),
+    },
+    storage: {
+      local: {
+        get: (keys) => {
+          if (keys === null) return Promise.resolve({ ...storage });
+          const out = {};
+          const ks = Array.isArray(keys) ? keys : Object.keys(keys || {});
+          for (const k of ks) { if (k in storage) out[k] = storage[k]; }
+          return Promise.resolve(out);
+        },
+        set: (obj) => {
+          for (const [k, v] of Object.entries(obj || {})) {
+            if (v === null || v === undefined) delete storage[k];
+            else storage[k] = JSON.parse(JSON.stringify(v));
+          }
+          return Promise.resolve();
+        },
+        remove: (keys) => {
+          for (const k of (Array.isArray(keys) ? keys : [keys])) delete storage[k];
+          return Promise.resolve();
+        },
+        _raw: storage,  // exposed for test inspection
+      },
+    },
+  };
+}
+
+function buildMockDocument() {
+  const noop = () => {};
+  const _elCache = {};
+  const _makeEl = (tag) => ({
+    tagName: (tag || 'DIV').toUpperCase(),
+    className: '',
+    innerHTML: '',
+    textContent: '',
+    dataset: {},
+    style: {},
+    hidden: false,
+    disabled: false,
+    checked: false,
+    value: '',
+    classList: { add: noop, remove: noop, toggle: noop, contains: () => false },
+    setAttribute: noop,
+    getAttribute: () => null,
+    addEventListener: noop,
+    removeEventListener: noop,
+    appendChild: noop,
+    append: noop,
+    remove: noop,
+    after: noop,
+    before: noop,
+    insertAdjacentHTML: noop,
+    click: noop,
+    focus: noop,
+    blur: noop,
+    select: noop,
+    setSelectionRange: noop,
+    closest: () => null,
+    querySelector: () => null,
+    querySelectorAll: () => [],
+  });
+  const body = _makeEl('body');
+  body.appendChild = noop;
+  body.removeChild = noop;
+  const doc = {
+    getElementById: (id) => { if (!_elCache[id]) _elCache[id] = _makeEl('div'); return _elCache[id]; },
+    querySelector: () => _makeEl('div'),
+    querySelectorAll: () => [],
+    createElement: (tag) => _makeEl(tag),
+    createTextNode: (text) => ({ textContent: text }),
+    addEventListener: noop,
+    execCommand: () => true,
+    body,
+    _elCache, // exposed for test setup
+  };
+  return doc;
+}
+
+/**
+ * Create a sandboxed context with all panel.js functions available.
+ * @param {object} [opts]
+ * @param {object} [opts.storageData] - pre-populate chrome.storage.local
+ * @returns {object} The vm context with all functions as properties
+ */
+export function createContext(opts = {}) {
+  const source = readFileSync(PANEL_JS, 'utf8');
+  const markerIdx = source.indexOf(INIT_MARKER);
+  const safeSource = markerIdx !== -1 ? source.slice(0, markerIdx) : source;
+
+  const mockChrome = buildMockChrome();
+  if (opts.storageData) {
+    Object.assign(mockChrome.storage.local._raw, opts.storageData);
+  }
+
+  const ctx = vmCreateContext({
+    // JS builtins
+    Object, Array, String, Number, Boolean, Symbol,
+    Math, Date, JSON, RegExp, Error, TypeError, RangeError,
+    Map, Set, WeakMap, WeakSet,
+    Promise, Proxy,
+    parseInt, parseFloat, isNaN, isFinite,
+    encodeURIComponent, decodeURIComponent,
+    setTimeout: (fn, ms) => { fn(); return 1; },
+    clearTimeout: () => {},
+    setInterval: (fn, ms) => 1,
+    clearInterval: () => {},
+    requestAnimationFrame: (fn) => { fn(); return 1; },
+    cancelAnimationFrame: () => {},
+    TextEncoder,
+    URL,
+    Uint8Array,
+    console,
+
+    // Browser globals
+    chrome: mockChrome,
+    document: buildMockDocument(),
+    window: {
+      setInterval: (fn, ms) => 1,
+      clearInterval: () => {},
+      setTimeout: (fn, ms) => { fn(); return 1; },
+      clearTimeout: () => {},
+    },
+    navigator: { clipboard: { writeText: () => Promise.resolve() } },
+    localStorage: {
+      _store: {},
+      getItem(k) { return this._store[k] ?? null; },
+      setItem(k, v) { this._store[k] = String(v); },
+      removeItem(k) { delete this._store[k]; },
+    },
+
+    // DOM element cache
+    els: buildMockEls(),
+
+    // Stubs for globals panel.js defines at top level
+    tabId: 1,
+
+    // For __storageLocal detection
+    __storageLocal: mockChrome.storage.local,
+    __runtime: mockChrome.runtime,
+
+    // Expose internal mock for test access
+    __mockChrome: mockChrome,
+  });
+
+  const script = new Script(safeSource, { filename: 'panel.js' });
+  script.runInContext(ctx);
+
+  // Expose const/let scoped variables via a secondary script in the same context
+  const expose = new Script(`
+    this.__sessionState = sessionState;
+    this.__state = state;
+    this.__VT = VT;
+    this.__MODE_COLORS = typeof MODE_COLORS !== 'undefined' ? MODE_COLORS : {};
+  `, { filename: 'expose.js' });
+  expose.runInContext(ctx);
+
+  // Convenience: also attach them as top-level properties
+  ctx.sessionState = ctx.__sessionState;
+  ctx._state = ctx.__state;
+
+  // Pre-set inspected URL so getCurrentScopeInfo() returns a valid origin.
+  // The real `els` is a const built from document.getElementById() inside panel.js,
+  // so we must set properties on the document mock's cached element, not ctx.els.
+  const inspectedUrlEl = ctx.document._elCache['inspectedUrl'];
+  if (inspectedUrlEl) {
+    inspectedUrlEl.dataset.full = 'https://example.com/test';
+    inspectedUrlEl.textContent = 'https://example.com/test';
+  }
+
+  return ctx;
+}

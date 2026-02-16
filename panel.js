@@ -450,7 +450,12 @@ async function storageGet(keys) {
 async function storageSet(obj) {
   if (__storageLocal) return await __storageLocal.set(obj);
   for (const [k,v] of Object.entries(obj || {})) {
-    localStorage.setItem(__lsPrefix + k, JSON.stringify(v));
+    try {
+      localStorage.setItem(__lsPrefix + k, JSON.stringify(v));
+    } catch (e) {
+      console.error(`storageSet: localStorage.setItem failed for key "${k}":`, e);
+      throw e;
+    }
   }
 }
 
@@ -467,12 +472,20 @@ function pretty(x) {
   try { return JSON.stringify(x, null, 2); } catch { return String(x); }
 }
 
-function toast(message) {
+function toast(message, action) {
   if (!els.toast) return;
-  els.toast.textContent = message;
+  els.toast.textContent = "";
+  els.toast.appendChild(document.createTextNode(message));
+  if (action?.label && typeof action.fn === "function") {
+    const btn = document.createElement("button");
+    btn.className = "toastAction";
+    btn.textContent = action.label;
+    btn.addEventListener("click", () => { els.toast.classList.remove("show"); action.fn(); }, { once: true });
+    els.toast.appendChild(btn);
+  }
   els.toast.classList.add("show");
   clearTimeout(state._toastTimer);
-  state._toastTimer = setTimeout(() => els.toast.classList.remove("show"), 1800);
+  state._toastTimer = setTimeout(() => els.toast.classList.remove("show"), action ? 4000 : 1800);
 }
 
 const DURATIONS = { watch: 40, observe: 12, tabWalk: 5, contrast: 3, run: 2 };
@@ -1116,10 +1129,35 @@ function getRunCount(rec) {
   return "";
 }
 
+// Event delegation for pastRunsList — attached once, never leaked.
+let _pastRunsDelegationAttached = false;
+function _ensurePastRunsDelegation() {
+  if (_pastRunsDelegationAttached || !els.pastRunsList) return;
+  _pastRunsDelegationAttached = true;
+  els.pastRunsList.addEventListener("click", async (e) => {
+    const delBtn = e.target.closest(".pastRunDelete");
+    if (delBtn) {
+      e.stopPropagation();
+      const item = delBtn.closest(".pastRunItem");
+      const id = item?.dataset?.id;
+      if (id) await deleteSingleRun(id);
+      return;
+    }
+    const item = e.target.closest(".pastRunItem");
+    if (!item) return;
+    const id = item.dataset?.id;
+    const found = id ? state.byId[String(id)] : null;
+    if (found) {
+      renderRecord(found);
+      renderPastRuns();
+    }
+  });
+}
+
 function renderPastRuns() {
   if (!els.pastRunsList) return;
+  _ensurePastRunsDelegation();
   const runs = state.records;
-  els.pastRunsList.innerHTML = "";
   if (els.pastRunsCount) {
     els.pastRunsCount.textContent = runs.length ? `(${runs.length})` : "";
   }
@@ -1129,38 +1167,20 @@ function renderPastRuns() {
     return;
   }
   if (els.pastRunsActions) els.pastRunsActions.hidden = false;
-  for (const rec of runs) {
-    const div = document.createElement("div");
-    div.className = "pastRunItem";
-    if (String(rec.id) === String(state.currentId)) div.classList.add("isActive");
-    div.dataset.id = String(rec.id);
+  els.pastRunsList.innerHTML = runs.map(rec => {
+    const isActive = String(rec.id) === String(state.currentId);
     const mode = rec.action || "run";
     const color = MODE_COLORS[mode] || "var(--tx3)";
-    div.innerHTML =
+    return `<div class="pastRunItem${isActive ? " isActive" : ""}" data-id="${escapeHtml(String(rec.id))}">` +
       `<span class="pastRunDot" style="background:${color}"></span>` +
       `<span class="pastRunInfo">` +
         `<span class="pastRunMode">${MODE_LABELS[mode] || mode}</span>` +
         `<span class="pastRunTime">${formatRunTime(rec.at)}</span>` +
       `</span>` +
       `<span class="pastRunCount">${getRunCount(rec)}</span>` +
-      `<button class="pastRunDelete" type="button" title="Delete this run" aria-label="Delete run">&times;</button>`;
-    div.addEventListener("click", (e) => {
-      if (e.target.closest(".pastRunDelete")) return;
-      const found = state.byId[String(rec.id)];
-      if (found) {
-        renderRecord(found);
-        renderPastRuns();
-      }
-    });
-    const delBtn = div.querySelector(".pastRunDelete");
-    if (delBtn) {
-      delBtn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        await deleteSingleRun(rec.id);
-      });
-    }
-    els.pastRunsList.appendChild(div);
-  }
+      `<button class="pastRunDelete" type="button" title="Delete this run" aria-label="Delete run">&times;</button>` +
+    `</div>`;
+  }).join("");
 }
 
 async function deleteSingleRun(id) {
@@ -1718,16 +1738,18 @@ function formatElapsedHms(startIso, endIso = null) {
 
 function ensureSessionHudTicker() {
   const hasSession = !!sessionState.current;
+  // Always clear first to prevent stacking if called multiple times rapidly
+  if (!hasSession || sessionState.hudTimer) {
+    if (sessionState.hudTimer) {
+      window.clearInterval(sessionState.hudTimer);
+      sessionState.hudTimer = null;
+    }
+  }
   if (hasSession && !sessionState.hudTimer) {
     sessionState.hudTimer = window.setInterval(() => {
       if (!sessionState.current) return;
       renderSessionHud();
     }, 1000);
-    return;
-  }
-  if (!hasSession && sessionState.hudTimer) {
-    window.clearInterval(sessionState.hudTimer);
-    sessionState.hudTimer = null;
   }
 }
 
@@ -1755,7 +1777,7 @@ function renderFlowSessionInfo() {
   if (!body) return;
   const sess = sessionState.current || sessionState.lastEndedSession;
   if (!sess?.id) {
-    body.innerHTML = '<p class="placeholderText">No session data yet</p>';
+    body.innerHTML = '<p class="placeholderText">Press <kbd class="keycap">r</kbd> or click <strong>Record Flow</strong> to start tracking accessibility changes across steps.</p>';
     return;
   }
   const steps = Array.isArray(sess.steps) ? sess.steps : [];
@@ -1781,6 +1803,33 @@ function renderFlowSessionInfo() {
   `;
 }
 
+let _timelineRenderedCount = 0;
+let _timelineSessionId = null;
+
+function _buildTimelineRowHtml(s) {
+  const d = s.diffs?.consolidated || {};
+  const route = s.routeHint || s.url || "—";
+  const shortRoute = route.length > 40 ? route.slice(-38) : route;
+  const rawMode = s.activeModeCaptured || "—";
+  const mode = rawMode === "run" || rawMode === "—" ? rawMode : `run + ${rawMode}`;
+  const label = s.label ? `<span class="stepLabel">${escapeHtml(s.label)}</span> ` : "";
+  const blockers = [];
+  if (d.blockingAdded) blockers.push(`+${d.blockingAdded} blocking`);
+  if (d.blockingFixed) blockers.push(`-${d.blockingFixed} blocking`);
+  const delBtn = sessionState.current
+    ? ` <button class="stepDeleteBtn" data-delete-step="${s.index}" type="button" aria-label="Delete step ${s.index}" title="Delete step">&times;</button>`
+    : "";
+  return `<tr class="trow" data-step-index="${s.index}" tabindex="0">
+    <td>${s.index}${delBtn}</td>
+    <td title="${escapeHtml(route)}">${label}${escapeHtml(shortRoute)}</td>
+    <td>${escapeHtml(mode)}</td>
+    <td>${d.added ?? 0}</td>
+    <td>${d.fixed ?? 0}</td>
+    <td>${d.persisting ?? 0}</td>
+    <td>${escapeHtml(blockers.join(", ") || "—")}</td>
+  </tr>`;
+}
+
 function renderFlowTimeline() {
   const body = els.flowTimelineBody;
   if (!body) return;
@@ -1788,34 +1837,31 @@ function renderFlowTimeline() {
   const steps = Array.isArray(sess?.steps) ? sess.steps : [];
   const tbody = body.querySelector("tbody");
   if (!tbody) return;
+  const sessId = sess?.id || null;
   if (!steps.length) {
     sessionState.expandedStepIndex = null;
     tbody.innerHTML = "";
+    _timelineRenderedCount = 0;
+    _timelineSessionId = sessId;
     return;
   }
-  tbody.innerHTML = steps.map(s => {
-    const d = s.diffs?.consolidated || {};
-    const route = s.routeHint || s.url || "—";
-    const shortRoute = route.length > 40 ? route.slice(-38) : route;
-    const rawMode = s.activeModeCaptured || "—";
-    const mode = rawMode === "run" || rawMode === "—" ? rawMode : `run + ${rawMode}`;
-    const label = s.label ? `<span class="stepLabel">${escapeHtml(s.label)}</span> ` : "";
-    const blockers = [];
-    if (d.blockingAdded) blockers.push(`+${d.blockingAdded} blocking`);
-    if (d.blockingFixed) blockers.push(`-${d.blockingFixed} blocking`);
-    const delBtn = sessionState.current
-      ? ` <button class="stepDeleteBtn" data-delete-step="${s.index}" type="button" aria-label="Delete step ${s.index}" title="Delete step">&times;</button>`
-      : "";
-    return `<tr class="trow" data-step-index="${s.index}">
-      <td>${s.index}${delBtn}</td>
-      <td title="${escapeHtml(route)}">${label}${escapeHtml(shortRoute)}</td>
-      <td>${escapeHtml(mode)}</td>
-      <td>${d.added ?? 0}</td>
-      <td>${d.fixed ?? 0}</td>
-      <td>${d.persisting ?? 0}</td>
-      <td>${escapeHtml(blockers.join(", ") || "—")}</td>
-    </tr>`;
-  }).join("");
+
+  // Incremental append: same session, steps only grew by 1, no drill-down open
+  const canAppend = sessId && sessId === _timelineSessionId
+    && steps.length === _timelineRenderedCount + 1
+    && sessionState.expandedStepIndex == null;
+
+  if (canAppend) {
+    // Remove any stale detail row before appending
+    const existing = tbody.querySelector(".stepDetailRow");
+    if (existing) existing.remove();
+    tbody.insertAdjacentHTML("beforeend", _buildTimelineRowHtml(steps[steps.length - 1]));
+  } else {
+    tbody.innerHTML = steps.map(s => _buildTimelineRowHtml(s)).join("");
+  }
+  _timelineRenderedCount = steps.length;
+  _timelineSessionId = sessId;
+
   // Restore drill-down if step still exists
   if (sessionState.expandedStepIndex != null) {
     const restoreIndex = sessionState.expandedStepIndex;
@@ -1829,13 +1875,15 @@ function renderFlowTimeline() {
   }
 }
 
+let _countersHash = "";
 function renderFlowCounters() {
   const el = document.getElementById("flowCounterRow");
   if (!el) return;
   const sess = sessionState.current || sessionState.lastEndedSession;
   const steps = Array.isArray(sess?.steps) ? sess.steps : [];
-  if (!steps.length) { el.hidden = true; return; }
+  if (!steps.length) { el.hidden = true; _countersHash = ""; return; }
   let added = 0, fixed = 0, persisting = 0, blockingAdded = 0, blockingFixed = 0;
+  const perStepAdded = [];
   for (const s of steps) {
     const d = s.diffs?.consolidated || {};
     added += d.added || 0;
@@ -1843,23 +1891,47 @@ function renderFlowCounters() {
     persisting += d.persisting || 0;
     blockingAdded += d.blockingAdded || 0;
     blockingFixed += d.blockingFixed || 0;
+    perStepAdded.push(d.added || 0);
   }
+  const hash = `${added},${fixed},${persisting},${blockingAdded},${blockingFixed},${perStepAdded.join(";")}`;
+  if (hash === _countersHash) return;
+  _countersHash = hash;
   const blocking = blockingAdded - blockingFixed;
+
+  // Build sparkline SVG for new issues per step
+  let sparkline = "";
+  if (perStepAdded.length > 1) {
+    const maxVal = Math.max(...perStepAdded, 1);
+    const barW = Math.min(12, Math.floor(80 / perStepAdded.length));
+    const gap = 2;
+    const svgW = perStepAdded.length * (barW + gap) - gap;
+    const svgH = 28;
+    const bars = perStepAdded.map((v, i) => {
+      const h = Math.max(2, (v / maxVal) * (svgH - 2));
+      const x = i * (barW + gap);
+      const color = v > 0 ? "var(--red)" : "var(--tx3)";
+      return `<rect x="${x}" y="${svgH - h}" width="${barW}" height="${h}" rx="1" fill="${color}" opacity="${v > 0 ? 0.8 : 0.3}"/>`;
+    }).join("");
+    sparkline = `<div class="flowCounter flowCounterSparkline"><svg width="${svgW}" height="${svgH}" aria-label="New issues per step">${bars}</svg><span class="flowCounterLabel">Per step</span></div>`;
+  }
+
   el.innerHTML = `
     <div class="flowCounter"><span class="flowCounterValue${added > 0 ? " flowCounterValue--red" : ""}">${added}</span><span class="flowCounterLabel">New issues</span></div>
     <div class="flowCounter"><span class="flowCounterValue${fixed > 0 ? " flowCounterValue--green" : ""}">${fixed > 0 ? "-" : ""}${fixed}</span><span class="flowCounterLabel">Fixed</span></div>
     <div class="flowCounter"><span class="flowCounterValue">${persisting}</span><span class="flowCounterLabel">Persisting</span></div>
     <div class="flowCounter"><span class="flowCounterValue${blocking > 0 ? " flowCounterValue--red" : ""}">${blocking > 0 ? "+" : ""}${blocking}</span><span class="flowCounterLabel">Blocking</span></div>
+    ${sparkline}
   `;
   el.hidden = false;
 }
 
+let _verdictHash = "";
 function renderFlowVerdict() {
   const el = els.flowVerdict;
   if (!el) return;
   const sess = sessionState.current || sessionState.lastEndedSession;
   const steps = Array.isArray(sess?.steps) ? sess.steps : [];
-  if (!steps.length) { el.hidden = true; return; }
+  if (!steps.length) { el.hidden = true; _verdictHash = ""; return; }
   let totalBlockingAdded = 0;
   const blockingSteps = [];
   for (const s of steps) {
@@ -1867,6 +1939,9 @@ function renderFlowVerdict() {
     totalBlockingAdded += ba;
     if (ba > 0) blockingSteps.push(s.index);
   }
+  const hash = `${steps.length},${totalBlockingAdded},${blockingSteps.join(";")}`;
+  if (hash === _verdictHash) return;
+  _verdictHash = hash;
   const pass = totalBlockingAdded === 0;
   const badge = pass ? "PASS" : "FAIL";
   const badgeCls = pass ? "flowVerdictBadge--pass" : "flowVerdictBadge--fail";
@@ -1974,10 +2049,17 @@ function renderStepDrillDown(stepIndex) {
   const tbody = document.querySelector("#flowTimelineTable tbody");
   if (!tbody) return;
 
-  // Remove existing detail row
+  // --- Batch DOM reads ---
   const existing = tbody.querySelector(".stepDetailRow");
+  const expandedRows = tbody.querySelectorAll("tr.isExpanded");
+  let targetRow = null;
+  for (const r of tbody.querySelectorAll("tr.trow")) {
+    if (Number(r.dataset.stepIndex) === stepIndex) { targetRow = r; break; }
+  }
+
+  // --- Batch DOM writes ---
   if (existing) existing.remove();
-  tbody.querySelectorAll("tr.isExpanded").forEach(r => r.classList.remove("isExpanded"));
+  expandedRows.forEach(r => r.classList.remove("isExpanded"));
 
   // Toggle: if same step, just collapse
   if (sessionState.expandedStepIndex === stepIndex) {
@@ -1988,28 +2070,24 @@ function renderStepDrillDown(stepIndex) {
   sessionState.expandedStepIndex = stepIndex;
   const data = buildStepDrillDownData(stepIndex);
   if (!data) return;
-
-  // Find and mark the target row
-  let targetRow = null;
-  for (const r of tbody.querySelectorAll("tr.trow")) {
-    if (Number(r.dataset.stepIndex) === stepIndex) {
-      targetRow = r;
-      r.classList.add("isExpanded");
-      break;
-    }
-  }
   if (!targetRow) return;
+  targetRow.classList.add("isExpanded");
 
   const s = data.step;
   const d = data.diff;
 
+  // Collect all findings for highlight click handler
+  const _drillFindings = [];
   const renderFindingList = (findings, max = 30) => {
     if (!findings.length) return '<span style="color:var(--tx3);font-size:11px;">None</span>';
-    return `<ul class="stepFindingList">${findings.slice(0, max).map(f => {
+    const startIdx = _drillFindings.length;
+    const sliced = findings.slice(0, max);
+    _drillFindings.push(...sliced);
+    return `<ul class="stepFindingList">${sliced.map((f, i) => {
       const sev = escapeHtml(f.severity || "info");
       const type = escapeHtml(f.type || f.product || "");
       const note = escapeHtml(txt(f.note || f.name || "", 100));
-      return `<li class="stepFindingItem"><span class="stepFindingSev ${sev}">${sev}</span><span class="stepFindingType">${type}</span><span class="stepFindingNote">${note}</span></li>`;
+      return `<li class="stepFindingItem"><span class="stepFindingSev ${sev}">${sev}</span><span class="stepFindingType">${type}</span><span class="stepFindingNote">${note}</span><button class="rowAct stepHighlight" type="button" data-drill-i="${startIdx + i}" aria-label="Highlight">Highlight</button></li>`;
     }).join("")}${findings.length > max ? `<li class="stepFindingItem"><span class="stepFindingNote">…and ${findings.length - max} more</span></li>` : ""}</ul>`;
   };
 
@@ -2036,6 +2114,16 @@ function renderStepDrillDown(stepIndex) {
   detailRow.className = "stepDetailRow";
   detailRow.innerHTML = `<td colspan="7"><div class="stepDetail">${detailHtml}</div></td>`;
   targetRow.after(detailRow);
+
+  // Delegate highlight clicks on drill-down findings
+  detailRow.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".stepHighlight");
+    if (!btn) return;
+    e.stopPropagation();
+    const fi = Number(btn.dataset.drillI);
+    const finding = Number.isFinite(fi) ? _drillFindings[fi] : null;
+    if (finding) await highlightFinding(finding);
+  });
 }
 
 // ---- Delete step ----
@@ -2143,6 +2231,110 @@ async function archiveSessionBestEffort(session) {
   }
 }
 
+// ---- Session comparison ----
+
+async function listArchivedSessions() {
+  if (!__storageLocal) return [];
+  try {
+    const all = await __storageLocal.get(null);
+    const prefix = "session::archive::";
+    const sessions = [];
+    for (const [key, val] of Object.entries(all || {})) {
+      if (key.startsWith(prefix) && val && typeof val === "object" && val.id) {
+        sessions.push(val);
+      }
+    }
+    // Also include current/lastEnded if available
+    if (sessionState.lastEndedSession?.id) {
+      const exists = sessions.some(s => s.id === sessionState.lastEndedSession.id);
+      if (!exists) sessions.push(sessionState.lastEndedSession);
+    }
+    sessions.sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || ""));
+    return sessions;
+  } catch (err) {
+    console.warn("listArchivedSessions failed", err);
+    return [];
+  }
+}
+
+function _sessionSummaryStats(sess) {
+  const steps = Array.isArray(sess?.steps) ? sess.steps : [];
+  let added = 0, fixed = 0, persisting = 0, blockingAdded = 0, blockingFixed = 0;
+  for (const s of steps) {
+    const d = s.diffs?.consolidated || {};
+    added += d.added || 0;
+    fixed += d.fixed || 0;
+    persisting += d.persisting || 0;
+    blockingAdded += d.blockingAdded || 0;
+    blockingFixed += d.blockingFixed || 0;
+  }
+  return { steps: steps.length, added, fixed, persisting, blockingAdded, blockingFixed, blocking: blockingAdded - blockingFixed };
+}
+
+function _sessionOptionLabel(sess) {
+  const date = sess.startedAt ? new Date(sess.startedAt).toLocaleString() : "?";
+  const steps = Array.isArray(sess.steps) ? sess.steps.length : 0;
+  return `${date} (${steps} steps)`;
+}
+
+async function populateCompareSelects() {
+  const selectA = document.getElementById("compareSelectA");
+  const selectB = document.getElementById("compareSelectB");
+  const section = document.getElementById("flowCompare");
+  if (!selectA || !selectB || !section) return;
+  const sessions = await listArchivedSessions();
+  if (sessions.length < 2) {
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+  const options = sessions.map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(_sessionOptionLabel(s))}</option>`).join("");
+  selectA.innerHTML = options;
+  selectB.innerHTML = options;
+  // Default: A = oldest, B = newest
+  if (sessions.length >= 2) {
+    selectA.value = sessions[sessions.length - 1].id;
+    selectB.value = sessions[0].id;
+  }
+}
+
+function runSessionComparison() {
+  const selectA = document.getElementById("compareSelectA");
+  const selectB = document.getElementById("compareSelectB");
+  const resultEl = document.getElementById("compareResult");
+  if (!selectA || !selectB || !resultEl) return;
+  listArchivedSessions().then(sessions => {
+    const sessA = sessions.find(s => s.id === selectA.value);
+    const sessB = sessions.find(s => s.id === selectB.value);
+    if (!sessA || !sessB) { toast("Select two sessions"); return; }
+    if (sessA.id === sessB.id) { toast("Select two different sessions"); return; }
+    const a = _sessionSummaryStats(sessA);
+    const b = _sessionSummaryStats(sessB);
+    const delta = (valB, valA, lowerIsBetter = true) => {
+      const d = valB - valA;
+      if (d === 0) return `<span class="compareDelta--same">—</span>`;
+      const better = lowerIsBetter ? d < 0 : d > 0;
+      const cls = better ? "compareDelta--better" : "compareDelta--worse";
+      return `<span class="${cls}">${d > 0 ? "+" : ""}${d}</span>`;
+    };
+    resultEl.innerHTML = `
+      <table class="compareTable">
+        <thead><tr><th>Metric</th><th>A</th><th>B</th><th>Delta</th></tr></thead>
+        <tbody>
+          <tr><td>Steps</td><td>${a.steps}</td><td>${b.steps}</td><td>${delta(b.steps, a.steps, false)}</td></tr>
+          <tr><td>New issues</td><td>${a.added}</td><td>${b.added}</td><td>${delta(b.added, a.added)}</td></tr>
+          <tr><td>Fixed</td><td>${a.fixed}</td><td>${b.fixed}</td><td>${delta(b.fixed, a.fixed, false)}</td></tr>
+          <tr><td>Persisting</td><td>${a.persisting}</td><td>${b.persisting}</td><td>${delta(b.persisting, a.persisting)}</td></tr>
+          <tr><td>Blocking added</td><td>${a.blockingAdded}</td><td>${b.blockingAdded}</td><td>${delta(b.blockingAdded, a.blockingAdded)}</td></tr>
+          <tr><td>Net blocking</td><td>${a.blocking}</td><td>${b.blocking}</td><td>${delta(b.blocking, a.blocking)}</td></tr>
+          <tr><td>Verdict</td><td>${a.blockingAdded === 0 ? "PASS" : "FAIL"}</td><td>${b.blockingAdded === 0 ? "PASS" : "FAIL"}</td><td>${a.blockingAdded === 0 && b.blockingAdded > 0 ? '<span class="compareDelta--worse">Regressed</span>' : b.blockingAdded === 0 && a.blockingAdded > 0 ? '<span class="compareDelta--better">Improved</span>' : '<span class="compareDelta--same">—</span>'}</td></tr>
+        </tbody>
+      </table>
+    `;
+    resultEl.hidden = false;
+  });
+}
+
 async function loadActiveSessionForScope(origin, env) {
   const keys = getSessionKeys(origin || "", env || "");
   try {
@@ -2156,6 +2348,38 @@ async function loadActiveSessionForScope(origin, env) {
     sessionState.lastMarkStep = null;
   }
   updateSessionButtons();
+}
+
+function _showSessionResumePrompt(origin, env) {
+  const sess = sessionState.current;
+  if (!sess) return;
+  const steps = Array.isArray(sess.steps) ? sess.steps.length : 0;
+  const started = sess.startedAt ? new Date(sess.startedAt).toLocaleString() : "unknown";
+  const banner = document.createElement("div");
+  banner.className = "sessionResumeBanner";
+  banner.setAttribute("role", "alert");
+  banner.innerHTML = `
+    <span class="sessionResumeText">Previous session found (${steps} step${steps !== 1 ? "s" : ""}, started ${escapeHtml(started)})</span>
+    <button class="btn btn--sm sessionResumeBtn" type="button" data-action="resume">Resume</button>
+    <button class="btn btn--sm btn--outline sessionResumeBtn" type="button" data-action="discard">Discard</button>
+  `;
+  banner.addEventListener("click", async (e) => {
+    const action = e.target.closest("[data-action]")?.dataset?.action;
+    if (!action) return;
+    banner.remove();
+    if (action === "discard") {
+      const keys = getSessionKeys(origin || "", env || "");
+      try { await storageSet({ [keys.active]: null }); } catch {}
+      sessionState.current = null;
+      sessionState.lastMarkStep = null;
+      updateSessionButtons();
+      toast("Orphaned session discarded");
+    } else {
+      toast("Session resumed");
+    }
+  });
+  const target = document.getElementById("flowSessionInfo");
+  if (target) target.before(banner);
 }
 
 function buildSessionSettings() {
@@ -3017,11 +3241,11 @@ function applyExplorerFilters(findings) {
 
   if (q) {
     list = list.filter(f => {
-      const blob = [f.type, f.name, f.testId, f.wcag, f.path, f.note, f.product]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return blob.includes(q);
+      if (f._searchBlob === undefined) {
+        f._searchBlob = [f.type, f.name, f.testId, f.wcag, f.path, f.note, f.product]
+          .filter(Boolean).join(" ").toLowerCase();
+      }
+      return f._searchBlob.includes(q);
     });
   }
 
@@ -3061,12 +3285,15 @@ function updateContrastView() {
   const q = (els.contrastQ?.value || "").trim().toLowerCase();
   if (q) {
     data = data.filter(f => {
-      const blob = [f.text, f.tag, f.testId, f.path, f.note, String(f.ratio ?? "")]
-        .filter(Boolean).join(" ").toLowerCase();
-      return blob.includes(q);
+      if (f._searchBlob === undefined) {
+        f._searchBlob = [f.text, f.tag, f.testId, f.path, f.note, String(f.ratio ?? "")]
+          .filter(Boolean).join(" ").toLowerCase();
+      }
+      return f._searchBlob.includes(q);
     });
   }
   const sorted = applySortState(data, 'contrast');
+  if (!VT.contrast) initVirtualTables();
   if (VT.contrast) {
     VT.contrast.setData(sorted);
     return;
@@ -3097,12 +3324,15 @@ function renderTabWalk(res) {
   const q = (els.tabWalkQ?.value || "").trim().toLowerCase();
   if (q) {
     filtered = filtered.filter(e => {
-      const blob = [e.type, e.name, e.path, e.note, String(e.tabIndex ?? "")]
-        .filter(Boolean).join(" ").toLowerCase();
-      return blob.includes(q);
+      if (e._searchBlob === undefined) {
+        e._searchBlob = [e.type, e.name, e.path, e.note, String(e.tabIndex ?? "")]
+          .filter(Boolean).join(" ").toLowerCase();
+      }
+      return e._searchBlob.includes(q);
     });
   }
   const events = applySortState(filtered, 'tab');
+  if (!VT.tab) initVirtualTables();
   if (VT.tab) {
     VT.tab.setData(events);
     return;
@@ -3172,6 +3402,7 @@ function renderExplorer(findings) {
     if (tw) tw.classList.remove("hasSelection");
   }
 
+  if (!VT.all) initVirtualTables();
   if (VT.all) {
     VT.all.setData(filtered);
   } else {
@@ -3195,10 +3426,11 @@ function renderExplorer(findings) {
 
 
 function refreshInspectedUrl(retries = 3) {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
   chrome.devtools.inspectedWindow.eval("location.href", async (res, err) => {
+    try {
     if (err && retries > 0) {
-      setTimeout(() => refreshInspectedUrl(retries - 1).then(resolve), 300);
+      setTimeout(() => refreshInspectedUrl(retries - 1).then(resolve).catch(reject), 300);
       return;
     }
     const url = err ? "" : String(res);
@@ -3216,6 +3448,13 @@ function refreshInspectedUrl(retries = 3) {
     const scopeKey = `records::${origin || ""}::${env}`;
     await loadRecords(scopeKey);
     await loadActiveSessionForScope(origin || "", env || "");
+    // Detect orphaned session and prompt for resume/discard
+    if (sessionState.current && sessionState.current.startedAt && !sessionState.current.endedAt) {
+      const ageMs = Date.now() - new Date(sessionState.current.startedAt).getTime();
+      if (ageMs > 60 * 60 * 1000) {
+        _showSessionResumePrompt(origin, env);
+      }
+    }
     // if we have records, render newest
     if (state.records.length) {
       state.currentId = state.records[0].id;
@@ -3228,6 +3467,7 @@ function refreshInspectedUrl(retries = 3) {
       updateResultsVisibility(false);
     }
     renderPastRuns();
+    populateCompareSelects();
 
     // load pinned frame preference for this origin
     if (origin) {
@@ -3255,6 +3495,10 @@ function refreshInspectedUrl(retries = 3) {
     updateScopeUi();
     updateTargetingSummary();
     resolve();
+    } catch (e) {
+      console.error("refreshInspectedUrl: callback error", e);
+      resolve(); // resolve anyway to avoid stalling; best-effort initialization
+    }
   });
   });
 }
@@ -3597,6 +3841,7 @@ async function endSession() {
   sessionState.queuedCapture = null;
   updateSessionButtons();
   setPersistentStatus("OK", "SESSION_ENDED", "Session archived");
+  populateCompareSelects();
 
   // Auto-copy verdict summary
   const sess = exportableEndedSession;
@@ -3644,7 +3889,11 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     return false;
   }
 
+  // R6: Set inFlight immediately after the guard to minimise race window.
   sessionState.inFlight = true;
+  // R1: Capture session identity before any async work so we can detect if
+  // the session was ended/replaced while we were awaiting.
+  const _captureSessionId = sessionState.current.id;
   sessionState.captureSlow = false;
   hideStepLabelInput();
   if (sessionState.captureSlowTimer) window.clearTimeout(sessionState.captureSlowTimer);
@@ -3687,7 +3936,7 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
       console.error("CAPTURE_STEP transport failure", err);
       setLastMarkStatus("FAILED", "baseline:transport");
       updateSessionButtons();
-      toast("Step capture failed");
+      toast("Step capture failed", { label: "Retry", fn: () => captureStepOptionC(label, { isAutoCapture }) });
       return false;
     }
 
@@ -3697,6 +3946,13 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
       setLastMarkStatus("FAILED", noScope ? "baseline:no_scope_match" : "baseline:ok:false");
       updateSessionButtons();
       toast(noScope ? "Step capture failed: no frame matches selected scope" : "Step capture failed");
+      return false;
+    }
+
+    // R1: Verify session wasn't ended/replaced during the await.
+    if (!sessionState.current || sessionState.current.id !== _captureSessionId) {
+      console.warn("captureStepOptionC: session changed during capture — discarding result");
+      toast("Session was ended during capture");
       return false;
     }
 
@@ -3815,14 +4071,21 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
       sessionState.captureSlowTimer = null;
     }
     updateSessionButtons();
-    // Drain queued capture
+    // Drain queued capture (R8: wrapped in try-catch to prevent silent failures)
     const queued = sessionState.queuedCapture;
     sessionState.queuedCapture = null;
     if (queued && sessionState.current) {
-      const qLabel = queued.isAutoCapture
-        ? await deriveAutoLabel(getCurrentScopeInfo().url || "")
-        : null;
-      setTimeout(() => captureStepOptionC(qLabel, { isAutoCapture: queued.isAutoCapture }), 0);
+      try {
+        const qLabel = queued.isAutoCapture
+          ? await deriveAutoLabel(getCurrentScopeInfo().url || "")
+          : null;
+        setTimeout(() => captureStepOptionC(qLabel, { isAutoCapture: queued.isAutoCapture }).catch(e => {
+          console.error("Queued capture failed:", e);
+          toast("Queued step capture failed", { label: "Retry", fn: () => captureStepOptionC(qLabel, { isAutoCapture: queued.isAutoCapture }) });
+        }), 0);
+      } catch (e) {
+        console.error("Queued capture drain error:", e);
+      }
     }
   }
 }
@@ -4734,7 +4997,7 @@ chrome.devtools.network.onNavigated.addListener(async () => {
   await refreshFrames();
   toast("Navigated — refreshed frames");
 
-  // Auto-capture if enabled
+  // Auto-capture if enabled (R4: guarded against timer stacking and inFlight races)
   if (sessionState.current && els.autoCaptureNav?.checked) {
     const { url } = getCurrentScopeInfo();
     if (url && url !== sessionState.lastAutoNavUrl) {
@@ -4742,10 +5005,15 @@ chrome.devtools.network.onNavigated.addListener(async () => {
       const debounceMs = Number(els.autoCaptureDelay?.value) || 500;
       sessionState.autoCapturePending = setTimeout(async () => {
         sessionState.autoCapturePending = null;
+        // Skip if session ended, or capture already in flight (will be queued by captureStepOptionC)
         if (!sessionState.current) return;
         sessionState.lastAutoNavUrl = url;
-        const autoLabel = await deriveAutoLabel(url);
-        await captureStepOptionC(autoLabel, { isAutoCapture: true });
+        try {
+          const autoLabel = await deriveAutoLabel(url);
+          await captureStepOptionC(autoLabel, { isAutoCapture: true });
+        } catch (e) {
+          console.error("Auto-capture failed:", e);
+        }
       }, debounceMs);
     }
   }
@@ -4799,6 +5067,9 @@ renderSevTabs();
 updateResultsVisibility(false);
 initVirtualTables();
 initSortableHeaders();
+// Session comparison
+const _compareBtn = document.getElementById("compareRunBtn");
+if (_compareBtn) _compareBtn.addEventListener("click", runSessionComparison);
 initColToggles();
 updateScopeUi();
 setVersionBadge();
