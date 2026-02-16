@@ -3,6 +3,12 @@
    Keeps existing DOM IDs/classes used by panel.js
    =================================================================== */
 
+@property --cta-progress {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
+}
+
 :root {
   --bg: #141414;
   --surface: #1C1C1C;
@@ -660,10 +666,13 @@ kbd {
 }
 
 .topTab--flow[aria-selected="true"] {
-  color: var(--coral);
+  color: #F4686A;
+}
+.topTab--flow[aria-selected="true"] .tabSvg {
+  filter: brightness(0) saturate(100%) invert(52%) sepia(89%) saturate(2264%) hue-rotate(333deg) brightness(101%) contrast(92%);
 }
 .topTab--flow[aria-selected="true"]::before {
-  background: linear-gradient(180deg, #DB5A5A, var(--brd)) border-box;
+  background: linear-gradient(180deg, #F4686A, var(--brd)) border-box;
 }
 
 .topTab:focus-visible {
@@ -859,12 +868,23 @@ kbd {
 .ctaBtn.running.ctaBtn--teal {
   background: var(--brd);
   border: none;
-  border-bottom: 4px solid transparent;
-  border-image: linear-gradient(90deg, #7BB85E 0%, #54B8A6 20%, #5AADDB 40%, #8B8EDB 60%, #D4A054 80%, #DB6B6B 100%) 1;
+  position: relative;
+  overflow: hidden;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: 12px 16px 16px;
   font-weight: 600;
   color: var(--tx2);
+}
+.ctaBtn.running.ctaBtn--teal::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 4px;
+  width: var(--cta-progress, 0%);
+  background: linear-gradient(90deg, #7BB85E 0%, #54B8A6 20%, #5AADDB 40%, #8B8EDB 60%, #D4A054 80%, #DB6B6B 100%);
+  background-size: 100vw 4px;
+  transition: --cta-progress 1s linear;
 }
 .runTimer {
   display: none;

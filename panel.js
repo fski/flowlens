@@ -534,17 +534,23 @@ function showProgress(action, durationSec) {
   if (!isObserve && time) time.textContent = "0.0s";
   if (status) status.textContent = `${prefix}, ${remaining} seconds remaining`;
   setProgressA11y(bar, 0, `${remaining}s remaining`);
-  // Seed the inline CTA timer for observe
+  // Seed the inline CTA timer + progress bar for observe
   if (isObserve && els.runTimer) els.runTimer.textContent = `${durationSec}s`;
+  if (isObserve && els.runCurrentMode) {
+    els.runCurrentMode.style.setProperty("--cta-progress", "0%");
+  }
   clearInterval(state._progressInterval);
   state._progressInterval = setInterval(() => {
     const elapsed = Math.max(0, (performance.now() - state._progressStartedAt) / 1000);
     remaining--;
     const pct = durationSec > 0 ? ((durationSec - Math.max(remaining, 0)) / durationSec) * 100 : 100;
     if (!isObserve && time) time.textContent = `${elapsed.toFixed(1)}s`;
-    // Update inline CTA timer for observe
+    // Update inline CTA timer + progress bar for observe
     if (isObserve && els.runTimer) {
       els.runTimer.textContent = remaining > 0 ? `${Math.max(remaining, 0)}s` : "\u2026";
+    }
+    if (isObserve && els.runCurrentMode) {
+      els.runCurrentMode.style.setProperty("--cta-progress", `${Math.min(pct, 100)}%`);
     }
     if (remaining <= 0) {
       clearInterval(state._progressInterval);
@@ -570,6 +576,7 @@ function hideProgress() {
   if (els.progressLabel) els.progressLabel.textContent = "";
   if (els.progressTime) els.progressTime.textContent = "";
   if (els.progressStatus) els.progressStatus.textContent = "Audit idle";
+  if (els.runCurrentMode) els.runCurrentMode.style.removeProperty("--cta-progress");
   if (bar) {
     bar.style.transition = 'none';
     bar.style.width = '0%';
