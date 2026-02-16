@@ -1744,6 +1744,7 @@ kbd {
   z-index: 1;
   background: var(--surface);
 }
+.tbl thead th:first-child { background: var(--raised); }
 #allTable td:first-child .pill { margin-right: 4px; vertical-align: middle; }
 
 .tbl tbody tr:hover td:first-child { background: var(--raised); }
@@ -1770,7 +1771,7 @@ kbd {
 .trow::before { background: var(--row-sev); }
 
 /* Expandable detail row */
-.detailRow td { padding: 0 !important; border-bottom: 2px solid var(--brd); }
+.detailRow td { padding: 0 !important; border-bottom: 2px solid var(--brd); position: static !important; left: auto !important; z-index: auto !important; }
 .detailInner {
   padding: 10px 12px 10px 16px;
   background: var(--raised);
@@ -1906,15 +1907,8 @@ kbd {
   font: 600 9px/1 var(--font-mono);
   cursor: pointer;
 }
-
-.rowAct:hover {
-  color: var(--tx);
-  border-color: var(--infoB);
-}
-
-.rowAct:focus-visible {
-  box-shadow: 0 0 0 1px var(--bg), 0 0 0 3px var(--infoB);
-}
+.rowAct:hover { color: var(--tx); border-color: var(--infoB); }
+.rowAct:focus-visible { box-shadow: 0 0 0 1px var(--bg), 0 0 0 3px var(--infoB); }
 
 .profilePills {
   display: flex;
@@ -2237,6 +2231,7 @@ body.compact .brandLogo { width: 72px; height: auto; }
 [data-theme="light"] .emptyLogo { filter: invert(1); }
 [data-theme="light"] .tbl th:first-child,
 [data-theme="light"] .tbl td:first-child { background: var(--surface); }
+[data-theme="light"] .tbl thead th:first-child { background: var(--raised); }
 [data-theme="light"] .tbl tbody tr:hover td:first-child { background: var(--raised); }
 [data-theme="light"] .detailInner { background: var(--raised); }
 [data-theme="light"] .exportMenu { background: var(--surface); border-color: var(--brd2); }

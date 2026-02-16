@@ -3130,7 +3130,7 @@ function cellHtml(value, maxLen = 60) {
 
 /** Shared row renderers — used by both VirtualTable and fallback paths. */
 function explorerRowHtml(f, idx) {
-  return `<tr class="trow" data-i="${idx}" data-sev="${escapeHtml(f.severity)}"><td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span> ${cellHtml(f.name, 50)}</td><td>${escapeHtml(f.product ?? "")}</td><td>${escapeHtml(f.type ?? "")}</td><td>${escapeHtml(f.wcag ?? "")}</td><td>${escapeHtml(f.testId ?? "")}</td><td>${cellHtml(f.path, 60)}</td><td>${cellHtml(f.note, 50)}</td><td class="fixCol">${cellHtml(f.fix, 50)} <button class="rowAct" type="button" data-i="${idx}" aria-label="Highlight finding ${idx + 1}">Highlight</button></td></tr>`;
+  return `<tr class="trow" data-i="${idx}" data-sev="${escapeHtml(f.severity)}"><td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span> ${cellHtml(f.name, 50)}</td><td>${escapeHtml(f.product ?? "")}</td><td>${escapeHtml(f.type ?? "")}</td><td>${escapeHtml(f.wcag ?? "")}</td><td>${escapeHtml(f.testId ?? "")}</td><td>${cellHtml(f.path, 60)}</td><td>${cellHtml(f.note, 50)}</td><td class="fixCol">${cellHtml(f.fix, 60)}</td></tr>`;
 }
 function contrastRowHtml(f, idx) {
   const pass = f.ratio >= f.required;
@@ -4585,16 +4585,7 @@ if (els.allTableBody && !els.allTableBody.__bound) {
         return;
       }
 
-      // Highlight button inside a row — highlight without toggling expand
-      if (e.target.closest(".rowAct")) {
-        const tr = e.target.closest("tr.trow");
-        const idx = tr ? Number(tr.getAttribute("data-i")) : NaN;
-        const f = Number.isFinite(idx) ? state.explorer[idx] : null;
-        if (f) await highlightFinding(f);
-        return;
-      }
-
-      // Row click — toggle expand + highlight on expand
+      // Row click — toggle expand + auto-highlight on expand
       const tr = e.target.closest("tr.trow");
       if (!tr) return;
       const idx = Number(tr.getAttribute("data-i"));
