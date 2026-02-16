@@ -4939,7 +4939,7 @@ function initVirtualTables() {
           <td class="fixCol">${cellHtml(f.fix, 50)} <button class="rowAct" type="button" data-i="${idx}" aria-label="Highlight finding ${idx + 1}">Highlight</button></td>
         </tr>
       `,
-      estimateRowHeight: 33,
+      estimateRowHeight: 28,
       overscan: 12,
     });
   }
@@ -4966,7 +4966,7 @@ function initVirtualTables() {
         </tr>
       `;
       },
-      estimateRowHeight: 33,
+      estimateRowHeight: 28,
       overscan: 10,
     });
   }
@@ -4988,12 +4988,28 @@ function initVirtualTables() {
           <td>${cellHtml(e.note, 50)}</td>
         </tr>
       `,
-      estimateRowHeight: 33,
+      estimateRowHeight: 28,
       overscan: 10,
     });
   }
 }
 
+
+// Horizontal scroll shadow indicator for .tableWrap
+function initScrollShadows() {
+  const wraps = document.querySelectorAll('.tableWrap');
+  for (const wrap of wraps) {
+    const update = () => {
+      const hasOverflow = wrap.scrollWidth > wrap.clientWidth;
+      const atEnd = wrap.scrollLeft + wrap.clientWidth >= wrap.scrollWidth - 1;
+      wrap.classList.toggle('scrollRight', hasOverflow && !atEnd);
+    };
+    wrap.addEventListener('scroll', update, { passive: true });
+    new ResizeObserver(update).observe(wrap);
+    update();
+  }
+}
+initScrollShadows();
 
 // auto refresh on navigation
 chrome.devtools.network.onNavigated.addListener(async () => {
