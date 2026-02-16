@@ -30,10 +30,7 @@ const RUNTIME_DIRS = [
 ];
 
 // Icons to exclude (unused at runtime)
-const ICON_EXCLUDE = new Set([
-  "flowlens-wordmark-dark.svg",
-  "flowlens-wordmark-light.svg",
-]);
+const ICON_EXCLUDE = new Set([]);
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
