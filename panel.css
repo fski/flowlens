@@ -417,8 +417,6 @@ body {
   flex: 1;
   min-height: 0;
   background: var(--surface);
-  border: 1px solid var(--brd);
-  border-radius: 2px;
   overflow: hidden;
 }
 .findingsCard[hidden] { display: none; }
@@ -1761,10 +1759,6 @@ kbd {
 .trow[data-sev="info"]     { --row-sev: var(--sev-info); }
 .trow::before { background: var(--row-sev); }
 
-/* Row dimming when a row is selected */
-.tableWrap.hasSelection .trow { opacity: 0.4; transition: opacity .15s; }
-.tableWrap.hasSelection .trow.isSelected { opacity: 1; }
-
 /* Expandable detail row */
 .detailRow td { padding: 0 !important; border-bottom: 2px solid var(--brd); }
 .detailInner {
@@ -1773,13 +1767,11 @@ kbd {
   border-left: 3px solid var(--row-sev, var(--tx3));
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 4px 12px;
+  gap: 3px 10px;
   font: 500 12px/1.5 var(--font-mono);
   color: var(--tx);
-  animation: detailSlide .12s ease-out;
 }
-@keyframes detailSlide { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
-.detailInner .detailLabel {
+.detailLabel {
   color: var(--tx3);
   font-weight: 700;
   font-size: 10px;
@@ -1788,19 +1780,18 @@ kbd {
   white-space: nowrap;
   padding-top: 1px;
 }
-.detailInner .detailValue {
+.detailValue {
   word-break: break-word;
   white-space: pre-wrap;
   min-width: 0;
 }
-.detailInner .detailValue:empty { display: none; }
-.detailInner .detailActions {
+.detailActions {
   grid-column: 1 / -1;
   display: flex;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: 2px;
 }
-.detailInner .detailActions .btn {
+.detailActions .btn {
   font-size: 11px;
   padding: 4px 10px;
 }
@@ -2194,7 +2185,7 @@ body.compact .ctaSlot { padding: 8px 12px 0; }
 body.compact .ctaBtn { min-height: 40px; font-size: 12px; }
 body.compact .subTab { min-height: 40px; }
 body.compact .topTab { min-height: 40px; }
-body.compact .findingsCard { padding: 0; }
+body.compact .findingsCard { }
 body.compact .btn { padding: 6px 12px; font-size: 12px; }
 body.compact .tbl thead th,
 body.compact .tbl tbody td { padding: 3px 4px; }
