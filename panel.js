@@ -25,6 +25,7 @@ const els = {
   exportMenu: document.getElementById("exportMenu"),
   copyJson: document.getElementById("copyJson"),
   downloadJson: document.getElementById("downloadJson"),
+  downloadMd: document.getElementById("downloadMd"),
   copyMd: document.getElementById("copyMd"),
   sessionExportMenuLabel: document.getElementById("sessionExportMenuLabel"),
   exportSessionJsonMenu: document.getElementById("exportSessionJsonMenu"),
@@ -275,7 +276,7 @@ const profileState = { profiles: { ...BUILTIN_PROFILES }, active: ["helpcenter"]
 
 // --- Column sorting ---
 const sortState = {
-  explorer: { col: null, dir: 'asc' },
+  explorer: { col: 0, dir: 'desc' },
   contrast: { col: null, dir: 'asc' },
   tab: { col: null, dir: 'asc' },
 };
@@ -4382,6 +4383,23 @@ els.downloadJson.addEventListener("click", () => {
   toast("Downloaded JSON");
 });
 
+if (els.downloadMd) {
+  els.downloadMd.addEventListener("click", () => {
+    const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
+    const envTag = `${originFrom(url) || "\u2014"} \u2022 ${detectEnv(url)}`;
+    const md = buildMarkdown({
+      inspectedUrl: url,
+      best: state.lastResult?.bestEntry || state.lastResult?.best,
+      perFrame: state.lastResult?.perFrame,
+      usedFrameIds: state.lastResult?.usedFrameIds,
+      envTag,
+    });
+    downloadText(`a11yflowaudit-${Date.now()}.md`, md, "text/markdown");
+    setExportMenuOpen(false);
+    toast("Downloaded MD");
+  });
+}
+
 els.copyMd.addEventListener("click", async () => {
   await copyMarkdown();
   setExportMenuOpen(false);
@@ -4898,6 +4916,12 @@ function initSortableHeaders() {
         }
       });
     });
+    // Apply default sort indicator if sortState is pre-configured
+    const s = sortState[t.id];
+    if (s && s.col != null && ths[s.col]) {
+      ths[s.col].setAttribute('data-sort-dir', s.dir);
+      ths[s.col].setAttribute('aria-sort', s.dir === 'asc' ? 'ascending' : 'descending');
+    }
   }
 }
 

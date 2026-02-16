@@ -5,7 +5,7 @@
 
 @property --cta-progress {
   syntax: '<percentage>';
-  inherits: false;
+  inherits: true;
   initial-value: 0%;
 }
 
@@ -130,7 +130,7 @@ body {
   background: var(--bg);
   color: var(--tx);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
@@ -214,7 +214,7 @@ body {
   border: 0;
   background: transparent;
   color: var(--tx2);
-  font: 400 11px/1 var(--font-mono);
+  font: 400 12px/1 var(--font-mono);
   cursor: pointer;
   transition: color .12s;
 }
@@ -390,7 +390,7 @@ body {
   border-radius: 4px;
   background: transparent;
   color: var(--tx2);
-  font: 600 9px/1 var(--font-mono);
+  font: 600 10px/1 var(--font-mono);
   text-transform: uppercase;
   letter-spacing: .06em;
   cursor: pointer;
@@ -686,7 +686,7 @@ kbd {
   flex-shrink: 0;
 }
 
-.topTab .tabLabel { font-size: 12px; }
+.topTab .tabLabel { font-size: 14px; }
 
 .topTab--settings { flex: 0 0 auto; }
 
@@ -694,21 +694,25 @@ kbd {
 .subTabBar {
   display: flex;
   align-items: stretch;
-  gap: 8px;
-  padding: 8px 16px 0;
+  gap: 4px;
+  padding: 8px 8px 0;
   border-bottom: 2px solid var(--brd);
   background: var(--surface);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
+.subTabBar::-webkit-scrollbar { display: none; }
 
 .subTab {
-  flex: 1;
-  max-width: 164px;
+  flex: 1 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-height: 48px;
-  padding: 12px 8px 8px;
+  gap: 6px;
+  min-height: 44px;
+  padding: 10px 10px 8px;
   border: 2px solid transparent;
   border-bottom: none;
   border-top-left-radius: 6px;
@@ -719,6 +723,7 @@ kbd {
   font: 500 12px/1 var(--font-mono);
   cursor: pointer;
   transition: color .12s, border-color .12s, background .12s;
+  white-space: nowrap;
 }
 
 .subTab:hover { color: var(--tx); }
@@ -773,7 +778,7 @@ kbd {
 .subTab--observe[aria-selected="true"] { --tab-grad: linear-gradient(180deg, #5AADDB, var(--brd)); }
 .subTab--watch[aria-selected="true"]   { --tab-grad: linear-gradient(180deg, #8B8EDB, var(--brd)); }
 
-.subTab .tabLabel { font-size: 12px; }
+.subTab .tabLabel { font-size: 14px; }
 
 .subTab:focus-visible {
   outline: 2px solid var(--cyan);
@@ -868,6 +873,7 @@ kbd {
 .ctaBtn.running.ctaBtn--teal {
   background: var(--brd);
   border: none;
+  border-radius: 4px;
   position: relative;
   overflow: hidden;
   justify-content: space-between;
@@ -884,7 +890,7 @@ kbd {
   width: var(--cta-progress, 0%);
   background: linear-gradient(90deg, #7BB85E 0%, #54B8A6 20%, #5AADDB 40%, #8B8EDB 60%, #D4A054 80%, #DB6B6B 100%);
   background-size: 100vw 4px;
-  transition: --cta-progress 1s linear;
+  transition: width 1s linear;
 }
 .runTimer {
   display: none;
@@ -899,7 +905,7 @@ kbd {
 .helperText {
   text-align: center;
   color: var(--tx2);
-  font: 400 10px/1.4 var(--font-mono);
+  font: 400 11px/1.4 var(--font-mono);
   padding: 8px 0 0;
   margin: 0;
 }
@@ -931,14 +937,14 @@ kbd {
 }
 
 .sevTab .sevCount {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   line-height: 1.32;
   color: var(--tx2);
 }
 
 .sevTab .sevLabel {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 400;
   line-height: 1.32;
   color: var(--tx2);
@@ -1249,7 +1255,7 @@ kbd {
   border: 0;
   background: var(--raised);
   color: var(--tx2);
-  font: 400 11px/1 var(--font-mono);
+  font: 400 12px/1 var(--font-mono);
   cursor: pointer;
   transition: color .12s;
 }
@@ -1558,12 +1564,12 @@ kbd {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 1px 5px;
+  padding: 2px 6px;
   border-radius: 4px;
   border: none;
   text-transform: uppercase;
   letter-spacing: .02em;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
 }
 
@@ -1604,7 +1610,7 @@ kbd {
   width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: 12px;
   font-family: var(--font-mono);
 }
 
@@ -1613,14 +1619,15 @@ kbd {
   top: 0;
   z-index: 2;
   text-align: left;
-  padding: 5px 6px;
+  padding: 6px 8px;
   border-bottom: 2px solid var(--brd);
   background: var(--raised);
   color: var(--tx2);
-  font: 700 10px/1.2 var(--font-mono);
+  font: 700 11px/1.2 var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-transform: uppercase;
 }
 
 .tbl thead th.sortable {
@@ -1656,7 +1663,7 @@ kbd {
 }
 
 .tbl tbody td {
-  padding: 5px 6px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--brd0);
   color: var(--tx);
   font-weight: 500;
@@ -1679,13 +1686,13 @@ kbd {
 }
 
 /* Explorer column widths — % based for responsiveness */
-/* 9 cols: sev 11% | product 10% | type 14% | wcag 7% | name * | testId 10% | path * | note * | fix 14% */
-#allTable th:nth-child(1), #allTable td:nth-child(1) { width: 11%; }
+/* 9 cols: sev 13% | product 10% | type 16% | wcag 8% | name * | testId 10% | path * | note * | fix 16% */
+#allTable th:nth-child(1), #allTable td:nth-child(1) { width: 13%; }
 #allTable th:nth-child(2), #allTable td:nth-child(2) { width: 10%; }
-#allTable th:nth-child(3), #allTable td:nth-child(3) { width: 14%; }
-#allTable th:nth-child(4), #allTable td:nth-child(4) { width: 7%; }
+#allTable th:nth-child(3), #allTable td:nth-child(3) { width: 16%; }
+#allTable th:nth-child(4), #allTable td:nth-child(4) { width: 8%; }
 #allTable th:nth-child(6), #allTable td:nth-child(6) { width: 10%; }
-#allTable th:nth-child(9), #allTable td:nth-child(9) { width: 14%; }
+#allTable th:nth-child(9), #allTable td:nth-child(9) { width: 16%; }
 
 /* Contrast column widths — % based */
 /* 8 cols: ratio 9% | req 7% | large 7% | text * | tag 8% | testId 10% | path * | note * */
@@ -1779,7 +1786,7 @@ kbd {
   border: none;
   background: transparent;
   padding: 4px 0;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--tx);
   flex: 1;
   min-width: 0;
@@ -1949,13 +1956,13 @@ kbd {
 }
 
 .emptyVersion {
-  font: 400 10px/1 var(--font-mono);
+  font: 400 11px/1 var(--font-mono);
   color: var(--tx4);
 }
 
 .emptyText {
   color: var(--tx3);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
 }
 
