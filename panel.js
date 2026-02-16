@@ -98,6 +98,9 @@ const els = {
   flowVerdict: document.getElementById("flowVerdict"),
   autoCaptureNav: document.getElementById("autoCaptureNav"),
   autoCaptureDelay: document.getElementById("autoCaptureDelay"),
+  contrastEmpty: document.getElementById("contrastEmpty"),
+  tabWalkEmpty: document.getElementById("tabWalkEmpty"),
+  watchEmpty: document.getElementById("watchEmpty"),
 };
 
 const ORDER = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
@@ -502,7 +505,7 @@ function toast(message, action) {
   }
   els.toast.classList.add("show");
   clearTimeout(state._toastTimer);
-  state._toastTimer = setTimeout(() => els.toast.classList.remove("show"), action ? 4000 : 1800);
+  state._toastTimer = setTimeout(() => els.toast.classList.remove("show"), action ? 4000 : 2500);
 }
 
 const DURATIONS = { watch: 40, observe: 12, tabWalk: 5, contrast: 3, run: 2 };
@@ -2230,6 +2233,7 @@ async function persistActiveSessionBestEffort(session) {
     return true;
   } catch (err) {
     console.warn("persist active session failed", err);
+    toast("Session save failed \u2014 data may be lost if DevTools closes");
     sessionState.lastPersistReasonCode = classifyPersistReason(err);
     debugSession("persist_active_fail", { estimatedBytes, error: String(err?.message || err) });
     return false;
@@ -2251,6 +2255,7 @@ async function archiveSessionBestEffort(session) {
     return true;
   } catch (err) {
     console.warn("archive session failed", err);
+    toast("Session archive failed");
     debugSession("archive_fail", { estimatedBytes, error: String(err?.message || err) });
     return false;
   }
@@ -3204,6 +3209,8 @@ function updateContrastView() {
     data = state.contrastSamples;
   }
   data = data || [];
+  const hasData = state.contrastData.length > 0 || state.contrastSamples.length > 0;
+  if (els.contrastEmpty) els.contrastEmpty.hidden = hasData;
   const q = (els.contrastQ?.value || "").trim().toLowerCase();
   if (q) {
     data = data.filter(f => {
@@ -3229,6 +3236,7 @@ function updateContrastView() {
 function renderTabWalk(res) {
   const raw = Array.isArray(res?.events) ? res.events : [];
   state.tabData = raw;
+  if (els.tabWalkEmpty) els.tabWalkEmpty.hidden = raw.length > 0;
   let filtered = raw;
   const q = (els.tabWalkQ?.value || "").trim().toLowerCase();
   if (q) {
@@ -3254,6 +3262,7 @@ function renderTabWalk(res) {
 
 function renderWatch(res) {
   if (!res) return;
+  if (els.watchEmpty) els.watchEmpty.hidden = true;
   // Summary metrics
   if (els.watchSummary) {
     const metrics = [
@@ -5066,6 +5075,7 @@ chrome.devtools.network.onNavigated.addListener(async () => {
           await captureStepOptionC(autoLabel, { isAutoCapture: true });
         } catch (e) {
           console.error("Auto-capture failed:", e);
+          toast("Auto-capture failed");
         }
       }, debounceMs);
     }
