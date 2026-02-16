@@ -98,6 +98,7 @@ const els = {
   flowVerdict: document.getElementById("flowVerdict"),
   autoCaptureNav: document.getElementById("autoCaptureNav"),
   autoCaptureDelay: document.getElementById("autoCaptureDelay"),
+  explorerEmpty: document.getElementById("explorerEmpty"),
   contrastEmpty: document.getElementById("contrastEmpty"),
   tabWalkEmpty: document.getElementById("tabWalkEmpty"),
   watchEmpty: document.getElementById("watchEmpty"),
@@ -3149,7 +3150,8 @@ function cellHtml(value, maxLen = 60) {
 
 /** Shared row renderers — used by both VirtualTable and fallback paths. */
 function explorerRowHtml(f, idx) {
-  return `<tr class="trow" data-i="${idx}" data-sev="${escapeHtml(f.severity)}"><td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span> ${cellHtml(f.name, 50)}</td><td>${escapeHtml(f.product ?? "")}</td><td>${escapeHtml(f.type ?? "")}</td><td>${escapeHtml(f.wcag ?? "")}</td><td>${escapeHtml(f.testId ?? "")}</td><td>${cellHtml(f.path, 60)}</td><td>${cellHtml(f.note, 50)}</td><td class="fixCol">${cellHtml(f.fix, 60)}</td></tr>`;
+  const sev = f.severity || 'info';
+  return `<tr class="trow" data-i="${idx}" data-sev="${escapeHtml(sev)}"><td><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span> ${cellHtml(f.name, 50)}</td><td>${escapeHtml(f.product ?? "")}</td><td>${cellHtml(f.type ?? "", 30)}</td><td>${escapeHtml(f.wcag ?? "")}</td><td>${escapeHtml(f.testId ?? "")}</td><td>${cellHtml(f.path, 60)}</td><td>${cellHtml(f.note, 50)}</td><td class="fixCol">${cellHtml(f.fix, 60)}</td></tr>`;
 }
 function contrastRowHtml(f, idx) {
   const pass = f.ratio >= f.required;
@@ -3229,7 +3231,6 @@ function updateContrastView() {
   }
   data = data || [];
   const hasData = state.contrastData.length > 0 || state.contrastSamples.length > 0;
-  if (els.contrastEmpty) els.contrastEmpty.hidden = hasData;
   const q = (els.contrastQ?.value || "").trim().toLowerCase();
   if (q) {
     data = data.filter(f => {
@@ -3241,6 +3242,17 @@ function updateContrastView() {
     });
   }
   const sorted = applySortState(data, 'contrast');
+  if (els.contrastEmpty) {
+    if (!hasData) {
+      els.contrastEmpty.textContent = "Run a Contrast check to see results";
+      els.contrastEmpty.hidden = false;
+    } else if (sorted.length === 0) {
+      els.contrastEmpty.textContent = "No results match your search";
+      els.contrastEmpty.hidden = false;
+    } else {
+      els.contrastEmpty.hidden = true;
+    }
+  }
   if (!VT.contrast) initVirtualTables();
   if (VT.contrast) {
     VT.contrast.setData(sorted);
@@ -3255,7 +3267,6 @@ function updateContrastView() {
 function renderTabWalk(res) {
   const raw = Array.isArray(res?.events) ? res.events : [];
   state.tabData = raw;
-  if (els.tabWalkEmpty) els.tabWalkEmpty.hidden = raw.length > 0;
   let filtered = raw;
   const q = (els.tabWalkQ?.value || "").trim().toLowerCase();
   if (q) {
@@ -3268,6 +3279,17 @@ function renderTabWalk(res) {
     });
   }
   const events = applySortState(filtered, 'tab');
+  if (els.tabWalkEmpty) {
+    if (raw.length === 0) {
+      els.tabWalkEmpty.textContent = "Run a Tab Walk to see results";
+      els.tabWalkEmpty.hidden = false;
+    } else if (events.length === 0) {
+      els.tabWalkEmpty.textContent = "No results match your search";
+      els.tabWalkEmpty.hidden = false;
+    } else {
+      els.tabWalkEmpty.hidden = true;
+    }
+  }
   if (!VT.tab) initVirtualTables();
   if (VT.tab) {
     VT.tab.setData(events);
@@ -3281,7 +3303,9 @@ function renderTabWalk(res) {
 
 function renderWatch(res) {
   if (!res) return;
-  if (els.watchEmpty) els.watchEmpty.hidden = true;
+  const watchEvents = Array.isArray(res.events) ? res.events : [];
+  const hasContent = watchEvents.length > 0 || res.bursts != null || res.silentMs != null;
+  if (els.watchEmpty) els.watchEmpty.hidden = hasContent;
   // Summary metrics
   if (els.watchSummary) {
     const metrics = [
@@ -3444,6 +3468,11 @@ function renderExplorer(findings) {
     const total = all.length;
     const shown = filtered.length;
     els.findingsCount.textContent = shown === total ? `${total} findings` : `${shown} of ${total}`;
+  }
+
+  // Show empty state when filters produce zero results from non-empty data
+  if (els.explorerEmpty) {
+    els.explorerEmpty.hidden = filtered.length > 0 || all.length === 0;
   }
 
   if (!VT.all) initVirtualTables();
@@ -4573,19 +4602,20 @@ document.addEventListener("keydown", (e) => {
 
 /** Build detail row HTML for a finding */
 function buildDetailRow(finding, colCount) {
+  const sev = finding.severity || 'info';
   const fields = [
-    ['Severity', finding.severity], ['Product', finding.product],
+    ['Product', finding.product],
     ['Type', finding.type], ['WCAG', finding.wcag],
     ['Name', finding.name], ['Test ID', finding.testId],
     ['Path', finding.path], ['Note', finding.note],
     ['Fix', finding.fix],
   ];
-  const sev = escapeHtml(finding.severity || '');
-  const pairs = fields
+  const sevHtml = `<span class="detailLabel">Severity</span><span class="detailValue"><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span></span>`;
+  const pairs = sevHtml + fields
     .filter(([, v]) => v)
     .map(([k, v]) => `<span class="detailLabel">${escapeHtml(k)}</span><span class="detailValue">${escapeHtml(String(v))}</span>`)
     .join('');
-  return `<tr class="detailRow" style="--row-sev:var(--sev-${sev})"><td colspan="${colCount}"><div class="detailInner">${pairs}<div class="detailActions"><button class="btn xs detailCopy" type="button">Copy</button></div></div></td></tr>`;
+  return `<tr class="detailRow" style="--row-sev:var(--sev-${escapeHtml(sev)})"><td colspan="${colCount}"><div class="detailInner">${pairs}<div class="detailActions"><button class="btn xs detailCopy" type="button">Copy</button></div></div></td></tr>`;
 }
 
 if (els.allTableBody && !els.allTableBody.__bound) {

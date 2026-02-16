@@ -1588,13 +1588,14 @@ kbd {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 2px 6px;
+  padding: 2px 7px;
   border-radius: 4px;
   border: 1px solid transparent;
   text-transform: uppercase;
   letter-spacing: .02em;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .pill.critical{color:var(--sev-critical);background:rgba(219,90,90,0.2);border-color:rgba(219,90,90,0.3)}
@@ -1772,6 +1773,8 @@ kbd {
   bottom: 0;
   width: 4px;
   border-radius: 0 1px 1px 0;
+  z-index: 2;
+  pointer-events: none;
 }
 .trow[data-sev="critical"] { --row-sev: var(--sev-critical); }
 .trow[data-sev="high"]     { --row-sev: var(--sev-high); }
@@ -2294,7 +2297,7 @@ body.compact .brandLogo { width: 72px; height: auto; }
   .tbl thead th { padding: 3px 4px; font-size: 10px; }
   .tbl tbody td { padding: 3px 4px; }
   .tbl { font-size: 11px; }
-  .pill { font-size: 0; width: 8px; height: 8px; padding: 0; border-radius: 50%; min-width: 8px; }
+  .pill { font-size: 9px; padding: 1px 4px; min-width: auto; }
   .searchToolbar { padding: 2px 4px; }
 
   /* Hide more columns at very narrow */
