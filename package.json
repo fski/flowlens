@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "name": "flowlens",
+  "version": "3.0.0",
+  "scripts": {
+    "build": "node build.mjs",
+    "build:clean": "rm -rf dist && node build.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

@@ -1,8 +1,1 @@
-<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-<path d="M10 2H14V6.66667" stroke="#D2D2D2" stroke-width="2" stroke-miterlimit="10" stroke-linecap="square"/>
-<path d="M6 6L2 2L2.20189 2.2019" stroke="#D2D2D2" stroke-width="2" stroke-miterlimit="10" stroke-linecap="square"/>
-<path d="M6.66667 2H2V6.66667" stroke="#D2D2D2" stroke-width="2" stroke-miterlimit="10" stroke-linecap="square"/>
-<path d="M10 10L14 14L13.7981 13.7981" stroke="#D2D2D2" stroke-width="2" stroke-miterlimit="10" stroke-linecap="square"/>
-<path d="M9.33325 14H13.9999V9.33333" stroke="#D2D2D2" stroke-width="2" stroke-miterlimit="10" stroke-linecap="square"/>
-<path d="M2 10V14H6.66667" stroke="#D2D2D2" stroke-width="2" stroke-miterlimit="10" stroke-linecap="square"/>
-</svg>
+<svg fill="none" height="16" viewBox="0 0 16 16" width="16" xmlns="http://www.w3.org/2000/svg"><g stroke="#d2d2d2" stroke-linecap="square" stroke-miterlimit="10" stroke-width="2"><path d="m10 2h4v4.66667"/><path d="m6 6-4-4 .20189.2019"/><path d="m6.66667 2h-4.66667v4.66667"/><path d="m10 10 4 4-.2019-.2019"/><path d="m9.33325 14h4.66665v-4.66667"/><path d="m2 10v4h4.66667"/></g></svg>

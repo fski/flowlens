@@ -611,7 +611,6 @@ function setRunButtonBusy(busy) {
   els.runCurrentMode.classList.toggle("busy", !!busy);
   const isObserve = state.activeMode === "observe";
   if (els.runIcon) {
-    els.runIcon.textContent = busy ? "" : "\u25B6";
     els.runIcon.hidden = !!busy;
   }
   if (els.runTimer) {
@@ -631,6 +630,7 @@ function setRunButtonBusy(busy) {
     if (els.runLabel) els.runLabel.textContent = label;
     els.runCurrentMode.className = "ctaBtn " + cta.cls;
     if (els.snapHelper) els.snapHelper.textContent = cta.helper;
+    if (els.runIcon) els.runIcon.src = state.hasRunMode.has(state.activeMode) ? "icons/Rerun Icon.svg" : "icons/Run Icon.svg";
   }
 }
 
@@ -793,6 +793,7 @@ function updateSnapCta(mode) {
     els.runCurrentMode.className = "ctaBtn " + cta.cls;
   }
   if (els.snapHelper) els.snapHelper.textContent = cta.helper;
+  if (els.runIcon) els.runIcon.src = state.hasRunMode.has(mode) ? "icons/Rerun Icon.svg" : "icons/Run Icon.svg";
 }
 
 function showMode(mode) {
@@ -1086,7 +1087,7 @@ function renderRecord(rec) {
 
   if (mode === "run") {
     renderRunSummary(bestResult, rec);
-    const findings = Array.isArray(bestResult?.findings) ? bestResult.findings : [];
+    const findings = applyFixSuggestions(Array.isArray(bestResult?.findings) ? bestResult.findings : []);
     state.currentFindings = findings;
     state.findingsByMode.run = findings;
     renderExplorer(findings);
@@ -1098,7 +1099,7 @@ function renderRecord(rec) {
     renderSevTabs();
     renderTabWalk(bestResult);
   } else if (mode === "observe" && bestResult) {
-    const oFindings = Array.isArray(bestResult.findings) ? bestResult.findings : [];
+    const oFindings = applyFixSuggestions(Array.isArray(bestResult.findings) ? bestResult.findings : []);
     if (oFindings.length) {
       renderSevTabs(oFindings);
       state.currentFindings = oFindings;
@@ -2556,240 +2557,125 @@ function pruneSessionRawAppendix(session) {
   }
 }
 
-function runSignatureEntries(snapshot, rawAppendix = null) {
-  const out = [];
-  const frameKey = snapshot?.best?.frameKey || "fk::unknown::unknown::root::00000000";
-  const findings = resolveSnapshotRaw(snapshot, rawAppendix)?.findings;
-  if (!Array.isArray(findings)) return out;
+/** Shared boilerplate: resolve raw, extract array, map items. */
+function _sigEntries(snapshot, rawAppendix, arrayKey, mapFn) {
+  const fk = snapshot?.best?.frameKey || "fk::unknown::unknown::root::00000000";
+  const items = (resolveSnapshotRaw(snapshot, rawAppendix) || {})[arrayKey];
+  if (!Array.isArray(items)) return [];
+  return items.map(item => mapFn(item, fk));
+}
+
+/** Signature entries for findings-based modes (run + observe). */
+function findingSignatureEntries(prefix, snapshot, rawAppendix = null) {
+  const isRun = prefix === "run";
+  const fk = snapshot?.best?.frameKey || "fk::unknown::unknown::root::00000000";
+  const raw = resolveSnapshotRaw(snapshot, rawAppendix) || {};
+  const findings = Array.isArray(raw.findings) ? raw.findings : [];
+  const entries = [];
   for (const f of findings) {
     const testIdNorm = normalizeIdentityText(f?.testId, 60);
-    const roleNorm = normalizeIdentityText(f?.role, 20);
-    const nameNorm = normalizeIdentityText(f?.name, 80);
-    const noteNorm = normalizeIdentityText(f?.note, 80);
     const typeNorm = normalizeIdentityText(f?.type, 40);
     const wcagNorm = normalizeIdentityText(f?.wcag, 24);
-    const levelNorm = normalizeIdentityText(f?.level, 12);
-    const confidenceNorm = normalizeIdentityText(f?.confidence, 16);
     const severityNorm = normalizeIdentityText(f?.severity, 10);
-    const productNorm = normalizeIdentityText(f?.product, 30);
+    const noteNorm = normalizeIdentityText(f?.note, 80);
     const pathHash = pathHashForSig(f?.path);
     const weakPath = pathLooksWeak(f?.path);
     const signatureQuality = testIdNorm ? "high" : (weakPath ? "low" : "medium");
-    const weakSig = signatureQuality === "low"
-      ? [
-        "run:weak",
-        frameKey,
-        typeNorm || "type:none",
-        wcagNorm || "wcag:none",
-        severityNorm || "sev:none",
-        roleNorm || "role:none",
-        nameNorm || "name:none",
-        noteNorm || "note:none",
-      ].join("|")
-      : null;
-    const sig = [
-      "run",
-      frameKey,
-      typeNorm,
-      wcagNorm,
-      levelNorm,
-      confidenceNorm,
-      severityNorm,
-      productNorm,
-      `testid:${testIdNorm || "none"}`,
-      `role:${roleNorm || "none"}`,
-      `pathh:${pathHash}`,
-      nameNorm,
-      noteNorm,
-    ].join("|");
-    const severity = normalizeWs(f?.severity, 12);
-    const confidence = normalizeFindingConfidence(f?.confidence);
-    out.push({
-      sig,
-      weakSig,
-      signatureQuality,
+    const roleNorm = isRun ? normalizeIdentityText(f?.role, 20) : null;
+    const nameNorm = isRun ? normalizeIdentityText(f?.name, 80) : null;
+    let weakSig = null;
+    if (signatureQuality === "low") {
+      const wp = [`${prefix}:weak`, fk, typeNorm || "type:none", wcagNorm || "wcag:none", severityNorm || "sev:none"];
+      if (isRun) wp.push(roleNorm || "role:none", nameNorm || "name:none");
+      wp.push(noteNorm || "note:none");
+      weakSig = wp.join("|");
+    }
+    const sp = [prefix, fk, typeNorm, wcagNorm];
+    if (isRun) sp.push(normalizeIdentityText(f?.level, 12), normalizeIdentityText(f?.confidence, 16), severityNorm, normalizeIdentityText(f?.product, 30));
+    else sp.push(severityNorm);
+    sp.push(`testid:${testIdNorm || "none"}`);
+    if (isRun) sp.push(`role:${roleNorm || "none"}`);
+    sp.push(`pathh:${pathHash}`);
+    if (isRun) sp.push(nameNorm);
+    sp.push(noteNorm);
+    entries.push({
+      sig: sp.join("|"), weakSig, signatureQuality,
       blocking: isRunFindingBlocking(f),
       wcag: f?.wcag || null,
-      confidence,
+      confidence: normalizeFindingConfidence(f?.confidence),
       level: f?.level || null,
-      severity: severity || null,
-      label: f?.type || "run_finding",
+      severity: normalizeWs(f?.severity, 12) || null,
+      label: f?.type || `${prefix}_finding`,
     });
   }
-  return out;
+  if (!isRun) {
+    const snapshots = Array.isArray(raw.snapshots) ? raw.snapshots : [];
+    const peak = snapshots.reduce((m, s) => Math.max(m, asNumber(s?.count, 0)), 0);
+    let jumps = 0;
+    for (let i = 1; i < snapshots.length; i++) {
+      if (asNumber(snapshots[i]?.count, 0) > asNumber(snapshots[i - 1]?.count, 0)) jumps += 1;
+    }
+    entries.push({
+      sig: ["observe", fk, "trend", `peak:${bucketNumber(peak, 5)}`, `jumps:${bucketNumber(jumps, 1)}`].join("|"),
+      weakSig: null, signatureQuality: "high", blocking: false,
+      wcag: null, confidence: "advisory", level: null, severity: "info", label: "trend",
+    });
+  }
+  return entries;
+}
+
+/** Thin wrapper — also called directly for step-diff logic. */
+function runSignatureEntries(snapshot, rawAppendix = null) {
+  return findingSignatureEntries("run", snapshot, rawAppendix);
 }
 
 function contrastSignatureEntries(snapshot, rawAppendix = null) {
-  const out = [];
-  const frameKey = snapshot?.best?.frameKey || "fk::unknown::unknown::root::00000000";
-  const failures = resolveSnapshotRaw(snapshot, rawAppendix)?.failures;
-  if (!Array.isArray(failures)) return out;
-  for (const f of failures) {
-    const sig = [
-      "contrast",
-      frameKey,
-      normalizeIdentityText(f?.wcag || "1.4.3", 24),
-      `ratio:${bucketNumber(asNumber(f?.ratio, 0) * 10, 2)}`,
-      `required:${bucketNumber(asNumber(f?.required, 0) * 10, 2)}`,
-      normalizeIdentityText(f?.tag, 16),
-      `testid:${normalizeIdentityText(f?.testId, 60) || "none"}`,
-      `pathh:${pathHashForSig(f?.path)}`,
-      normalizeIdentityText(f?.text, 60),
-    ].join("|");
-    out.push({
-      sig,
-      weakSig: null,
-      signatureQuality: normalizeIdentityText(f?.testId, 60) ? "high" : "medium",
-      blocking: true,
-      wcag: f?.wcag || "1.4.3",
-      confidence: f?.confidence || "heuristic",
-      level: null,
-      severity: "high",
-      label: "contrast_failure",
-    });
-  }
-  return out;
+  return _sigEntries(snapshot, rawAppendix, "failures", (f, fk) => {
+    const testIdNorm = normalizeIdentityText(f?.testId, 60);
+    return {
+      sig: ["contrast", fk, normalizeIdentityText(f?.wcag || "1.4.3", 24),
+        `ratio:${bucketNumber(asNumber(f?.ratio, 0) * 10, 2)}`,
+        `required:${bucketNumber(asNumber(f?.required, 0) * 10, 2)}`,
+        normalizeIdentityText(f?.tag, 16), `testid:${testIdNorm || "none"}`,
+        `pathh:${pathHashForSig(f?.path)}`, normalizeIdentityText(f?.text, 60)].join("|"),
+      weakSig: null, signatureQuality: testIdNorm ? "high" : "medium",
+      blocking: true, wcag: f?.wcag || "1.4.3", confidence: f?.confidence || "heuristic",
+      level: null, severity: "high", label: "contrast_failure",
+    };
+  });
 }
 
 function tabWalkSignatureEntries(snapshot, rawAppendix = null) {
-  const out = [];
-  const frameKey = snapshot?.best?.frameKey || "fk::unknown::unknown::root::00000000";
-  const events = resolveSnapshotRaw(snapshot, rawAppendix)?.events;
-  if (!Array.isArray(events)) return out;
-  for (const e of events) {
-    const sig = [
-      "tabwalk",
-      frameKey,
-      normalizeIdentityText(e?.type, 40),
-      `pathh:${pathHashForSig(e?.path)}`,
-      normalizeIdentityText(e?.name, 80),
-      normalizeIdentityText(e?.note, 80),
-      `tabi:${bucketNumber(asNumber(e?.tabIndex, 0), 1)}`,
-    ].join("|");
+  return _sigEntries(snapshot, rawAppendix, "events", (e, fk) => {
     const type = normalizeWs(e?.type, 40);
-    out.push({
-      sig,
-      weakSig: null,
-      signatureQuality: pathLooksWeak(e?.path) ? "low" : "medium",
-      blocking: TAB_BLOCKING_TYPES.has(type),
-      wcag: null,
-      confidence: "heuristic",
-      level: null,
-      severity: TAB_BLOCKING_TYPES.has(type) ? "medium" : "info",
+    return {
+      sig: ["tabwalk", fk, normalizeIdentityText(e?.type, 40), `pathh:${pathHashForSig(e?.path)}`,
+        normalizeIdentityText(e?.name, 80), normalizeIdentityText(e?.note, 80),
+        `tabi:${bucketNumber(asNumber(e?.tabIndex, 0), 1)}`].join("|"),
+      weakSig: null, signatureQuality: pathLooksWeak(e?.path) ? "low" : "medium",
+      blocking: TAB_BLOCKING_TYPES.has(type), wcag: null, confidence: "heuristic",
+      level: null, severity: TAB_BLOCKING_TYPES.has(type) ? "medium" : "info",
       label: e?.type || "tabwalk_event",
-    });
-  }
-  return out;
+    };
+  });
 }
 
 function watchSignatureEntries(snapshot, rawAppendix = null) {
-  const out = [];
-  const frameKey = snapshot?.best?.frameKey || "fk::unknown::unknown::root::00000000";
+  const fk = snapshot?.best?.frameKey || "fk::unknown::unknown::root::00000000";
   const raw = resolveSnapshotRaw(snapshot, rawAppendix) || {};
-  const verdicts = Array.isArray(raw?.verdicts) ? raw.verdicts : [];
-  for (const v of verdicts) {
-    const sig = [
-      "watch",
-      frameKey,
-      normalizeWs(v?.metric, 32),
-      `b:${bucketNumber(v?.budget, 1)}`,
-      `v:${bucketNumber(v?.value, 1)}`,
-    ].join("|");
-    out.push({
-      sig,
-      weakSig: null,
-      signatureQuality: "high",
-      blocking: true,
-      wcag: null,
-      confidence: "heuristic",
-      level: null,
-      severity: "medium",
-      label: v?.metric || "watch_verdict",
-    });
-  }
+  const out = (Array.isArray(raw.verdicts) ? raw.verdicts : []).map(v => ({
+    sig: ["watch", fk, normalizeWs(v?.metric, 32), `b:${bucketNumber(v?.budget, 1)}`, `v:${bucketNumber(v?.value, 1)}`].join("|"),
+    weakSig: null, signatureQuality: "high", blocking: true, wcag: null,
+    confidence: "heuristic", level: null, severity: "medium", label: v?.metric || "watch_verdict",
+  }));
   const focusLossCount = asNumber(raw?.focusLossCount, 0);
   if (focusLossCount > 0) {
     out.push({
-      sig: ["watch", frameKey, "focus_loss", `v:${bucketNumber(focusLossCount, 1)}`].join("|"),
-      weakSig: null,
-      signatureQuality: "high",
-      blocking: true,
-      wcag: null,
-      confidence: "heuristic",
-      level: null,
-      severity: "high",
-      label: "focus_loss",
+      sig: ["watch", fk, "focus_loss", `v:${bucketNumber(focusLossCount, 1)}`].join("|"),
+      weakSig: null, signatureQuality: "high", blocking: true, wcag: null,
+      confidence: "heuristic", level: null, severity: "high", label: "focus_loss",
     });
   }
-  return out;
-}
-
-function observeSignatureEntries(snapshot, rawAppendix = null) {
-  const out = [];
-  const frameKey = snapshot?.best?.frameKey || "fk::unknown::unknown::root::00000000";
-  const raw = resolveSnapshotRaw(snapshot, rawAppendix) || {};
-  const findings = Array.isArray(raw?.findings) ? raw.findings : [];
-  for (const f of findings) {
-    const typeNorm = normalizeIdentityText(f?.type, 40);
-    const wcagNorm = normalizeIdentityText(f?.wcag, 24);
-    const severityNorm = normalizeIdentityText(f?.severity, 10);
-    const noteNorm = normalizeIdentityText(f?.note, 80);
-    const testIdNorm = normalizeIdentityText(f?.testId, 60);
-    const pathHash = pathHashForSig(f?.path);
-    const weakPath = pathLooksWeak(f?.path);
-    const signatureQuality = testIdNorm ? "high" : (weakPath ? "low" : "medium");
-    const weakSig = signatureQuality === "low"
-      ? [
-        "observe:weak",
-        frameKey,
-        typeNorm || "type:none",
-        wcagNorm || "wcag:none",
-        severityNorm || "sev:none",
-        noteNorm || "note:none",
-      ].join("|")
-      : null;
-    const sig = [
-      "observe",
-      frameKey,
-      typeNorm,
-      wcagNorm,
-      severityNorm,
-      `testid:${testIdNorm || "none"}`,
-      `pathh:${pathHash}`,
-      noteNorm,
-    ].join("|");
-    const severity = normalizeWs(f?.severity, 12);
-    const confidence = normalizeFindingConfidence(f?.confidence);
-    out.push({
-      sig,
-      weakSig,
-      signatureQuality,
-      blocking: isRunFindingBlocking(f),
-      wcag: f?.wcag || null,
-      confidence,
-      level: f?.level || null,
-      severity: severity || null,
-      label: f?.type || "observe_finding",
-    });
-  }
-
-  const snapshots = Array.isArray(raw?.snapshots) ? raw.snapshots : [];
-  const peak = snapshots.reduce((m, s) => Math.max(m, asNumber(s?.count, 0)), 0);
-  let jumps = 0;
-  for (let i = 1; i < snapshots.length; i++) {
-    if (asNumber(snapshots[i]?.count, 0) > asNumber(snapshots[i - 1]?.count, 0)) jumps += 1;
-  }
-  out.push({
-    sig: ["observe", frameKey, "trend", `peak:${bucketNumber(peak, 5)}`, `jumps:${bucketNumber(jumps, 1)}`].join("|"),
-    weakSig: null,
-    signatureQuality: "high",
-    blocking: false,
-    wcag: null,
-    confidence: "advisory",
-    level: null,
-    severity: "info",
-    label: "trend",
-  });
   return out;
 }
 
@@ -2802,7 +2688,7 @@ function buildModeSignatureBundle(snapshot, rawAppendix = null) {
   else if (snapshot.mode === "contrast") entries = contrastSignatureEntries(snapshot, rawAppendix);
   else if (snapshot.mode === "tabWalk") entries = tabWalkSignatureEntries(snapshot, rawAppendix);
   else if (snapshot.mode === "watch") entries = watchSignatureEntries(snapshot, rawAppendix);
-  else if (snapshot.mode === "observe") entries = observeSignatureEntries(snapshot, rawAppendix);
+  else if (snapshot.mode === "observe") entries = findingSignatureEntries("observe", snapshot, rawAppendix);
 
   const set = new Set();
   const blockingSet = new Set();
@@ -3220,6 +3106,18 @@ function cellHtml(value, maxLen = 60) {
   return `<span class="cellWrap"><span class="cellText" title="${escapeHtml(full)}">${escapeHtml(truncateMiddle(full, maxLen))}</span><button class="cellCopy" type="button" data-copy="${escapeHtml(full)}" aria-label="Copy"></button></span>`;
 }
 
+/** Shared row renderers — used by both VirtualTable and fallback paths. */
+function explorerRowHtml(f, idx) {
+  return `<tr class="trow" data-i="${idx}" data-sev="${escapeHtml(f.severity)}"><td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span></td><td>${escapeHtml(f.product ?? "")}</td><td>${escapeHtml(f.type ?? "")}</td><td>${escapeHtml(f.wcag ?? "")}</td><td>${cellHtml(f.name, 50)}</td><td>${escapeHtml(f.testId ?? "")}</td><td>${cellHtml(f.path, 60)}</td><td>${cellHtml(f.note, 50)}</td><td class="fixCol">${cellHtml(f.fix, 50)} <button class="rowAct" type="button" data-i="${idx}" aria-label="Highlight finding ${idx + 1}">Highlight</button></td></tr>`;
+}
+function contrastRowHtml(f, idx) {
+  const pass = f.ratio >= f.required;
+  return `<tr class="trow${pass ? ' contrastPass' : ''}" data-i="${idx}"><td>${escapeHtml(String(f.ratio ?? ""))}</td><td>${escapeHtml(String(f.required ?? ""))}</td><td>${f.largeText ? "yes" : "no"}</td><td>${cellHtml(f.text, 50)}</td><td>${escapeHtml(f.tag ?? "")}</td><td>${escapeHtml(f.testId ?? "")}</td><td>${cellHtml(f.path, 60)}</td><td>${cellHtml(f.note, 50)}</td></tr>`;
+}
+function tabRowHtml(e, idx) {
+  return `<tr class="trow" data-i="${idx}"><td>${escapeHtml(String(e.i ?? ""))}</td><td>${escapeHtml(String(e.type ?? ""))}</td><td>${escapeHtml(String(e.tabIndex ?? ""))}</td><td>${cellHtml(e.name, 50)}</td><td>${cellHtml(e.path, 60)}</td><td>${cellHtml(e.note, 50)}</td></tr>`;
+}
+
 function txt(s, n = 140) {
   return (s || "").replace(/\s+/g, " ").trim().slice(0, n);
 }
@@ -3307,20 +3205,7 @@ function updateContrastView() {
   }
   const tbody = els.contrastTbody;
   if (!tbody) return;
-  tbody.innerHTML = sorted.slice(0, 200).map((f, idx) => {
-    const pass = f.ratio >= f.required;
-    return `
-    <tr class="trow${pass ? ' contrastPass' : ''}" data-i="${idx}">
-      <td>${escapeHtml(String(f.ratio ?? ""))}</td>
-      <td>${escapeHtml(String(f.required ?? ""))}</td>
-      <td>${f.largeText ? "yes" : "no"}</td>
-      <td>${cellHtml(f.text, 50)}</td>
-      <td>${escapeHtml(f.tag ?? "")}</td>
-      <td>${escapeHtml(f.testId ?? "")}</td>
-      <td>${cellHtml(f.path, 60)}</td>
-      <td>${cellHtml(f.note, 50)}</td>
-    </tr>`;
-  }).join("");
+  tbody.innerHTML = sorted.slice(0, 200).map(contrastRowHtml).join("");
 }
 
 
@@ -3347,16 +3232,7 @@ function renderTabWalk(res) {
   // fallback (should not happen)
   const tbody = els.tabTbody;
   if (!tbody) return;
-  tbody.innerHTML = events.slice(0, 200).map((e, idx) => `
-    <tr class="trow" data-i="${idx}">
-      <td>${escapeHtml(String(e.i ?? ""))}</td>
-      <td>${escapeHtml(String(e.type ?? ""))}</td>
-      <td>${escapeHtml(String(e.tabIndex ?? ""))}</td>
-      <td>${cellHtml(e.name, 50)}</td>
-      <td>${cellHtml(e.path, 60)}</td>
-      <td>${cellHtml(e.note, 50)}</td>
-    </tr>
-  `).join("");
+  tbody.innerHTML = events.slice(0, 200).map(tabRowHtml).join("");
 }
 
 function renderWatch(res) {
@@ -3398,6 +3274,121 @@ function renderWatch(res) {
   ).join("");
 }
 
+// Fix suggestions — applied panel-side to keep the injected audit snippet small
+const FIX_SUGGESTIONS = {
+  IMG_MISSING_ALT: 'Add alt="description" to the <img> tag. Use alt="" only if purely decorative.',
+  IMG_EMPTY_ALT: 'If decorative, alt="" is correct. If meaningful, add a descriptive alt text.',
+  NO_ACCESSIBLE_NAME: f => `Add aria-label or visible text to this ${f.role || f.tag?.toLowerCase() || 'element'}.`,
+  FORM_CONTROL_NO_LABEL: 'Add a visible <label for="id"> or use aria-label.',
+  HEADING_LEVEL_SKIP: f => `Insert an h${(f.extra?.from || 1) + 1} before this h${f.extra?.to || '?'} to fix hierarchy.`,
+  NO_H1: 'Add an <h1> element describing the primary content.',
+  MULTIPLE_H1: 'Use only one <h1> per page. Demote extras to <h2> or lower.',
+  NO_MAIN_LANDMARK: 'Wrap primary content in a <main> element.',
+  REGION_NO_NAME: 'Add aria-label or aria-labelledby to the region.',
+  BROKEN_ARIA_REFERENCE: f => `Ensure id="${f.extra?.id}" exists in DOM, or remove ${f.extra?.attr}.`,
+  ARIA_LABELLEDBY_POINTS_TO_ARIA_HIDDEN: 'Remove aria-hidden from referenced label element.',
+  POSITIVE_TABINDEX: 'Remove positive tabindex. Use tabindex="0" or restructure DOM order.',
+  CHAT_LOG_NO_ARIA_LIVE_SOFT: 'Add aria-live="polite" to the role="log" container.',
+  DISABLED_INPUT_NO_EXPLANATION: 'Add aria-describedby explaining why disabled, or add a title.',
+  LOADER_WITHOUT_ANNOUNCEMENT_HOOK: 'Add aria-live="polite" region, update text on load start/end.',
+  DUPLICATE_ID: f => {
+    const base = `Make id="${f.extra?.id}" unique. In MFE contexts, add a scope prefix.`;
+    return f.extra?.ariaReferenced ? `${base} Referenced by ARIA — duplicates break name resolution.` : base;
+  },
+  FOCUS_VISIBLE_SUPPRESSED: 'Add visible :focus-visible style (outline or box-shadow).',
+  NO_SKIP_NAV: 'Add a skip link: <a href="#main" class="skip-link">Skip to main content</a>.',
+  MISSING_AUTOCOMPLETE: 'Add appropriate autocomplete attribute (e.g., autocomplete="email").',
+  CLICK_WITHOUT_KEYBOARD: f => `Ensure this ${f.tag?.toLowerCase() || 'element'} is keyboard reachable (Enter/Space).`,
+  ARIA_HIDDEN_FOCUSABLE: 'Add tabindex="-1" to focusable elements inside aria-hidden.',
+  ARIA_REQUIRED_ATTR_MISSING: f => `Add ${f.extra?.attr}="..." to role="${f.extra?.role}" as required by ARIA.`,
+  TOUCH_TARGET_TOO_SMALL: 'Verify hit-area is at least 24x24px (WCAG 2.5.8).',
+  TABLE_NO_HEADERS: 'Add <th scope="col"> for column headers, <th scope="row"> for row headers.',
+  LABEL_NOT_IN_NAME: 'Ensure aria-label includes the visible text.',
+  MISSING_LANG: 'Add lang="en" (or appropriate code) to <html>.',
+  VIEWPORT_ZOOM_DISABLED: 'Remove user-scalable=no and maximum-scale=1 from viewport meta.',
+  SHELL_OR_MINIMAL_UI: null,
+  SHADOW_DOM_DETECTED: 'Inspect shadow DOM content manually in DevTools.',
+  COMPETING_ASSERTIVE_LIVE: 'Consolidate aria-live="assertive" into one shared announcer.',
+  DUPLICATE_MAIN_LANDMARK: 'Only one <main> should exist. Others use <section> or role="region".',
+  DUPLICATE_NAV_NO_LABEL: 'Add unique aria-label to each <nav>.',
+  DUPLICATE_BANNER: 'Only one top-level <header>. Scope extras inside <article>/<section>.',
+  DUPLICATE_CONTENTINFO: 'Only one top-level <footer>. Scope extras inside <article>/<section>.',
+  HEADING_HIERARCHY_FRAGMENTED: 'Shared heading hierarchy: host provides H1, MFEs start at H2+.',
+  COMPETING_SKIP_NAV: 'Use one skip link from host page. Remove MFE skip links.',
+  SHADOW_DOM_FOCUS_ISSUE: 'Add delegatesFocus:true to shadow root, or set tabindex on focusable elements.',
+  IFRAME_MISSING_TITLE: 'Add title="Description" to the <iframe>.',
+  IFRAME_CROSS_ORIGIN: 'Verify parent page has a title attribute on this iframe.',
+  DRAGGABLE_NO_ALTERNATIVE: 'Provide button-based alternative alongside drag interaction.',
+  CONSISTENT_HELP_CHECK: 'Ensure help/contact links appear in same relative order on every page.',
+  FOCUS_MAY_BE_OBSCURED: 'Use scroll-padding-top/bottom to offset focused elements past sticky headers.',
+  REDUNDANT_ENTRY: 'Add autocomplete attributes or pre-fill values from prior entries.',
+  HC_TREE_ITEM_NO_NAME: 'Add aria-label or visible text to each role="treeitem".',
+  HC_TREE_NO_ARIA_EXPANDED: 'Add aria-expanded to treeitem elements that own child groups.',
+  CHAT_MESSAGE_NO_ROLE: 'Add role="listitem" or semantic element to children of role="log".',
+  CHAT_INPUT_NO_LABEL: 'Add visible <label> or aria-label to chat input.',
+  CHAT_TIMESTAMP_INACCESSIBLE: 'Remove aria-hidden from timestamp, or provide info in sr-only element.',
+  HC_ARTICLE_NO_HEADING: 'Add an <h2>/<h3> heading inside the article.',
+  LIVE_REGION_HIDDEN: 'aria-live with display:none never announces. Use clip-rect for visual hiding.',
+  COMBOBOX_NO_LISTBOX: 'Add aria-owns/controls pointing to role="listbox" element.',
+  TARGET_SIZE_AAA: 'Increase target size to at least 44x44px (AAA).',
+  NESTED_INTERACTIVE: 'Remove nested interactive, or replace outer with non-interactive wrapper.',
+  DOCUMENT_TITLE_MISSING: 'Add <title>Page Title</title> inside <head>.',
+  ARIA_VALID_ATTR: f => `"${f.extra?.attr}" is not a valid ARIA attribute.${f.extra?.suggestion ? ` Did you mean "${f.extra.suggestion}"?` : ''}`,
+  ARIA_VALID_ROLE: f => `role="${f.extra?.role}" is not a valid WAI-ARIA role.`,
+  ARIA_REQUIRED_CHILDREN: f => `role="${f.extra?.role}" requires child with role="${f.extra?.expected}".`,
+  ARIA_REQUIRED_PARENT: f => `role="${f.extra?.role}" must be inside role="${f.extra?.expected}".`,
+  META_REFRESH: 'Remove <meta http-equiv="refresh">. Use server-side redirects.',
+  NO_AUTOPLAY_AUDIO: 'Add muted attribute, or ensure audio < 3s, or provide pause control.',
+  HTML_LANG_VALID: f => `lang="${f.extra?.lang}" is not a valid BCP 47 tag.`,
+  SCROLLABLE_NOT_FOCUSABLE: 'Add tabindex="0" and aria-label to scrollable container.',
+  LINK_SUSPICIOUS_TEXT: f => `Link text "${f.extra?.text}" is not descriptive. Use destination-describing text.`,
+  EMPTY_HEADING: 'Add text content to the heading.',
+  EMPTY_TABLE_HEADER: 'Add text content to the <th>, or use aria-label.',
+  DIALOG_NO_ACCESSIBLE_NAME: 'Add aria-label or aria-labelledby to the dialog.',
+  ARIA_ALLOWED_ATTR: f => `"${f.extra?.attr}" not allowed on role="${f.extra?.role}". Remove it.`,
+  ARIA_HIDDEN_ON_BODY: 'Remove aria-hidden from <body>/<html>. Hides entire page from AT.',
+  MARQUEE_ELEMENT: 'Replace <marquee> with CSS animation or static alternative.',
+  INPUT_IMAGE_ALT: 'Add alt="description" to <input type="image">.',
+  AREA_ALT_MISSING: 'Add alt="description" to the <area> element.',
+  OBJECT_NO_ALT: 'Add text alternative inside <object> or use aria-label.',
+  FIELDSET_NO_LEGEND: 'Add <legend> as first child of <fieldset>.',
+  SVG_IMG_NO_ALT: 'Add aria-label to <svg>, or include a <title> child.',
+  VIDEO_NO_CAPTIONS: 'Add <track kind="captions"> inside <video>.',
+  LIST_STRUCTURE: f => `Move <${f.extra?.tag}> inside <ul>, <ol>, or <menu>.`,
+  DL_STRUCTURE: f => `Move <${f.extra?.tag}> inside a <dl>.`,
+  ACCESSKEY_DUPLICATE: f => `accesskey="${f.extra?.key}" used on ${f.extra?.count} elements. Must be unique.`,
+  FORM_FIELD_MULTIPLE_LABELS: 'Remove extra <label> elements. One label per input.',
+  AUTOCOMPLETE_VALID: f => `autocomplete="${f.extra?.value}" is not valid. Use "name", "email", etc.`,
+  TH_MISSING_SCOPE: 'Add scope="col" or scope="row" to <th> elements.',
+  VIDEO_AUTOPLAY: 'Add muted to <video autoplay>, or provide pause control.',
+  BLINK_ELEMENT: 'Remove <blink>. Use CSS animation with prefers-reduced-motion.',
+  SERVER_IMAGE_MAP: 'Replace server-side image map with client-side <map>/<area>.',
+  SCOPE_ATTR_VALID: f => `scope="${f.extra?.value}" is not valid. Use col/row/colgroup/rowgroup.`,
+  TD_HEADERS_INVALID: f => `headers references id="${f.extra?.id}" which does not exist.`,
+  TABLE_DUPLICATE_NAME: 'Caption and aria-label are identical. Remove one.',
+  AUDIO_NO_TRANSCRIPT: 'Provide text transcript for audio content.',
+  ARIA_VALID_ATTR_VALUE: f => `"${f.extra?.value}" is not valid for ${f.extra?.attr}. ${f.extra?.expected || ''}`,
+  IDENTICAL_LINKS_SAME_TEXT: f => `${f.extra?.count} links use "${f.extra?.text}" for different URLs. Differentiate text.`,
+  P_AS_HEADING: 'Use <h2>–<h6> instead of styling <p>/<div> as heading.',
+  CHAT_SEND_NO_LABEL: 'Add aria-label="Send message" to send button.',
+  CHAT_AVATAR_NO_ALT: 'Add alt to avatar images (or alt="" if decorative).',
+  CHAT_NO_ARIA_RELEVANT: 'Add aria-relevant="additions" to role="log".',
+  CHAT_TYPING_NO_ANNOUNCEMENT: 'Wrap typing indicator in aria-live="polite" region.',
+  HC_SEARCH_NO_LABEL: 'Add visible <label> or aria-label to search input.',
+  HC_BREADCRUMB_NO_LABEL: 'Add aria-label="Breadcrumb" to <nav>.',
+  HC_ACCORDION_NO_STATE: 'Add aria-expanded to accordion trigger button.',
+};
+
+function applyFixSuggestions(findings) {
+  if (!Array.isArray(findings)) return findings;
+  for (const f of findings) {
+    if (f.fix) continue;
+    const s = FIX_SUGGESTIONS[f.type];
+    if (s) f.fix = typeof s === "function" ? s(f) : s;
+  }
+  return findings;
+}
+
 function renderExplorer(findings) {
   const filtered = applySortState(applyExplorerFilters(findings), 'explorer');
   state.explorer = filtered;
@@ -3414,19 +3405,7 @@ function renderExplorer(findings) {
     VT.all.setData(filtered);
   } else {
     // fallback
-    els.allTableBody.innerHTML = filtered.slice(0, 200).map((f, idx) => `
-      <tr class="trow" data-i="${idx}" data-sev="${escapeHtml(f.severity)}">
-        <td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span></td>
-        <td>${escapeHtml(f.product ?? "")}</td>
-        <td>${escapeHtml(f.type ?? "")}</td>
-        <td>${escapeHtml(f.wcag ?? "")}</td>
-        <td>${cellHtml(f.name, 50)}</td>
-        <td>${escapeHtml(f.testId ?? "")}</td>
-        <td>${cellHtml(f.path, 60)}</td>
-        <td>${cellHtml(f.note, 50)}</td>
-        <td class="fixCol">${cellHtml(f.fix, 50)} <button class="rowAct" type="button" data-i="${idx}" aria-label="Highlight finding ${idx + 1}">Highlight</button></td>
-      </tr>
-    `).join("");
+    els.allTableBody.innerHTML = filtered.slice(0, 200).map(explorerRowHtml).join("");
   }
 
 }
@@ -3759,7 +3738,7 @@ async function runAction(action, opts = {}) {
   state.bestFrameId = bestEntry?.frameId ?? 0;
 
   const bestResult = bestEntry?.result || null;
-  const findings = Array.isArray(bestResult?.findings) ? bestResult.findings : [];
+  const findings = applyFixSuggestions(Array.isArray(bestResult?.findings) ? bestResult.findings : []);
 
   // History/diff (only if we have findings)
   const key = `snap::${originFrom(url)}::${detectEnv(url)}::${bestEntry?.frameUrl || ""}`;
@@ -4926,19 +4905,7 @@ function initVirtualTables() {
       wrapEl: allWrap,
       tbodyEl: els.allTableBody,
       colCount: 9,
-      rowRenderer: (f, idx) => `
-        <tr class="trow" data-i="${idx}" data-sev="${escapeHtml(f.severity)}">
-          <td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span></td>
-          <td>${escapeHtml(f.product ?? "")}</td>
-          <td>${escapeHtml(f.type ?? "")}</td>
-          <td>${escapeHtml(f.wcag ?? "")}</td>
-          <td>${cellHtml(f.name, 50)}</td>
-          <td>${escapeHtml(f.testId ?? "")}</td>
-          <td>${cellHtml(f.path, 60)}</td>
-          <td>${cellHtml(f.note, 50)}</td>
-          <td class="fixCol">${cellHtml(f.fix, 50)} <button class="rowAct" type="button" data-i="${idx}" aria-label="Highlight finding ${idx + 1}">Highlight</button></td>
-        </tr>
-      `,
+      rowRenderer: explorerRowHtml,
       estimateRowHeight: 24,
       overscan: 12,
     });
@@ -4951,21 +4918,7 @@ function initVirtualTables() {
       wrapEl: contrastWrap,
       tbodyEl: els.contrastTbody,
       colCount: 8,
-      rowRenderer: (f, idx) => {
-        const pass = f.ratio >= f.required;
-        return `
-        <tr class="trow${pass ? ' contrastPass' : ''}" data-i="${idx}">
-          <td>${escapeHtml(String(f.ratio ?? ""))}</td>
-          <td>${escapeHtml(String(f.required ?? ""))}</td>
-          <td>${f.largeText ? "yes" : "no"}</td>
-          <td>${cellHtml(f.text, 50)}</td>
-          <td>${escapeHtml(f.tag ?? "")}</td>
-          <td>${escapeHtml(f.testId ?? "")}</td>
-          <td>${cellHtml(f.path, 60)}</td>
-          <td>${cellHtml(f.note, 50)}</td>
-        </tr>
-      `;
-      },
+      rowRenderer: contrastRowHtml,
       estimateRowHeight: 24,
       overscan: 10,
     });
@@ -4978,16 +4931,7 @@ function initVirtualTables() {
       wrapEl: tabWrap,
       tbodyEl: els.tabTbody,
       colCount: 6,
-      rowRenderer: (e, idx) => `
-        <tr class="trow" data-i="${idx}">
-          <td>${escapeHtml(String(e.i ?? ""))}</td>
-          <td>${escapeHtml(String(e.type ?? ""))}</td>
-          <td>${escapeHtml(String(e.tabIndex ?? ""))}</td>
-          <td>${cellHtml(e.name, 50)}</td>
-          <td>${cellHtml(e.path, 60)}</td>
-          <td>${cellHtml(e.note, 50)}</td>
-        </tr>
-      `,
+      rowRenderer: tabRowHtml,
       estimateRowHeight: 24,
       overscan: 10,
     });
