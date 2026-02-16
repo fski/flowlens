@@ -4829,7 +4829,7 @@ function applyColStyles() {
     for (const [idx, visible] of Object.entries(cols)) {
       if (visible === false) {
         const n = Number(idx) + 1;
-        rules.push(`#${tableId} th:nth-child(${n}), #${tableId} td:nth-child(${n}) { display: none; }`);
+        rules.push(`#${tableId} th:nth-child(${n}), #${tableId} td:nth-child(${n}) { width: 0 !important; max-width: 0 !important; padding: 0 !important; border: none !important; overflow: hidden; font-size: 0; line-height: 0; visibility: hidden; }`);
       }
     }
   }
