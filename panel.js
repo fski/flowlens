@@ -1190,7 +1190,7 @@ function renderPastRuns() {
     els.pastRunsCount.textContent = runs.length ? `(${runs.length})` : "";
   }
   if (!runs.length) {
-    els.pastRunsList.innerHTML = `<div style="padding:12px 16px;color:var(--tx3);font-size:10px;">No past runs</div>`;
+    els.pastRunsList.innerHTML = `<div style="padding:12px 16px;color:var(--tx3);font-size:11px;">No past runs</div>`;
     if (els.pastRunsActions) els.pastRunsActions.hidden = true;
     return;
   }
@@ -1213,6 +1213,8 @@ function renderPastRuns() {
 
 async function deleteSingleRun(id) {
   const idStr = String(id);
+  const deleted = state.records.find(x => String(x.id) === idStr);
+  const deletedIdx = state.records.indexOf(deleted);
   state.records = state.records.filter(x => String(x.id) !== idStr);
   delete state.byId[idStr];
   if (String(state.currentId) === idStr) {
@@ -1231,11 +1233,19 @@ async function deleteSingleRun(id) {
   const { origin, env } = getCurrentScopeInfo();
   const scopeKey = `records::${origin || ""}::${env}`;
   await persistRecords(scopeKey);
-  toast("Run deleted");
+  toast("Run deleted", deleted ? { label: "Undo", fn: async () => {
+    state.records.splice(deletedIdx, 0, deleted);
+    state.byId[idStr] = deleted;
+    if (!state.currentId) { state.currentId = deleted.id; renderRecord(deleted); updateResultsVisibility(true); }
+    renderPastRuns();
+    await persistRecords(scopeKey);
+    toast("Run restored");
+  }} : null);
 }
 
 async function deleteAllRunsAction() {
   if (!state.records.length) return;
+  const backup = { records: [...state.records], byId: { ...state.byId }, currentId: state.currentId };
   state.records = [];
   state.byId = {};
   state.currentId = null;
@@ -1249,7 +1259,16 @@ async function deleteAllRunsAction() {
   const { origin, env } = getCurrentScopeInfo();
   const scopeKey = `records::${origin || ""}::${env}`;
   await persistRecords(scopeKey);
-  toast("All runs deleted");
+  toast("All runs deleted", { label: "Undo", fn: async () => {
+    state.records = backup.records;
+    state.byId = backup.byId;
+    state.currentId = backup.currentId;
+    const rec = state.currentId ? state.byId[state.currentId] : state.records[0];
+    if (rec) { state.currentId = rec.id; renderRecord(rec); updateResultsVisibility(true); }
+    renderPastRuns();
+    await persistRecords(scopeKey);
+    toast("Runs restored");
+  }});
 }
 
 function summarizeFrames(perFrame = []) {
@@ -2107,7 +2126,7 @@ function renderStepDrillDown(stepIndex) {
   // Collect all findings for highlight click handler
   const _drillFindings = [];
   const renderFindingList = (findings, max = 30) => {
-    if (!findings.length) return '<span style="color:var(--tx3);font-size:11px;">None</span>';
+    if (!findings.length) return '<span style="color:var(--tx3);font-size:12px;">None</span>';
     const startIdx = _drillFindings.length;
     const sliced = findings.slice(0, max);
     _drillFindings.push(...sliced);
@@ -3130,7 +3149,7 @@ function cellHtml(value, maxLen = 60) {
 
 /** Shared row renderers — used by both VirtualTable and fallback paths. */
 function explorerRowHtml(f, idx) {
-  return `<tr class="trow" data-i="${idx}" data-sev="${escapeHtml(f.severity)}"><td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span> ${cellHtml(f.name, 50)}</td><td>${escapeHtml(f.product ?? "")}</td><td>${escapeHtml(f.type ?? "")}</td><td>${escapeHtml(f.wcag ?? "")}</td><td>${escapeHtml(f.testId ?? "")}</td><td>${cellHtml(f.path, 60)}</td><td>${cellHtml(f.note, 50)}</td><td class="fixCol">${cellHtml(f.fix, 50)} <button class="rowAct" type="button" data-i="${idx}" aria-label="Highlight finding ${idx + 1}">Highlight</button></td></tr>`;
+  return `<tr class="trow" data-i="${idx}" data-sev="${escapeHtml(f.severity)}"><td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span> ${cellHtml(f.name, 50)}</td><td>${escapeHtml(f.product ?? "")}</td><td>${escapeHtml(f.type ?? "")}</td><td>${escapeHtml(f.wcag ?? "")}</td><td>${escapeHtml(f.testId ?? "")}</td><td>${cellHtml(f.path, 60)}</td><td>${cellHtml(f.note, 50)}</td><td class="fixCol">${cellHtml(f.fix, 60)}</td></tr>`;
 }
 function contrastRowHtml(f, idx) {
   const pass = f.ratio >= f.required;
@@ -4585,16 +4604,7 @@ if (els.allTableBody && !els.allTableBody.__bound) {
         return;
       }
 
-      // Highlight button inside a row — highlight without toggling expand
-      if (e.target.closest(".rowAct")) {
-        const tr = e.target.closest("tr.trow");
-        const idx = tr ? Number(tr.getAttribute("data-i")) : NaN;
-        const f = Number.isFinite(idx) ? state.explorer[idx] : null;
-        if (f) await highlightFinding(f);
-        return;
-      }
-
-      // Row click — toggle expand + highlight on expand
+      // Row click — toggle expand + auto-highlight on expand
       const tr = e.target.closest("tr.trow");
       if (!tr) return;
       const idx = Number(tr.getAttribute("data-i"));
