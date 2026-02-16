@@ -1700,13 +1700,12 @@ kbd {
 }
 
 /* Explorer column widths — % based for responsiveness */
-/* 9 cols: sev 13% | product 10% | type 16% | wcag 8% | name * | testId 10% | path * | note * | fix 16% */
-#allTable th:nth-child(1), #allTable td:nth-child(1) { width: 13%; }
+/* 8 cols: name(+sev) * | product 10% | type 16% | wcag 8% | testId 10% | path * | note * | fix 16% */
 #allTable th:nth-child(2), #allTable td:nth-child(2) { width: 10%; }
 #allTable th:nth-child(3), #allTable td:nth-child(3) { width: 16%; }
 #allTable th:nth-child(4), #allTable td:nth-child(4) { width: 8%; }
-#allTable th:nth-child(6), #allTable td:nth-child(6) { width: 10%; }
-#allTable th:nth-child(9), #allTable td:nth-child(9) { width: 16%; }
+#allTable th:nth-child(5), #allTable td:nth-child(5) { width: 10%; }
+#allTable th:nth-child(8), #allTable td:nth-child(8) { width: 16%; }
 
 /* Contrast column widths — % based */
 /* 8 cols: ratio 9% | req 7% | large 7% | text * | tag 8% | testId 10% | path * | note * */
@@ -1742,6 +1741,7 @@ kbd {
   z-index: 1;
   background: var(--surface);
 }
+#allTable td:first-child .pill { margin-right: 4px; vertical-align: middle; }
 
 .tbl tbody tr:hover td:first-child { background: var(--raised); }
 .fixCol { color: var(--green); font-size: 11px; }
@@ -2264,7 +2264,7 @@ body.compact .brandLogo { width: 72px; height: auto; }
   #flowTimelineTable td:nth-child(7) { display: none; }
   /* Hide product + testId in explorer */
   #allTable th:nth-child(2), #allTable td:nth-child(2),
-  #allTable th:nth-child(6), #allTable td:nth-child(6) { display: none; }
+  #allTable th:nth-child(5), #allTable td:nth-child(5) { display: none; }
   /* Hide testId in contrast */
   #contrastTable th:nth-child(6), #contrastTable td:nth-child(6) { display: none; }
 }

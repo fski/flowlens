@@ -288,7 +288,7 @@ const sortState = {
 const SORT_KEYS = {
   explorer: [
     f => ORDER[f.severity] ?? -1, f => f.product ?? '', f => f.type ?? '',
-    f => f.wcag ?? '', f => f.name ?? '', f => f.testId ?? '', f => f.path ?? '', f => f.note ?? '', f => f.fix ?? '',
+    f => f.wcag ?? '', f => f.testId ?? '', f => f.path ?? '', f => f.note ?? '', f => f.fix ?? '',
   ],
   contrast: [
     f => f.ratio ?? 0, f => f.required ?? 0, f => f.largeText ? 1 : 0,
@@ -3130,7 +3130,7 @@ function cellHtml(value, maxLen = 60) {
 
 /** Shared row renderers — used by both VirtualTable and fallback paths. */
 function explorerRowHtml(f, idx) {
-  return `<tr class="trow" data-i="${idx}" data-sev="${escapeHtml(f.severity)}"><td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span></td><td>${escapeHtml(f.product ?? "")}</td><td>${escapeHtml(f.type ?? "")}</td><td>${escapeHtml(f.wcag ?? "")}</td><td>${cellHtml(f.name, 50)}</td><td>${escapeHtml(f.testId ?? "")}</td><td>${cellHtml(f.path, 60)}</td><td>${cellHtml(f.note, 50)}</td><td class="fixCol">${cellHtml(f.fix, 50)} <button class="rowAct" type="button" data-i="${idx}" aria-label="Highlight finding ${idx + 1}">Highlight</button></td></tr>`;
+  return `<tr class="trow" data-i="${idx}" data-sev="${escapeHtml(f.severity)}"><td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span> ${cellHtml(f.name, 50)}</td><td>${escapeHtml(f.product ?? "")}</td><td>${escapeHtml(f.type ?? "")}</td><td>${escapeHtml(f.wcag ?? "")}</td><td>${escapeHtml(f.testId ?? "")}</td><td>${cellHtml(f.path, 60)}</td><td>${cellHtml(f.note, 50)}</td><td class="fixCol">${cellHtml(f.fix, 50)} <button class="rowAct" type="button" data-i="${idx}" aria-label="Highlight finding ${idx + 1}">Highlight</button></td></tr>`;
 }
 function contrastRowHtml(f, idx) {
   const pass = f.ratio >= f.required;
@@ -4813,7 +4813,7 @@ window.addEventListener("keydown", (e) => {
 
 // --- Column visibility ---
 const TABLE_COLS = {
-  allTable: ['sev', 'product', 'type', 'wcag', 'name', 'testId', 'path', 'note', 'fix'],
+  allTable: ['name', 'product', 'type', 'wcag', 'testId', 'path', 'note', 'fix'],
   contrastTable: ['ratio', 'req', 'large', 'text', 'tag', 'testId', 'path', 'note'],
   tabTable: ['i', 'type', 'tabIndex', 'name', 'path', 'note'],
 };
@@ -4912,15 +4912,22 @@ document.addEventListener('click', () => {
 
 // Default hidden columns for each table (indices that are hidden unless user toggled)
 const DEFAULT_COL_HIDDEN = {
-  allTable: { 1: false, 5: false, 6: false, 7: false }, // hide product, testId, path, note
+  allTable: { 1: false, 4: false, 5: false, 6: false }, // hide product, testId, path, note
 };
 
 function initColToggles() {
   // Load saved prefs then set up toggles
   storageGet(['colPrefs']).then(({ colPrefs }) => {
+    let useSaved = false;
     if (colPrefs && Object.keys(colPrefs).length > 0) {
-      Object.assign(colVisibility, colPrefs);
-    } else {
+      // Validate saved prefs against current column counts to avoid stale indices
+      const valid = Object.entries(colPrefs).every(([tableId, cols]) => {
+        const expected = TABLE_COLS[tableId];
+        return expected && Object.keys(cols).every(i => Number(i) < expected.length);
+      });
+      if (valid) { Object.assign(colVisibility, colPrefs); useSaved = true; }
+    }
+    if (!useSaved) {
       // Apply smart defaults — hide low-priority columns
       Object.assign(colVisibility, JSON.parse(JSON.stringify(DEFAULT_COL_HIDDEN)));
     }
@@ -4998,7 +5005,7 @@ function initVirtualTables() {
     VT.all = new VirtualTable({
       wrapEl: allWrap,
       tbodyEl: els.allTableBody,
-      colCount: 9,
+      colCount: 8,
       rowRenderer: explorerRowHtml,
       detailRenderer: buildDetailRow,
       estimateRowHeight: 24,
