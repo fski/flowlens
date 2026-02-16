@@ -288,8 +288,7 @@ const sortState = {
 
 const SORT_KEYS = {
   explorer: [
-    f => ORDER[f.severity] ?? -1, f => f.product ?? '', f => f.type ?? '',
-    f => f.wcag ?? '', f => f.testId ?? '', f => f.path ?? '', f => f.note ?? '', f => f.fix ?? '',
+    f => ORDER[f.severity] ?? -1, f => f.wcag ?? '', f => f.name ?? '', f => f.type ?? '',
   ],
   contrast: [
     f => f.ratio ?? 0, f => f.required ?? 0, f => f.largeText ? 1 : 0,
@@ -3151,7 +3150,7 @@ function cellHtml(value, maxLen = 60) {
 /** Shared row renderers — used by both VirtualTable and fallback paths. */
 function explorerRowHtml(f, idx) {
   const sev = f.severity || 'info';
-  return `<tr class="trow" data-i="${idx}" data-sev="${escapeHtml(sev)}"><td><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span> ${cellHtml(f.name, 50)}</td><td>${escapeHtml(f.product ?? "")}</td><td>${cellHtml(f.type ?? "", 30)}</td><td>${escapeHtml(f.wcag ?? "")}</td><td>${escapeHtml(f.testId ?? "")}</td><td>${cellHtml(f.path, 60)}</td><td>${cellHtml(f.note, 50)}</td><td class="fixCol">${cellHtml(f.fix, 60)}</td></tr>`;
+  return `<tr class="trow" data-i="${idx}" data-sev="${escapeHtml(sev)}"><td><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span></td><td>${escapeHtml(f.wcag ?? "")}</td><td>${cellHtml(f.name, 50)}</td><td>${cellHtml(f.type ?? "", 30)}</td></tr>`;
 }
 function contrastRowHtml(f, idx) {
   const pass = f.ratio >= f.required;
@@ -4604,18 +4603,19 @@ document.addEventListener("keydown", (e) => {
 function buildDetailRow(finding, colCount) {
   const sev = finding.severity || 'info';
   const fields = [
-    ['Product', finding.product],
-    ['Type', finding.type], ['WCAG', finding.wcag],
-    ['Name', finding.name], ['Test ID', finding.testId],
-    ['Path', finding.path], ['Note', finding.note],
-    ['Fix', finding.fix],
+    ['Severity', `<span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span>`],
+    ['WCAG', escapeHtml(finding.wcag ?? '')],
+    ['Name', escapeHtml(finding.name ?? '')],
+    ['Type', escapeHtml(finding.type ?? '')],
+    ['Path', escapeHtml(finding.path ?? ''), true],
+    ['Fix', escapeHtml(finding.fix ?? ''), true],
   ];
-  const sevHtml = `<span class="detailLabel">Severity</span><span class="detailValue"><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span></span>`;
-  const pairs = sevHtml + fields
+  const html = fields
     .filter(([, v]) => v)
-    .map(([k, v]) => `<span class="detailLabel">${escapeHtml(k)}</span><span class="detailValue">${escapeHtml(String(v))}</span>`)
-    .join('');
-  return `<tr class="detailRow" style="--row-sev:var(--sev-${escapeHtml(sev)})"><td colspan="${colCount}"><div class="detailInner">${pairs}<div class="detailActions"><button class="btn xs detailCopy" type="button">Copy</button></div></div></td></tr>`;
+    .map(([k, v, mono]) =>
+      `<span class="detailLabel">${escapeHtml(k)}</span><span class="detailValue${mono ? ' detailMono' : ''}">${v}</span>`
+    ).join('');
+  return `<tr class="detailRow" style="--row-sev:var(--sev-${escapeHtml(sev)})"><td colspan="${colCount}"><div class="detailInner">${html}<div class="detailActions"><button class="btn xs detailCopy" type="button">Copy</button></div></div></td></tr>`;
 }
 
 if (els.allTableBody && !els.allTableBody.__bound) {
@@ -4853,7 +4853,7 @@ window.addEventListener("keydown", (e) => {
 
 // --- Column visibility ---
 const TABLE_COLS = {
-  allTable: ['name', 'product', 'type', 'wcag', 'testId', 'path', 'note', 'fix'],
+  allTable: ['sev', 'wcag', 'name', 'type'],
   contrastTable: ['ratio', 'req', 'large', 'text', 'tag', 'testId', 'path', 'note'],
   tabTable: ['i', 'type', 'tabIndex', 'name', 'path', 'note'],
 };
@@ -4951,9 +4951,7 @@ document.addEventListener('click', () => {
 });
 
 // Default hidden columns for each table (indices that are hidden unless user toggled)
-const DEFAULT_COL_HIDDEN = {
-  allTable: { 1: false, 4: false, 5: false, 6: false }, // hide product, testId, path, note
-};
+const DEFAULT_COL_HIDDEN = {};
 
 function initColToggles() {
   // Load saved prefs then set up toggles
@@ -4974,7 +4972,6 @@ function initColToggles() {
     applyColStyles();
 
     const placements = [
-      { tableId: 'allTable', selector: '#searchToolbar .toolbarActions' },
       { tableId: 'contrastTable', selector: '#contrastToolbar .toolbarActions' },
       { tableId: 'tabTable', selector: '#tabWalkToolbar .toolbarActions' },
     ];
@@ -5045,7 +5042,7 @@ function initVirtualTables() {
     VT.all = new VirtualTable({
       wrapEl: allWrap,
       tbodyEl: els.allTableBody,
-      colCount: 8,
+      colCount: 4,
       rowRenderer: explorerRowHtml,
       detailRenderer: buildDetailRow,
       estimateRowHeight: 24,

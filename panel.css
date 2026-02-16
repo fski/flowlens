@@ -1713,13 +1713,16 @@ kbd {
   background: color-mix(in srgb, var(--row-sev, var(--tx2)) 10%, var(--surface));
 }
 
-/* Explorer column widths — % based for responsiveness */
-/* 8 cols: name(+sev) * | product 10% | type 16% | wcag 8% | testId 10% | path * | note * | fix 16% */
-#allTable th:nth-child(2), #allTable td:nth-child(2) { width: 10%; }
-#allTable th:nth-child(3), #allTable td:nth-child(3) { width: 16%; }
-#allTable th:nth-child(4), #allTable td:nth-child(4) { width: 8%; }
-#allTable th:nth-child(5), #allTable td:nth-child(5) { width: 10%; }
-#allTable th:nth-child(8), #allTable td:nth-child(8) { width: 16%; }
+/* Explorer grid layout — override table display for CSS Grid rows */
+#allTable { display: block; width: 100%; }
+#allTable thead { display: block; position: sticky; top: 0; z-index: 2; background: var(--raised); border-bottom: 2px solid var(--brd); }
+#allTable thead tr { display: grid; grid-template-columns: 80px 80px 1fr 140px; }
+#allTable tbody { display: block; }
+#allTable .trow { display: grid; grid-template-columns: 80px 80px 1fr 140px; border-left: 3px solid var(--row-sev, transparent); }
+#allTable th, #allTable .trow td { display: block; min-width: 0; }
+#allTable .vt-spacer, #allTable .vt-spacer td { display: block; }
+#allTable .detailRow, #allTable .detailRow td { display: block; }
+#allTable .trow::before { display: none; }
 
 /* Contrast column widths — % based */
 /* 8 cols: ratio 9% | req 7% | large 7% | text * | tag 8% | testId 10% | path * | note * */
@@ -1756,7 +1759,7 @@ kbd {
   background: var(--surface);
 }
 .tbl thead th:first-child { background: var(--raised); }
-#allTable td:first-child .pill { margin-right: 4px; vertical-align: middle; }
+#allTable .pill { vertical-align: middle; }
 
 .tbl tbody tr:hover td:first-child { background: var(--raised); }
 .fixCol { color: var(--green); font-size: 12px; }
@@ -2283,9 +2286,6 @@ body.compact .brandLogo { width: 72px; height: auto; }
   #flowTimelineTable td:nth-child(6),
   #flowTimelineTable th:nth-child(7),
   #flowTimelineTable td:nth-child(7),
-  /* Hide product + testId in explorer */
-  #allTable th:nth-child(2), #allTable td:nth-child(2),
-  #allTable th:nth-child(5), #allTable td:nth-child(5),
   /* Hide testId in contrast */
   #contrastTable th:nth-child(6), #contrastTable td:nth-child(6) {
     width: 0 !important; max-width: 0 !important; padding: 0 !important;
@@ -2301,12 +2301,25 @@ body.compact .brandLogo { width: 72px; height: auto; }
   .searchToolbar { padding: 2px 4px; }
 
   /* Hide more columns at very narrow */
-  #allTable th:nth-child(4), #allTable td:nth-child(4),
   #contrastTable th:nth-child(3), #contrastTable td:nth-child(3),
   #tabTable th:nth-child(3), #tabTable td:nth-child(3) {
     width: 0 !important; max-width: 0 !important; padding: 0 !important;
     border: none !important; overflow: hidden; font-size: 0; line-height: 0; visibility: hidden;
   }
+}
+
+@media (max-width: 360px) {
+  #allTable thead tr,
+  #allTable .trow {
+    grid-template-columns: 60px 60px 1fr 100px;
+  }
+}
+
+.detailMono {
+  font-family: var(--font-mono);
+  background: var(--surface);
+  padding: 2px 6px;
+  border: 1px solid var(--brd0);
 }
 
 @media (prefers-reduced-motion: reduce) {
