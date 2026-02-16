@@ -4939,7 +4939,7 @@ function initVirtualTables() {
           <td class="fixCol">${cellHtml(f.fix, 50)} <button class="rowAct" type="button" data-i="${idx}" aria-label="Highlight finding ${idx + 1}">Highlight</button></td>
         </tr>
       `,
-      estimateRowHeight: 28,
+      estimateRowHeight: 24,
       overscan: 12,
     });
   }
@@ -4966,7 +4966,7 @@ function initVirtualTables() {
         </tr>
       `;
       },
-      estimateRowHeight: 28,
+      estimateRowHeight: 24,
       overscan: 10,
     });
   }
@@ -4988,7 +4988,7 @@ function initVirtualTables() {
           <td>${cellHtml(e.note, 50)}</td>
         </tr>
       `,
-      estimateRowHeight: 28,
+      estimateRowHeight: 24,
       overscan: 10,
     });
   }
