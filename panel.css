@@ -162,7 +162,8 @@ body {
   padding: 0;
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 #snapContent,
@@ -170,6 +171,12 @@ body {
   display: flex;
   flex-direction: column;
   flex: 1;
+  min-height: 0;
+}
+#settingsContent {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 #snapContent[hidden],
 #flowContent[hidden] {
@@ -408,6 +415,7 @@ body {
   display: flex;
   flex-direction: column;
   flex: 1;
+  min-height: 0;
   background: var(--surface);
   border: 1px solid var(--brd);
   border-radius: 2px;
@@ -1603,6 +1611,7 @@ kbd {
 
 .tableWrap.vscroll {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -1756,6 +1765,46 @@ kbd {
 .tableWrap.hasSelection .trow { opacity: 0.4; transition: opacity .15s; }
 .tableWrap.hasSelection .trow.isSelected { opacity: 1; }
 
+/* Expandable detail row */
+.detailRow td { padding: 0 !important; border-bottom: 2px solid var(--brd); }
+.detailInner {
+  padding: 10px 12px 10px 16px;
+  background: var(--raised);
+  border-left: 3px solid var(--row-sev, var(--tx3));
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font: 500 12px/1.5 var(--font-mono);
+  color: var(--tx);
+  animation: detailSlide .12s ease-out;
+}
+@keyframes detailSlide { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.detailInner .detailLabel {
+  color: var(--tx3);
+  font-weight: 700;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  white-space: nowrap;
+  padding-top: 1px;
+}
+.detailInner .detailValue {
+  word-break: break-word;
+  white-space: pre-wrap;
+  min-width: 0;
+}
+.detailInner .detailValue:empty { display: none; }
+.detailInner .detailActions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+.detailInner .detailActions .btn {
+  font-size: 11px;
+  padding: 4px 10px;
+}
+
 /* ═══ SEARCH TOOLBAR ═══ */
 .searchToolbar {
   display: flex;
@@ -1831,6 +1880,13 @@ kbd {
   flex-shrink: 0;
 }
 
+.findingsCount {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--tx2);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
 .highlightHint {
   margin-left: auto;
   font-size: 10px;
@@ -1975,6 +2031,7 @@ kbd {
   display: flex;
   flex-direction: column;
   flex: 1;
+  min-height: 0;
   animation: fadeUp .2s ease-out;
 }
 

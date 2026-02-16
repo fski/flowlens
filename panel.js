@@ -50,6 +50,7 @@ const els = {
 
   // explorer
   q: document.getElementById("q"),
+  findingsCount: document.getElementById("findingsCount"),
   allTableBody: document.querySelector("#allTable tbody"),
 
   toast: document.getElementById("toast"),
@@ -346,17 +347,19 @@ function toggleSort(tableId, colIdx, theadEl) {
 
 // --- Virtualized tables ----------------------------------------------------
 class VirtualTable {
-  constructor({ wrapEl, tbodyEl, colCount, rowRenderer, estimateRowHeight = 32, overscan = 10 }) {
+  constructor({ wrapEl, tbodyEl, colCount, rowRenderer, detailRenderer, estimateRowHeight = 32, overscan = 10 }) {
     this.wrapEl = wrapEl;
     this.tbodyEl = tbodyEl;
     this.colCount = colCount;
     this.rowRenderer = rowRenderer;
+    this.detailRenderer = detailRenderer || null;
     this.estimateRowHeight = estimateRowHeight;
     this.overscan = overscan;
 
     this.data = [];
     this.rowHeight = estimateRowHeight;
     this.selectedIdx = null;
+    this.expandedIdx = null;
 
     this._onScroll = this._onScroll.bind(this);
     this._onResize = this._onResize.bind(this);
@@ -374,7 +377,14 @@ class VirtualTable {
   setData(data) {
     this.data = Array.isArray(data) ? data : [];
     this.selectedIdx = null;
+    this.expandedIdx = null;
     this.wrapEl.scrollTop = 0;
+    this._render(true);
+  }
+
+  toggleExpanded(idx) {
+    this.expandedIdx = this.expandedIdx === idx ? null : idx;
+    this.selectedIdx = this.expandedIdx;
     this._render(true);
   }
 
@@ -404,7 +414,13 @@ class VirtualTable {
       // Build HTML
       const rows = [];
       rows.push(`<tr class="vt-spacer" aria-hidden="true"><td colspan="${this.colCount}" style="height:${topPad}px"></td></tr>`);
-      for (let i = start; i < end; i++) rows.push(this.rowRenderer(this.data[i], i));
+      for (let i = start; i < end; i++) {
+        rows.push(this.rowRenderer(this.data[i], i));
+        // Render detail row for expanded item
+        if (i === this.expandedIdx && this.detailRenderer) {
+          rows.push(this.detailRenderer(this.data[i], this.colCount));
+        }
+      }
       rows.push(`<tr class="vt-spacer" aria-hidden="true"><td colspan="${this.colCount}" style="height:${botPad}px"></td></tr>`);
 
       this.tbodyEl.innerHTML = rows.join("");
@@ -415,8 +431,12 @@ class VirtualTable {
         if (sel) sel.classList.add("isSelected");
       }
 
+      // Toggle hasSelection on wrapper
+      const tw = this.tbodyEl.closest(".tableWrap");
+      if (tw) tw.classList.toggle("hasSelection", this.selectedIdx != null);
+
       // Measure row height from first real row if possible
-      const firstRow = this.tbodyEl.querySelector("tr:not(.vt-spacer)");
+      const firstRow = this.tbodyEl.querySelector("tr.trow");
       if (firstRow) {
         const h = firstRow.getBoundingClientRect().height;
         if (h && Math.abs(h - this.rowHeight) > 1) this.rowHeight = h;
@@ -3391,14 +3411,15 @@ function applyFixSuggestions(findings) {
 }
 
 function renderExplorer(findings) {
+  const all = Array.isArray(findings) ? findings : [];
   const filtered = applySortState(applyExplorerFilters(findings), 'explorer');
   state.explorer = filtered;
 
-  // Clear row selection/dimming on re-render
-  if (els.allTableBody) {
-    els.allTableBody.__selected = null;
-    const tw = els.allTableBody.closest(".tableWrap");
-    if (tw) tw.classList.remove("hasSelection");
+  // Update findings count
+  if (els.findingsCount) {
+    const total = all.length;
+    const shown = filtered.length;
+    els.findingsCount.textContent = shown === total ? `${total} findings` : `${shown} of ${total}`;
   }
 
   if (!VT.all) initVirtualTables();
@@ -3408,7 +3429,6 @@ function renderExplorer(findings) {
     // fallback
     els.allTableBody.innerHTML = filtered.slice(0, 200).map(explorerRowHtml).join("");
   }
-
 }
 
 
@@ -4527,26 +4547,67 @@ document.addEventListener("keydown", (e) => {
 
 // --- DELEGATED_TABLE_CLICKS ---
 
+/** Build detail row HTML for a finding */
+function buildDetailRow(finding, colCount) {
+  const fields = [
+    { label: 'Severity', value: finding.severity },
+    { label: 'Product', value: finding.product },
+    { label: 'Type', value: finding.type },
+    { label: 'WCAG', value: finding.wcag },
+    { label: 'Name', value: finding.name },
+    { label: 'Test ID', value: finding.testId },
+    { label: 'Path', value: finding.path },
+    { label: 'Note', value: finding.note },
+    { label: 'Fix', value: finding.fix },
+  ];
+  const sevClass = escapeHtml(finding.severity || '');
+  const pairs = fields
+    .filter(f => f.value)
+    .map(f => `<span class="detailLabel">${escapeHtml(f.label)}</span><span class="detailValue">${escapeHtml(String(f.value))}</span>`)
+    .join('');
+  return `<tr class="detailRow" data-sev="${sevClass}" style="--row-sev:var(--sev-${sevClass})"><td colspan="${colCount}"><div class="detailInner">${pairs}<div class="detailActions"><button class="btn xs detailHighlight" type="button">Highlight</button><button class="btn xs detailCopy" type="button">Copy</button></div></div></td></tr>`;
+}
+
 if (els.allTableBody && !els.allTableBody.__bound) {
   els.allTableBody.__bound = true;
-  els.allTableBody.__selected = null;
   els.allTableBody.addEventListener("click", async (e) => {
     try {
+      // Handle detail row button clicks
+      const highlightBtn = e.target.closest(".detailHighlight");
+      const copyBtn = e.target.closest(".detailCopy");
+      if (highlightBtn) {
+        const idx = VT.all ? VT.all.expandedIdx : null;
+        const finding = Number.isFinite(idx) ? state.explorer[idx] : null;
+        if (finding) await highlightFinding(finding);
+        return;
+      }
+      if (copyBtn) {
+        const idx = VT.all ? VT.all.expandedIdx : null;
+        const finding = Number.isFinite(idx) ? state.explorer[idx] : null;
+        if (finding) {
+          const text = Object.entries(finding)
+            .filter(([k, v]) => v && !k.startsWith('_'))
+            .map(([k, v]) => `${k}: ${v}`)
+            .join('\n');
+          await copyText(text);
+          toast("Copied to clipboard");
+        }
+        return;
+      }
+
       const tr = e?.target?.closest ? e.target.closest("tr.trow") : null;
       if (!tr) return;
 
-      const tableWrap = els.allTableBody.closest(".tableWrap");
-      if (els.allTableBody.__selected) els.allTableBody.__selected.classList.remove("isSelected");
-      tr.classList.add("isSelected");
-      els.allTableBody.__selected = tr;
-      if (tableWrap) tableWrap.classList.add("hasSelection");
-
       const idx = Number(tr.getAttribute("data-i"));
-      if (VT.all) VT.all.selectedIdx = idx;
       const finding = Number.isFinite(idx) ? state.explorer[idx] : null;
       if (!finding) return;
 
-      await highlightFinding(finding);
+      // Toggle expand via VirtualTable (handles selection + detail rendering)
+      if (VT.all) {
+        VT.all.toggleExpanded(idx);
+        // Highlight on the inspected page when expanding
+        if (VT.all.expandedIdx === idx) await highlightFinding(finding);
+      }
     } catch (err) {
       console.warn("Explorer table click failed", err);
       toast("Could not highlight element");
@@ -4854,10 +4915,20 @@ document.addEventListener('click', () => {
   document.querySelectorAll('.colToggle .btn').forEach(b => { b.setAttribute('aria-expanded', 'false'); });
 });
 
+// Default hidden columns for each table (indices that are hidden unless user toggled)
+const DEFAULT_COL_HIDDEN = {
+  allTable: { 1: false, 5: false, 6: false, 7: false }, // hide product, testId, path, note
+};
+
 function initColToggles() {
   // Load saved prefs then set up toggles
-  storageGet(['colPrefs']).then(({ colPrefs = {} }) => {
-    Object.assign(colVisibility, colPrefs);
+  storageGet(['colPrefs']).then(({ colPrefs }) => {
+    if (colPrefs && Object.keys(colPrefs).length > 0) {
+      Object.assign(colVisibility, colPrefs);
+    } else {
+      // Apply smart defaults — hide low-priority columns
+      Object.assign(colVisibility, JSON.parse(JSON.stringify(DEFAULT_COL_HIDDEN)));
+    }
     applyColStyles();
 
     const placements = [
@@ -4934,6 +5005,7 @@ function initVirtualTables() {
       tbodyEl: els.allTableBody,
       colCount: 9,
       rowRenderer: explorerRowHtml,
+      detailRenderer: buildDetailRow,
       estimateRowHeight: 24,
       overscan: 12,
     });
