@@ -157,119 +157,7 @@
     });
   };
 
-  const FIX_SUGGESTIONS = {
-    IMG_MISSING_ALT: 'Add alt="description of image" to the <img> tag. Use alt="" only if purely decorative.',
-    IMG_EMPTY_ALT: 'If decorative, alt="" is correct. If meaningful, add a descriptive alt text.',
-    NO_ACCESSIBLE_NAME: (f) => `Add aria-label="descriptive label" or visible text content to this ${f.role || f.tag?.toLowerCase() || 'element'}.`,
-    FORM_CONTROL_NO_LABEL: 'Add a visible <label for="id"> associated with the input, or use aria-label if a visible label is not possible.',
-    HEADING_LEVEL_SKIP: (f) => `Insert an h${(f.extra?.from || 1) + 1} heading before this h${f.extra?.to || '?'} to maintain heading hierarchy.`,
-    NO_H1: 'Add an <h1> element describing the primary content of the page.',
-    MULTIPLE_H1: 'Use only one <h1> per page. Demote extra H1s to <h2> or lower.',
-    NO_MAIN_LANDMARK: 'Wrap the primary page content in a <main> element.',
-    REGION_NO_NAME: 'Add aria-label="Section name" or aria-labelledby pointing to a visible heading.',
-    BROKEN_ARIA_REFERENCE: (f) => `Ensure an element with id="${f.extra?.id}" exists in the DOM, or remove the ${f.extra?.attr} attribute.`,
-    ARIA_LABELLEDBY_POINTS_TO_ARIA_HIDDEN: 'Remove aria-hidden="true" from the referenced label element, or use a different labelling strategy.',
-    POSITIVE_TABINDEX: 'Remove the positive tabindex value. Use tabindex="0" for natural order, or restructure the DOM order instead.',
-    CHAT_LOG_NO_ARIA_LIVE_SOFT: 'Add aria-live="polite" to the role="log" container so new messages are announced.',
-    DISABLED_INPUT_NO_EXPLANATION: 'Add aria-describedby pointing to text explaining why the input is disabled, or add a title attribute.',
-    LOADER_WITHOUT_ANNOUNCEMENT_HOOK: 'Add an aria-live="polite" region and update its text when loading starts/ends (e.g., "Loading…" / "Content loaded").',
-    DUPLICATE_ID: (f) => {
-      const base = `Make id="${f.extra?.id}" unique across the page. In microfrontend contexts, add a scope prefix (e.g., "mfe1-${f.extra?.id}").`;
-      return f.extra?.ariaReferenced
-        ? `${base} This ID is referenced by ARIA attributes — duplicates will break accessible name/description resolution.`
-        : base;
-    },
-    FOCUS_VISIBLE_SUPPRESSED: 'Add a visible :focus-visible style (e.g., outline: 2px solid #005fcc; outline-offset: 2px) or use box-shadow for the focus indicator.',
-    NO_SKIP_NAV: 'Add a visually hidden skip link as the first focusable element: <a href="#main" class="skip-link">Skip to main content</a>.',
-    MISSING_AUTOCOMPLETE: 'Add the appropriate autocomplete attribute (e.g., autocomplete="email") to help browsers autofill this field.',
-    CLICK_WITHOUT_KEYBOARD: (f) => `Ensure this ${f.tag?.toLowerCase() || 'element'} is keyboard reachable and activates on Enter/Space. If handling is delegated, verify behavior manually.`,
-    ARIA_HIDDEN_FOCUSABLE: 'Add tabindex="-1" to focusable elements inside aria-hidden="true", or remove aria-hidden from the container.',
-    ARIA_REQUIRED_ATTR_MISSING: (f) => `Add ${f.extra?.attr}="..." to this role="${f.extra?.role}" element as required by the ARIA spec.`,
-    TOUCH_TARGET_TOO_SMALL: 'Verify effective hit-area is at least 24x24px (WCAG 2.2 AA 2.5.8). Increase padding/min-size, or confirm a larger wrapper hit target exists.',
-    TABLE_NO_HEADERS: 'Add <th scope="col"> for column headers and <th scope="row"> for row headers.',
-    LABEL_NOT_IN_NAME: 'Ensure the aria-label includes the visible text. E.g., if button says "Search", use aria-label="Search products" not "Find items".',
-    MISSING_LANG: 'Add lang="en" (or the appropriate language code) to the <html> element.',
-    VIEWPORT_ZOOM_DISABLED: 'Remove user-scalable=no and maximum-scale=1 from the viewport meta tag to allow pinch-to-zoom.',
-    SHELL_OR_MINIMAL_UI: null,
-    SHADOW_DOM_DETECTED: 'Inspect shadow DOM content manually using DevTools element inspector.',
-    // Microfrontend checks
-    COMPETING_ASSERTIVE_LIVE: 'Consolidate aria-live="assertive" regions into one shared announcer. Use aria-live="polite" where possible.',
-    DUPLICATE_MAIN_LANDMARK: 'Coordinate between microfrontends so only one <main> element exists. Others should use <section> or role="region".',
-    DUPLICATE_NAV_NO_LABEL: 'Add unique aria-label to each <nav> (e.g., aria-label="Primary navigation", aria-label="Footer navigation").',
-    DUPLICATE_BANNER: 'Coordinate MFEs so only one top-level <header> exists, or scope additional headers inside <article> or <section>.',
-    DUPLICATE_CONTENTINFO: 'Coordinate MFEs so only one top-level <footer> exists, or scope additional footers inside <article> or <section>.',
-    HEADING_HIERARCHY_FRAGMENTED: 'Establish a shared heading hierarchy across MFEs. The host page should provide H1, MFEs start at H2 or deeper.',
-    COMPETING_SKIP_NAV: 'Use a single skip link from the host page. Remove skip links from individual MFEs.',
-    SHADOW_DOM_FOCUS_ISSUE: 'Add delegatesFocus: true to the shadow root, or set explicit tabindex on focusable shadow DOM elements.',
-    IFRAME_MISSING_TITLE: 'Add title="Description of embedded content" to the <iframe> element.',
-    IFRAME_CROSS_ORIGIN: 'Check the parent page to verify this iframe has a title attribute.',
-    // WCAG 2.2
-    DRAGGABLE_NO_ALTERNATIVE: 'Provide a button-based alternative (e.g., move up/down buttons) alongside the drag interaction.',
-    CONSISTENT_HELP_CHECK: 'Ensure help/contact links appear in the same relative order on every page.',
-    FOCUS_MAY_BE_OBSCURED: 'Use scroll-padding-top/bottom or scroll-margin to offset focused elements past sticky headers/footers.',
-    REDUNDANT_ENTRY: 'Add autocomplete attributes to repeated fields, or pre-fill values from prior entries.',
-    // Help center / chat / general
-    HC_TREE_ITEM_NO_NAME: 'Add aria-label or visible text content to each role="treeitem" so screen readers can announce the item.',
-    HC_TREE_NO_ARIA_EXPANDED: 'Add aria-expanded="true" or aria-expanded="false" to treeitem elements that own a child role="group".',
-    CHAT_MESSAGE_NO_ROLE: 'Add role="listitem", role="article", or a semantic element to direct children of role="log" so screen readers convey message boundaries.',
-    CHAT_INPUT_NO_LABEL: 'Add a visible <label> or aria-label to the chat input/textarea so screen readers announce its purpose.',
-    CHAT_TIMESTAMP_INACCESSIBLE: 'Remove aria-hidden from the timestamp, or provide the same information in an sr-only element or aria-label on the parent message.',
-    HC_ARTICLE_NO_HEADING: 'Add an <h2> or <h3> heading inside the article to give it a navigable structure for screen reader users.',
-    LIVE_REGION_HIDDEN: 'An aria-live region with display:none or visibility:hidden will never announce. Make it visible (use clip-rect for visual hiding) or remove aria-live.',
-    COMBOBOX_NO_LISTBOX: 'Add aria-owns or aria-controls pointing to a role="listbox" (or role="tree"/"grid") element that appears when the combobox is expanded.',
-    // AAA
-    TARGET_SIZE_AAA: 'Increase the target size to at least 44x44px to meet AAA requirements.',
-    // Tier 1 extended rules
-    NESTED_INTERACTIVE: 'Remove the nested interactive element, or replace the outer <button>/<a> with a non-interactive wrapper like <div> with role and keyboard handling.',
-    DOCUMENT_TITLE_MISSING: 'Add a <title>Page Title</title> element inside <head> that describes the page purpose.',
-    ARIA_VALID_ATTR: (f) => `"${f.extra?.attr}" is not a valid ARIA attribute. Check for typos${f.extra?.suggestion ? ` — did you mean "${f.extra.suggestion}"?` : '.'}`,
-    ARIA_VALID_ROLE: (f) => `role="${f.extra?.role}" is not a valid WAI-ARIA role. Remove it or use a valid role value.`,
-    ARIA_REQUIRED_CHILDREN: (f) => `role="${f.extra?.role}" requires at least one child with role="${f.extra?.expected}". Add the missing child element.`,
-    ARIA_REQUIRED_PARENT: (f) => `role="${f.extra?.role}" must be contained in a parent with role="${f.extra?.expected}". Wrap it in the appropriate parent.`,
-    META_REFRESH: 'Remove <meta http-equiv="refresh">. Use server-side redirects or give the user a link to navigate.',
-    NO_AUTOPLAY_AUDIO: 'Add muted attribute, or ensure audio does not play for more than 3 seconds, or provide a mechanism to pause/stop/mute.',
-    HTML_LANG_VALID: (f) => `lang="${f.extra?.lang}" is not a valid BCP 47 language tag. Use a valid code like "en", "fr", "es", "de".`,
-    SCROLLABLE_NOT_FOCUSABLE: 'Add tabindex="0" and an accessible label (aria-label or aria-labelledby) to the scrollable container.',
-    LINK_SUSPICIOUS_TEXT: (f) => `Link text "${f.extra?.text}" is not descriptive. Use text that describes the link destination (e.g., "View pricing details" instead of "click here").`,
-    EMPTY_HEADING: 'Add text content to the heading, or remove it if not needed.',
-    EMPTY_TABLE_HEADER: 'Add text content to the <th> element, or use aria-label if visual text is not appropriate.',
-    DIALOG_NO_ACCESSIBLE_NAME: 'Add aria-label="Dialog purpose" or aria-labelledby pointing to the dialog title element.',
-    ARIA_ALLOWED_ATTR: (f) => `"${f.extra?.attr}" is not allowed on role="${f.extra?.role}". Remove the attribute or change the element's role.`,
-    ARIA_HIDDEN_ON_BODY: 'Remove aria-hidden="true" from <body> or <html>. This hides the entire page from assistive technology.',
-    // Tier 2 extended rules
-    MARQUEE_ELEMENT: 'Replace <marquee> with CSS animation or a static alternative. The <marquee> element is deprecated and causes reading difficulty.',
-    INPUT_IMAGE_ALT: 'Add alt="description" to the <input type="image"> element describing its action (e.g., alt="Submit form").',
-    AREA_ALT_MISSING: 'Add alt="description" to the <area> element describing the linked region.',
-    OBJECT_NO_ALT: 'Add a text alternative inside the <object> element as fallback content, or use aria-label.',
-    FIELDSET_NO_LEGEND: 'Add a <legend> as the first child of the <fieldset> to describe the group of controls.',
-    SVG_IMG_NO_ALT: 'Add aria-label="description" to the <svg>, or include a <title> element as first child of the SVG.',
-    VIDEO_NO_CAPTIONS: 'Add <track kind="captions" src="..."> inside the <video> element to provide synchronized captions.',
-    LIST_STRUCTURE: (f) => `Move the <${f.extra?.tag}> inside a <ul>, <ol>, or <menu> element. List items must be children of a list container.`,
-    DL_STRUCTURE: (f) => `Move the <${f.extra?.tag}> inside a <dl> element. Definition terms/descriptions must be children of a definition list.`,
-    ACCESSKEY_DUPLICATE: (f) => `accesskey="${f.extra?.key}" is used on ${f.extra?.count} elements. Each accesskey must be unique on the page.`,
-    FORM_FIELD_MULTIPLE_LABELS: 'Remove extra <label> elements so each input has exactly one associated label.',
-    AUTOCOMPLETE_VALID: (f) => `autocomplete="${f.extra?.value}" is not a valid token. Use a recognized value like "name", "email", "tel", etc.`,
-    TH_MISSING_SCOPE: 'Add scope="col" or scope="row" to <th> elements in tables with multiple rows and columns.',
-    VIDEO_AUTOPLAY: 'Add muted attribute to <video autoplay>, or provide a mechanism to pause/stop the video.',
-    // Tier 3 extended rules
-    BLINK_ELEMENT: 'Remove the <blink> element. It is deprecated and causes seizure/readability issues. Use CSS animation with prefers-reduced-motion support if needed.',
-    SERVER_IMAGE_MAP: 'Replace the server-side image map (<img ismap>) with a client-side <map> using <area> elements, so each region has its own accessible name.',
-    SCOPE_ATTR_VALID: (f) => `scope="${f.extra?.value}" is not valid. Use "col", "row", "colgroup", or "rowgroup".`,
-    TD_HEADERS_INVALID: (f) => `headers attribute references id="${f.extra?.id}" which does not exist. Fix the id reference or remove the headers attribute.`,
-    TABLE_DUPLICATE_NAME: 'The table caption and aria-label are identical. Remove one to avoid redundant announcements.',
-    AUDIO_NO_TRANSCRIPT: 'Provide a text transcript for the audio content, or link to one near the <audio> element.',
-    ARIA_VALID_ATTR_VALUE: (f) => `"${f.extra?.value}" is not a valid value for ${f.extra?.attr}. ${f.extra?.expected || 'Check the WAI-ARIA spec for allowed values.'}`,
-    IDENTICAL_LINKS_SAME_TEXT: (f) => `${f.extra?.count} links use text "${f.extra?.text}" but point to different URLs. Differentiate the link text or add aria-label to clarify purpose.`,
-    P_AS_HEADING: 'If this text acts as a heading, use an <h2>–<h6> element instead of styling a <p> or <div> with bold/large text.',
-    // Chat & Help Center extended rules
-    CHAT_SEND_NO_LABEL: 'Add aria-label="Send message" (or similar) to the send button, or ensure it has visible text content.',
-    CHAT_AVATAR_NO_ALT: 'Add alt="Agent name" or alt="" (if decorative) to avatar images inside the chat log.',
-    CHAT_NO_ARIA_RELEVANT: 'Add aria-relevant="additions" to role="log" so assistive technology correctly announces only new messages.',
-    CHAT_TYPING_NO_ANNOUNCEMENT: 'Wrap the typing indicator in an aria-live="polite" region, or announce "Agent is typing" via a live region.',
-    HC_SEARCH_NO_LABEL: 'Add a visible <label> or aria-label to the help center search input.',
-    HC_BREADCRUMB_NO_LABEL: 'Add aria-label="Breadcrumb" to the <nav> element containing breadcrumb links.',
-    HC_ACCORDION_NO_STATE: 'Add aria-expanded="true" or aria-expanded="false" to the accordion trigger button.',
-  };
+  // FIX_SUGGESTIONS moved to panel.js to reduce injected snippet size
 
   const RULE_REGISTRY = {
     FOCUS_VISIBLE_SUPPRESSED: {
@@ -378,10 +266,6 @@
       html: el ? html(el) : null,
       note, extra, fix: fix ?? null
     };
-    if (!entry.fix && FIX_SUGGESTIONS[type]) {
-      const s = FIX_SUGGESTIONS[type];
-      entry.fix = typeof s === "function" ? s(entry) : s;
-    }
     findings.push(entry);
   };
 
@@ -1079,6 +963,18 @@
     const s = sanity(cfg.appMarkers || null);
     const findings = [];
 
+    // Compact rule helper: querySelectorAll + isHidden + condition + add
+    const _q = (sel, type, sev, wcag, test, note, opts) => {
+      doc.querySelectorAll(sel).forEach(el => {
+        if (isHidden(el)) return;
+        if (test && !test(el)) return;
+        const entry = { type, el, severity: sev, wcag };
+        if (note) entry.note = typeof note === "function" ? note(el) : note;
+        if (opts) Object.assign(entry, typeof opts === "function" ? opts(el) : opts);
+        add(findings, entry);
+      });
+    };
+
     // If this looks like a "shell" state, warn (use observe/watch during navigation/loader phases).
     if (s.focusables <= 8 && s.landmarks <= 1 && s.headings === 0 && s.roleLog === 0) {
       add(findings, {
@@ -1109,11 +1005,7 @@
     });
 
     // 4.1.2 Name, Role, Value: interactive controls without accessible name
-    doc.querySelectorAll("button, a, [role='button'], [role='link']").forEach(el => {
-      if (isHidden(el)) return;
-      const name = getAccName(el);
-      if (!name) add(findings, { type: "NO_ACCESSIBLE_NAME", el, severity: "high", wcag: "4.1.2" });
-    });
+    _q("button, a, [role='button'], [role='link']", "NO_ACCESSIBLE_NAME", "high", "4.1.2", el => !getAccName(el));
 
     // 1.3.1 / 3.3.2 / 4.1.2: form controls without label/name
     doc.querySelectorAll("input:not([type='hidden']), textarea, select, [role='textbox']").forEach(el => {
@@ -1153,11 +1045,7 @@
     if (!hasMain) add(findings, { type: "NO_MAIN_LANDMARK", severity: "low", wcag: "1.3.1", el: doc.body });
 
     // Regions should be named (best practice; 1.3.1 / 4.1.2)
-    doc.querySelectorAll("[role='region']").forEach(el => {
-      if (isHidden(el)) return;
-      const hasName = !!((el.getAttribute("aria-label") || "").trim() || (el.getAttribute("aria-labelledby") || "").trim());
-      if (!hasName) add(findings, { type: "REGION_NO_NAME", el, severity: "low", wcag: "1.3.1 / 4.1.2" });
-    });
+    _q("[role='region']", "REGION_NO_NAME", "low", "1.3.1 / 4.1.2", el => !((el.getAttribute("aria-label")||"").trim()||(el.getAttribute("aria-labelledby")||"").trim()));
 
     // 4.1.2: broken ARIA references
     ["aria-labelledby","aria-describedby","aria-controls","aria-owns","aria-activedescendant"].forEach(attr => {
@@ -1346,17 +1234,7 @@
     // -------- Help center tree checks --------
     if (mode === "helpcenter-tree" || mode === "auto") {
       // HC_TREE_ITEM_NO_NAME: treeitem without accessible name
-      doc.querySelectorAll("[role='treeitem']").forEach(el => {
-        if (isHidden(el)) return;
-        const name = getAccName(el);
-        if (!name) {
-          add(findings, {
-            type: "HC_TREE_ITEM_NO_NAME", el, severity: "high", wcag: "4.1.2",
-            product: "helpcenter",
-            note: "role=\"treeitem\" has no accessible name — screen readers cannot announce this item."
-          });
-        }
-      });
+      _q("[role='treeitem']", "HC_TREE_ITEM_NO_NAME", "high", "4.1.2", el => !getAccName(el), 'role="treeitem" has no accessible name — screen readers cannot announce this item.', { product: "helpcenter" });
 
       // HC_TREE_NO_ARIA_EXPANDED: treeitem with child group but no aria-expanded
       doc.querySelectorAll("[role='treeitem']").forEach(el => {
@@ -1801,13 +1679,7 @@
     }
 
     // 1.4.2: Autoplay audio/video without muted
-    doc.querySelectorAll("audio[autoplay],video[autoplay]").forEach(el => {
-      if (isHidden(el)) return;
-      if (!el.hasAttribute("muted")) {
-        add(findings, { type: "NO_AUTOPLAY_AUDIO", severity: "high", wcag: "1.4.2", el,
-          note: `<${el.tagName.toLowerCase()}> has autoplay without muted. May play audio automatically.` });
-      }
-    });
+    _q("audio[autoplay],video[autoplay]", "NO_AUTOPLAY_AUDIO", "high", "1.4.2", el => !el.hasAttribute("muted"), el => `<${el.tagName.toLowerCase()}> has autoplay without muted. May play audio automatically.`);
 
     // 3.1.1: HTML lang attribute has invalid value
     const langVal = doc.documentElement.getAttribute("lang");
@@ -1835,31 +1707,13 @@
     });
 
     // 1.3.1: Empty headings
-    doc.querySelectorAll("h1,h2,h3,h4,h5,h6,[role='heading']").forEach(el => {
-      if (isHidden(el)) return;
-      if (!getAccName(el).trim()) {
-        add(findings, { type: "EMPTY_HEADING", severity: "medium", wcag: "1.3.1", el,
-          note: `Empty ${el.tagName?.toLowerCase() || 'heading'} element provides no navigation value for AT users.` });
-      }
-    });
+    _q("h1,h2,h3,h4,h5,h6,[role='heading']", "EMPTY_HEADING", "medium", "1.3.1", el => !getAccName(el).trim(), el => `Empty ${el.tagName?.toLowerCase()||'heading'} element provides no navigation value for AT users.`);
 
     // 1.3.1: Empty table headers
-    doc.querySelectorAll("th").forEach(el => {
-      if (isHidden(el)) return;
-      if (!getAccName(el).trim() && !el.textContent.trim()) {
-        add(findings, { type: "EMPTY_TABLE_HEADER", severity: "medium", wcag: "1.3.1", el,
-          note: "Empty <th> element. Screen readers use header text to describe table cell context." });
-      }
-    });
+    _q("th", "EMPTY_TABLE_HEADER", "medium", "1.3.1", el => !getAccName(el).trim()&&!el.textContent.trim(), "Empty <th> element. Screen readers use header text to describe table cell context.");
 
     // 4.1.2: Dialog without accessible name
-    doc.querySelectorAll("dialog,[role='dialog'],[role='alertdialog']").forEach(el => {
-      if (isHidden(el)) return;
-      if (!getAccName(el).trim()) {
-        add(findings, { type: "DIALOG_NO_ACCESSIBLE_NAME", severity: "high", wcag: "4.1.2", el,
-          note: "Dialog has no accessible name. Add aria-label or aria-labelledby." });
-      }
-    });
+    _q("dialog,[role='dialog'],[role='alertdialog']", "DIALOG_NO_ACCESSIBLE_NAME", "high", "4.1.2", el => !getAccName(el).trim(), "Dialog has no accessible name. Add aria-label or aria-labelledby.");
 
     // 2.4.4: Suspicious link text
     const suspiciousLinkRe = /^(click here|here|read more|more|learn more|link|this|go|download|details|continue|info|page|this page|this link)$/i;
@@ -1994,20 +1848,10 @@
     // -------- Tier 2: Extended checks --------
 
     // 2.2.2: Deprecated <marquee> element
-    doc.querySelectorAll("marquee").forEach(el => {
-      if (isHidden(el)) return;
-      add(findings, { type: "MARQUEE_ELEMENT", severity: "high", wcag: "2.2.2", el,
-        note: "<marquee> is deprecated. Auto-scrolling content is difficult to read and cannot be paused." });
-    });
+    _q("marquee", "MARQUEE_ELEMENT", "high", "2.2.2", null, "<marquee> is deprecated. Auto-scrolling content is difficult to read and cannot be paused.");
 
     // 1.1.1: <input type="image"> without alt
-    doc.querySelectorAll("input[type='image']").forEach(el => {
-      if (isHidden(el)) return;
-      if (!el.hasAttribute("alt") || !el.getAttribute("alt").trim()) {
-        add(findings, { type: "INPUT_IMAGE_ALT", severity: "medium", wcag: "1.1.1", el,
-          note: '<input type="image"> missing alt text describing its action.' });
-      }
-    });
+    _q("input[type='image']", "INPUT_IMAGE_ALT", "medium", "1.1.1", el => !el.hasAttribute("alt")||!el.getAttribute("alt").trim(), '<input type="image"> missing alt text describing its action.');
 
     // 1.1.1: <area> without alt
     doc.querySelectorAll("area").forEach(el => {
@@ -2018,52 +1862,19 @@
     });
 
     // 1.1.1: <object> without accessible text
-    doc.querySelectorAll("object").forEach(el => {
-      if (isHidden(el)) return;
-      if (!getAccName(el).trim() && !el.textContent.trim()) {
-        add(findings, { type: "OBJECT_NO_ALT", severity: "medium", wcag: "1.1.1", el,
-          note: "<object> has no accessible name or fallback text content." });
-      }
-    });
+    _q("object", "OBJECT_NO_ALT", "medium", "1.1.1", el => !getAccName(el).trim()&&!el.textContent.trim(), "<object> has no accessible name or fallback text content.");
 
     // 1.3.1: <fieldset> without <legend>
-    doc.querySelectorAll("fieldset").forEach(el => {
-      if (isHidden(el)) return;
-      if (!el.querySelector("legend")) {
-        add(findings, { type: "FIELDSET_NO_LEGEND", severity: "medium", wcag: "1.3.1", el,
-          note: "<fieldset> has no <legend>. Screen readers need a legend to describe the group of controls." });
-      }
-    });
+    _q("fieldset", "FIELDSET_NO_LEGEND", "medium", "1.3.1", el => !el.querySelector("legend"), "<fieldset> has no <legend>. Screen readers need a legend to describe the group of controls.");
 
     // 1.1.1: SVG used as image without accessible name
-    doc.querySelectorAll("svg[role='img'],svg[role='graphics-document']").forEach(el => {
-      if (isHidden(el)) return;
-      const hasTitle = el.querySelector("title");
-      const hasAriaLabel = el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby");
-      if (!hasTitle && !hasAriaLabel) {
-        add(findings, { type: "SVG_IMG_NO_ALT", severity: "medium", wcag: "1.1.1", el,
-          note: "SVG with role=\"img\" has no accessible name. Add aria-label or a <title> child element." });
-      }
-    });
+    _q("svg[role='img'],svg[role='graphics-document']", "SVG_IMG_NO_ALT", "medium", "1.1.1", el => !el.querySelector("title")&&!el.hasAttribute("aria-label")&&!el.hasAttribute("aria-labelledby"), 'SVG with role="img" has no accessible name. Add aria-label or a <title> child element.');
 
     // 1.2.2: <video> without captions track
-    doc.querySelectorAll("video").forEach(el => {
-      if (isHidden(el)) return;
-      const hasCaptions = el.querySelector("track[kind='captions'],track[kind='subtitles']");
-      if (!hasCaptions) {
-        add(findings, { type: "VIDEO_NO_CAPTIONS", severity: "medium", wcag: "1.2.2", el,
-          note: "<video> has no <track kind=\"captions\">. Provide synchronized captions for audio content." });
-      }
-    });
+    _q("video", "VIDEO_NO_CAPTIONS", "medium", "1.2.2", el => !el.querySelector("track[kind='captions'],track[kind='subtitles']"), '<video> has no <track kind="captions">. Provide synchronized captions for audio content.');
 
     // 1.4.2: <video autoplay> without muted (extends audio check)
-    doc.querySelectorAll("video[autoplay]").forEach(el => {
-      if (isHidden(el)) return;
-      if (!el.hasAttribute("muted")) {
-        add(findings, { type: "VIDEO_AUTOPLAY", severity: "medium", wcag: "1.4.2", el,
-          note: "<video> has autoplay without muted. May play audio automatically." });
-      }
-    });
+    _q("video[autoplay]", "VIDEO_AUTOPLAY", "medium", "1.4.2", el => !el.hasAttribute("muted"), "<video> has autoplay without muted. May play audio automatically.");
 
     // 1.3.1: <li> not inside <ul>, <ol>, or <menu>
     doc.querySelectorAll("li").forEach(el => {
@@ -2154,21 +1965,10 @@
     // -------- Tier 3: Extended checks --------
 
     // 2.2.2: Deprecated <blink> element
-    doc.querySelectorAll("blink").forEach(el => {
-      if (isHidden(el)) return;
-      add(findings, { type: "BLINK_ELEMENT", severity: "high", wcag: "2.2.2", el,
-        note: "<blink> is deprecated. Blinking content can cause seizures and is unreadable." });
-    });
+    _q("blink", "BLINK_ELEMENT", "high", "2.2.2", null, "<blink> is deprecated. Blinking content can cause seizures and is unreadable.");
 
     // 1.1.1: Server-side image map without client-side alternative
-    doc.querySelectorAll("img[ismap]").forEach(el => {
-      if (isHidden(el)) return;
-      const usemap = el.getAttribute("usemap");
-      if (!usemap) {
-        add(findings, { type: "SERVER_IMAGE_MAP", severity: "medium", wcag: "1.1.1", el,
-          note: "<img ismap> uses a server-side image map with no client-side <map> alternative." });
-      }
-    });
+    _q("img[ismap]", "SERVER_IMAGE_MAP", "medium", "1.1.1", el => !el.getAttribute("usemap"), "<img ismap> uses a server-side image map with no client-side <map> alternative.");
 
     // 1.3.1: <th scope> with invalid value
     doc.querySelectorAll("th[scope]").forEach(el => {
@@ -2436,11 +2236,7 @@
     // -------- WCAG 2.2 specific checks --------
     if (is22) {
       // 2.5.8 Dragging Movements
-      doc.querySelectorAll("[draggable='true']").forEach(el => {
-        if (isHidden(el)) return;
-        add(findings, { type: "DRAGGABLE_NO_ALTERNATIVE", severity: "medium", wcag: "2.5.8", wcagVersion: "2.2", el,
-          note: "draggable=\"true\" detected. WCAG 2.5.8 requires a non-dragging alternative input method." });
-      });
+      _q("[draggable='true']", "DRAGGABLE_NO_ALTERNATIVE", "medium", "2.5.8", null, 'draggable="true" detected. WCAG 2.5.8 requires a non-dragging alternative input method.', { wcagVersion: "2.2" });
 
       // 3.2.6 Consistent Help
       const helpLinks = doc.querySelectorAll("a[href*='help'],a[href*='contact'],a[href*='support'],[data-testid*='help'],[data-testid*='contact']");

@@ -63,7 +63,7 @@
         <!-- CTA slot -->
         <div class="ctaSlot" id="snapCta">
           <button class="ctaBtn ctaBtn--amber" id="runCurrentMode" type="button">
-            <span id="runIcon" aria-hidden="true">&#9655;</span> <span id="runLabel">Run Audit</span>
+            <img id="runIcon" class="tabSvg" src="icons/Run Icon.svg" alt="" width="16" height="16" aria-hidden="true" /> <span id="runLabel">Run Audit</span>
             <span id="runTimer" class="runTimer" hidden></span>
           </button>
           <p class="helperText" id="snapHelper">Perform a strict WCAG Audit</p>
@@ -98,7 +98,7 @@
           <section class="findingsCard" id="explorerSection">
             <div class="searchToolbar" id="searchToolbar">
               <div class="searchInput">
-                <svg class="searchIcon" width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="5" cy="5" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M8 8l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                <img class="searchIcon" src="icons/Search Icon.svg" alt="" width="12" height="12" aria-hidden="true" />
                 <input id="q" name="q" autocomplete="off" type="text" aria-label="Search findings" placeholder="Search" />
                 <button id="searchClear" class="searchClear" type="button" aria-label="Clear search">&times;</button>
               </div>
@@ -123,7 +123,7 @@
           <section class="findingsCard" id="contrastSection" role="region" aria-label="Contrast results" hidden>
             <div class="searchToolbar" id="contrastToolbar">
               <div class="searchInput">
-                <svg class="searchIcon" width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="5" cy="5" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M8 8l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                <img class="searchIcon" src="icons/Search Icon.svg" alt="" width="12" height="12" aria-hidden="true" />
                 <input id="contrastQ" type="text" autocomplete="off" aria-label="Search contrast results" placeholder="Search" />
               </div>
               <div class="toolbarActions">
@@ -147,7 +147,7 @@
           <section class="findingsCard" id="tabWalkSection" role="region" aria-label="Tab order results" hidden>
             <div class="searchToolbar" id="tabWalkToolbar">
               <div class="searchInput">
-                <svg class="searchIcon" width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="5" cy="5" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M8 8l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                <img class="searchIcon" src="icons/Search Icon.svg" alt="" width="12" height="12" aria-hidden="true" />
                 <input id="tabWalkQ" type="text" autocomplete="off" aria-label="Search tab walk events" placeholder="Search" />
               </div>
               <div class="toolbarActions">
@@ -190,7 +190,7 @@
         <div class="bottomSheets" id="bottomSheets">
           <section class="bottomSheet bottomSheet--runs">
             <button class="sheetHeader" id="pastRunsToggle" type="button" aria-expanded="false" aria-controls="pastRunsBody">
-              <svg class="sheetIcon" width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M6 3v3.5l2.5 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <img class="sheetIcon" src="icons/Past Icon.svg" alt="" width="12" height="12" aria-hidden="true" />
               <span class="sheetLabel">Past runs</span>
               <span class="sheetCount" id="pastRunsCount"></span>
               <span class="sheetChevron" aria-hidden="true">&#x25B6;</span>
@@ -205,13 +205,13 @@
           <section class="bottomSheet bottomSheet--json">
             <div class="sheetHeaderWrap">
               <button class="sheetHeader sheetHeader--flex" id="rawJsonToggle" type="button" aria-expanded="false" aria-controls="rawJsonBody">
-                <span class="sheetIcon" aria-hidden="true">{&thinsp;}</span>
+                <img class="sheetIcon" src="icons/JSON Icon.svg" alt="" width="12" height="12" aria-hidden="true" />
                 <span class="sheetLabel">Raw JSON</span>
                 <span class="sheetChevron" aria-hidden="true">&#x25B6;</span>
               </button>
               <div class="sheetExport" id="exportAnchor" hidden>
                 <button class="sheetExportBtn" id="exportToggle" type="button" aria-expanded="false" aria-haspopup="menu" aria-controls="exportMenu">
-                  <svg class="sheetExportIcon" width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M6 1v7M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 9v1.5h8V9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  <img class="sheetExportIcon" src="icons/Export Icon.svg" alt="" width="12" height="12" aria-hidden="true" />
                   EXPORT &#x25BE;
                 </button>
                 <div class="exportMenu" id="exportMenu" role="menu" aria-labelledby="exportToggle" hidden>
