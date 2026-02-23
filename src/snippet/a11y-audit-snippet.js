@@ -1547,7 +1547,7 @@
           if (!name || name.startsWith("[placeholder]")) {
             add(findings, {
               type: "CHAT_INPUT_NO_LABEL", el: inp, severity: "medium", wcag: "1.3.1 / 4.1.2",
-              product: "chat",
+              confidence: "strict", product: "chat",
               note: "Chat input/textarea near role=\"log\" has no accessible label (placeholder alone is insufficient)."
             });
           }
@@ -1627,6 +1627,122 @@
           }
         });
       });
+
+      // CHAT_NO_LIVE_REGION_FOR_MESSAGES: Scrollable container with messages but no live region
+      {
+        const seenContainers = new Set();
+        // Candidate containers: role=log/feed, scrollable containers near inputs, aria-label matching chat/message
+        const candidates = [
+          ..._qa("[role='log']"), ..._qa("[role='feed']"),
+          ..._qa("[aria-label]").filter(el => /chat|message/i.test(el.getAttribute("aria-label") || "")),
+        ];
+        candidates.forEach(container => {
+          if (seenContainers.has(container) || isHidden(container)) return;
+          seenContainers.add(container);
+          const role = container.getAttribute("role");
+          // Skip if already has role=log/feed (those ARE live region patterns)
+          if (role === "log" || role === "feed") return;
+          // Check: 3+ direct children and no aria-live
+          const directChildren = container.children;
+          if (directChildren && directChildren.length >= 3 && !container.getAttribute("aria-live")) {
+            add(findings, {
+              type: "CHAT_NO_LIVE_REGION_FOR_MESSAGES", el: container, severity: "medium", wcag: "4.1.3",
+              confidence: "strict", product: "chat",
+              note: "Container with 3+ message-like children lacks aria-live and role=log/feed. Screen readers won't announce new messages."
+            });
+          }
+        });
+      }
+
+      // CHAT_QUICK_REPLY_NOT_BUTTON: Quick-reply/chip/suggestion elements that aren't proper buttons
+      {
+        const chipCandidates = _qa("[class*='quick' i],[class*='suggest' i],[class*='chip' i]");
+        const cap = Math.min(chipCandidates.length, 200);
+        for (let i = 0; i < cap; i++) {
+          const el = chipCandidates[i];
+          if (isHidden(el)) continue;
+          const tag = el.tagName.toLowerCase();
+          if (tag === "button" || tag === "a") continue;
+          const role = el.getAttribute("role");
+          if (role === "button" || role === "link") continue;
+          if (el.getAttribute("tabindex") !== null && role) continue;
+          // Check if it's a div/span that looks interactive but isn't semantic
+          if (tag === "div" || tag === "span") {
+            add(findings, {
+              type: "CHAT_QUICK_REPLY_NOT_BUTTON", el, severity: "medium", wcag: "4.1.2",
+              confidence: "strict", product: "chat",
+              note: "Quick-reply / suggestion chip is a <" + tag + "> instead of <button>. Not keyboard accessible and role is not communicated."
+            });
+          }
+        }
+      }
+
+      // CHAT_LIVE_REGION_ASSERTIVE_MISUSE: Chat log/feed with aria-live="assertive" (should use polite)
+      {
+        const seenAssertive = new Set();
+        const liveContainers = [..._qa("[role='log'][aria-live='assertive']"), ..._qa("[role='feed'][aria-live='assertive']")];
+        liveContainers.forEach(el => {
+          if (seenAssertive.has(el) || isHidden(el)) return;
+          seenAssertive.add(el);
+          add(findings, {
+            type: "CHAT_LIVE_REGION_ASSERTIVE_MISUSE", el, severity: "medium", wcag: "4.1.3",
+            confidence: "heuristic", product: "chat",
+            note: "Chat log/feed uses aria-live=\"assertive\" which interrupts the user. Consider aria-live=\"polite\" for message feeds."
+          });
+        });
+      }
+
+      // CHAT_SCROLL_REGION_NOT_FOCUSABLE: Scrollable chat container not keyboard-reachable
+      {
+        const scrollContainers = [..._qa("[role='log']"), ..._qa("[role='feed']")];
+        const cap = Math.min(scrollContainers.length, 50);
+        for (let i = 0; i < cap; i++) {
+          const el = scrollContainers[i];
+          if (isHidden(el)) continue;
+          const style = win.getComputedStyle ? win.getComputedStyle(el) : null;
+          const isScrollable = style && (style.overflowY === "auto" || style.overflowY === "scroll");
+          if (!isScrollable) continue;
+          const ti = el.getAttribute("tabindex");
+          const role = el.getAttribute("role");
+          // role=log/feed alone doesn't make it focusable; needs tabindex
+          if (ti === null || ti === "") {
+            add(findings, {
+              type: "CHAT_SCROLL_REGION_NOT_FOCUSABLE", el, severity: "low", wcag: "2.1.1",
+              confidence: "heuristic", product: "chat",
+              note: "Scrollable chat region is not focusable via keyboard. Add tabindex=\"0\" so keyboard users can scroll."
+            });
+          }
+        }
+      }
+
+      // MESSAGE_NOT_GROUPED: Messages in log/feed lack grouping semantics
+      {
+        const feedContainers = [..._qa("[role='log']"), ..._qa("[role='feed']")];
+        const seenFeeds = new Set();
+        feedContainers.forEach(container => {
+          if (seenFeeds.has(container) || isHidden(container)) return;
+          seenFeeds.add(container);
+          const children = container.children;
+          if (!children || children.length < 3) return;
+          // Count direct children that are bare div/span without role or list semantics
+          let bareCount = 0;
+          const checkLimit = Math.min(children.length, 50);
+          for (let i = 0; i < checkLimit; i++) {
+            const child = children[i];
+            const tag = child.tagName.toLowerCase();
+            if ((tag === "div" || tag === "span") && !child.getAttribute("role")) {
+              bareCount++;
+            }
+          }
+          if (bareCount >= 3) {
+            add(findings, {
+              type: "MESSAGE_NOT_GROUPED", el: container, severity: "low", wcag: "1.3.1",
+              confidence: "advisory", product: "chat",
+              note: "Chat log/feed has 3+ direct children without grouping roles (e.g., role=\"listitem\", role=\"article\"). Consider semantic grouping for assistive technology."
+            });
+          }
+        });
+      }
     }
 
     // -------- Help center tree checks --------
@@ -2631,6 +2747,173 @@
       }
     }
 
+    // -------- V1 Coverage Expansion (bounded, deterministic) --------
+
+    // 3.3.1 Error Identification — aria-invalid without error description
+    _qa("[aria-invalid='true']").forEach(el => {
+      if (isHidden(el)) return;
+      const describedby = (el.getAttribute("aria-describedby") || "").trim();
+      const errormsg = (el.getAttribute("aria-errormessage") || "").trim();
+      const hasDescription = (describedby && describedby.split(/\s+/).some(id => {
+        const ref = doc.getElementById(id);
+        return ref && (ref.textContent || "").trim().length > 0;
+      })) || (errormsg && (() => {
+        const ref = doc.getElementById(errormsg);
+        return ref && (ref.textContent || "").trim().length > 0;
+      })());
+      if (!hasDescription) {
+        add(findings, { type: "ERROR_INPUT_NO_DESCRIPTION", el, severity: "medium", wcag: "3.3.1",
+          confidence: "heuristic",
+          note: "Input marked aria-invalid=\"true\" but no visible error description found via aria-describedby or aria-errormessage." });
+      }
+    });
+
+    // 1.4.10 Reflow — meta viewport with fixed pixel width prevents reflow at 320px
+    const vpContent = (viewport ? viewport.getAttribute("content") : "") || "";
+    const vpWidthMatch = vpContent.match(/width\s*=\s*(\d+)/i);
+    if (vpWidthMatch && Number(vpWidthMatch[1]) > 0) {
+      add(findings, { type: "REFLOW_VIEWPORT_LOCKED", severity: "medium", wcag: "1.4.10",
+        confidence: "heuristic", el: viewport,
+        note: `Viewport width is locked to ${vpWidthMatch[1]}px. WCAG 1.4.10 requires content reflow at 320px CSS width without horizontal scroll.`,
+        extra: { viewportWidth: Number(vpWidthMatch[1]) } });
+    }
+
+    // 3.1.2 Language of Parts — elements with empty or whitespace-only lang attribute
+    _qa("[lang]").forEach(el => {
+      if (el === doc.documentElement) return; // html lang is checked by MISSING_LANG
+      if (isHidden(el)) return;
+      const lang = (el.getAttribute("lang") || "").trim();
+      if (!lang) {
+        add(findings, { type: "MISSING_LANG_ON_PART", el, severity: "low", wcag: "3.1.2",
+          confidence: "heuristic",
+          note: "Element has a lang attribute but it is empty. Provide a valid BCP 47 language tag." });
+      }
+    });
+
+    // 1.4.12 Text Spacing — overflow:hidden containers risk clipping text when user applies spacing overrides
+    _qa("p,li,td,th,dd,blockquote,figcaption,label,span,div").forEach(el => {
+      if (isHidden(el)) return;
+      const text = (el.textContent || "").trim();
+      if (!text || text.length < 20) return; // Skip short/empty content
+      try {
+        const cs = w.getComputedStyle(el);
+        if (cs.overflow !== "hidden" && cs.overflowY !== "hidden") return;
+        const lh = parseFloat(cs.lineHeight);
+        const fs = parseFloat(cs.fontSize);
+        if (!isFinite(lh) || !isFinite(fs) || fs === 0) return;
+        if (lh / fs < 1.5) {
+          add(findings, { type: "TEXT_SPACING_CLIP_RISK", el, severity: "low", wcag: "1.4.12",
+            confidence: "advisory",
+            note: `overflow:hidden with line-height ${(lh / fs).toFixed(2)}em may clip content when users apply WCAG 1.4.12 text spacing overrides.`,
+            extra: { lineHeightRatio: Math.round((lh / fs) * 100) / 100 } });
+        }
+      } catch { /* getComputedStyle may throw in edge cases */ }
+    });
+
+    // 2.4.4 Link Purpose — links with no accessible name at all (strengthening existing checks)
+    _qa("a[href]").forEach(el => {
+      if (isHidden(el)) return;
+      const name = getAccName(el);
+      if (!name) {
+        add(findings, { type: "LINK_NO_ACCESSIBLE_NAME", el, severity: "medium", wcag: "2.4.4",
+          confidence: "strict",
+          note: "Link has no accessible name (no text content, aria-label, or labelled image). Screen readers cannot convey the link purpose." });
+      }
+    });
+
+    // 3.3.3 Error Suggestion — aria-invalid with required but no suggestion text
+    _qa("[aria-invalid='true'][required]").forEach(el => {
+      if (isHidden(el)) return;
+      const describedby = (el.getAttribute("aria-describedby") || "").trim();
+      if (!describedby) {
+        add(findings, { type: "ERROR_SUGGESTION_MISSING", el, severity: "low", wcag: "3.3.3",
+          confidence: "advisory",
+          note: "Required input is marked invalid but has no aria-describedby. WCAG 3.3.3 requires error suggestions when input constraints are known." });
+      }
+    });
+
+    // -------- V2 Strict Rule Expansion (bounded, deterministic) --------
+
+    // 1.3.1 / 3.3.2 Label-for targets missing element
+    _qa("label[for]").forEach(el => {
+      if (isHidden(el)) return;
+      const forAttr = (el.getAttribute("for") || "").trim();
+      if (!forAttr) return;
+      if (!doc.getElementById(forAttr)) {
+        add(findings, { type: "LABEL_FOR_MISSING_TARGET", el, severity: "medium", wcag: "1.3.1 / 3.3.2",
+          confidence: "strict",
+          note: `<label for="${txt(forAttr, 40)}"> references an id that does not exist in the document.`,
+          extra: { forAttr } });
+      }
+    });
+
+    // 1.3.1 Input/select/textarea without any label association
+    _qa("input:not([type='hidden']):not([type='submit']):not([type='button']):not([type='reset']):not([type='image']),select,textarea").forEach(el => {
+      if (isHidden(el)) return;
+      const hasAriaLabel = !!(el.getAttribute("aria-label") || "").trim();
+      const hasAriaLabelledby = !!(el.getAttribute("aria-labelledby") || "").trim();
+      const hasTitle = !!(el.getAttribute("title") || "").trim();
+      const hasNativeLabel = el.labels && el.labels.length > 0;
+      if (hasAriaLabel || hasAriaLabelledby || hasTitle || hasNativeLabel) return;
+      add(findings, { type: "INPUT_MISSING_LABEL", el, severity: "medium", wcag: "1.3.1",
+        confidence: "strict",
+        note: `<${el.tagName.toLowerCase()}> has no associated label, aria-label, aria-labelledby, or title.` });
+    });
+
+    // 2.1.1 Button without type inside form — implicit submit may cause unintended submissions
+    _qa("form button:not([type])").forEach(el => {
+      if (isHidden(el)) return;
+      add(findings, { type: "BUTTON_WITHOUT_TYPE", el, severity: "low", wcag: "2.1.1",
+        confidence: "heuristic",
+        note: "<button> inside <form> without type attribute defaults to type=\"submit\". This may cause unintended form submission on keyboard Enter." });
+    });
+
+    // 2.4.4 Link with empty or fragment-only href
+    _qa("a[href=''],a[href='#']").forEach(el => {
+      if (isHidden(el)) return;
+      const href = el.getAttribute("href");
+      add(findings, { type: "LINK_EMPTY_HREF", el, severity: "medium", wcag: "2.4.4",
+        confidence: "strict",
+        note: `Link has href="${href}" — provides no navigation purpose. Use a <button> for interactive actions.`,
+        extra: { href } });
+    });
+
+    // 1.1.1 Image with role="presentation" or role="none" but non-empty alt
+    _qa("img[role='presentation'][alt],img[role='none'][alt]").forEach(el => {
+      if (isHidden(el)) return;
+      const alt = (el.getAttribute("alt") || "").trim();
+      if (!alt) return; // empty alt is fine with presentation role
+      add(findings, { type: "IMG_ROLE_PRESENTATIONAL_WITH_ALT", el, severity: "low", wcag: "1.1.1",
+        confidence: "strict",
+        note: `Image has role="${el.getAttribute("role")}" but non-empty alt="${txt(alt, 40)}". Contradictory — either remove the role or set alt="".`,
+        extra: { role: el.getAttribute("role"), alt } });
+    });
+
+    // 4.1.2 Radio buttons sharing a name outside a common fieldset/group
+    {
+      const radios = _qa("input[type='radio'][name]");
+      const radioGroups = new Map();
+      for (const r of radios) {
+        const name = r.getAttribute("name");
+        if (!name) continue;
+        if (!radioGroups.has(name)) radioGroups.set(name, []);
+        radioGroups.get(name).push(r);
+      }
+      for (const [name, group] of radioGroups) {
+        if (group.length < 2) continue;
+        // Check if all radios share a common fieldset ancestor
+        const fieldsets = new Set(group.map(r => r.closest("fieldset")).filter(Boolean));
+        if (fieldsets.size === 1) continue; // All in same fieldset — OK
+        if (fieldsets.size === 0) {
+          // No fieldset at all — flag it
+          add(findings, { type: "FORM_CONTROL_DUPLICATE_NAME", el: group[0], severity: "low", wcag: "4.1.2",
+            confidence: "heuristic",
+            note: `${group.length} radio buttons with name="${txt(name, 40)}" are not grouped in a <fieldset>. Screen readers need fieldset/legend to convey the group label.`,
+            extra: { name, count: group.length } });
+        }
+      }
+    }
+
     // -------- WCAG 2.2 specific checks --------
     if (is22) {
       // 2.5.8 Dragging Movements
@@ -2766,6 +3049,10 @@
         resolve(result);
       };
 
+      // State-based rule: CHAT_NEW_MESSAGE_NOT_ANNOUNCED
+      let chatMsgCandidates = null; // Map<element, childCount> from previous tick
+      let chatNewMsgEmitted = false;
+
       const totalTicks = Math.max(1, Math.ceil((seconds * 1000) / intervalMs));
       const tick = () => {
         const tickIndex = snapshots.length;
@@ -2787,6 +3074,51 @@
           duringTransition: !!tickConfig.duringTransition,
         });
         merged.push(...r.findings);
+
+        // CHAT_NEW_MESSAGE_NOT_ANNOUNCED — state-based (observe mode)
+        // Compare chat container child counts across ticks. If children increase
+        // but container lacks role=log/feed/aria-live, emit a heuristic finding.
+        if (!chatNewMsgEmitted) {
+          try {
+            const chatContainers = doc.querySelectorAll(
+              "[role='log'],[role='feed'],[aria-live]:not([aria-live='off'])," +
+              "[aria-label*='chat' i],[aria-label*='message' i]"
+            );
+            const candidates = [];
+            for (let ci = 0; ci < Math.min(chatContainers.length, 3); ci++) {
+              candidates.push(chatContainers[ci]);
+            }
+            if (chatMsgCandidates === null) {
+              // First tick — snapshot child counts
+              chatMsgCandidates = new Map();
+              for (const c of candidates) chatMsgCandidates.set(c, c.children.length);
+            } else {
+              // Subsequent ticks — check for new children without announcement semantics
+              for (const c of candidates) {
+                const prev = chatMsgCandidates.get(c) || 0;
+                const curr = c.children.length;
+                if (curr > prev) {
+                  const hasAnnounce = c.matches("[role='log'],[role='feed']") ||
+                    c.hasAttribute("aria-live") ||
+                    !!c.closest("[role='log'],[role='feed'],[aria-live]:not([aria-live='off'])");
+                  if (!hasAnnounce) {
+                    chatNewMsgEmitted = true;
+                    add(merged, {
+                      type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED",
+                      el: c,
+                      severity: "medium",
+                      wcag: "4.1.3",
+                      confidence: "heuristic",
+                      note: "Chat container received new messages but lacks announcement semantics (role=log, role=feed, or aria-live).",
+                    });
+                    break;
+                  }
+                }
+                chatMsgCandidates.set(c, curr);
+              }
+            }
+          } catch {}
+        }
       };
 
       tick();
@@ -2831,9 +3163,15 @@
       let focusChangeTimestamps = [];
 
       const events = [];
+      const findings = [];
       const loaderCandidates = new Set();
       const MAX_LOADER_CANDIDATES = 280;
       let settled = false;
+
+      // State-based rule tracking
+      let chatMsgCandidatesW = null; // Map<element, childCount>
+      let chatNewMsgEmittedW = false;
+      let chatInputFocusLostEmitted = false;
       let loaderNow = false;
       let announcementHookNow = hasAnnouncementHook();
       let pendingLoaderRecalc = null;
@@ -3004,7 +3342,7 @@
         if (firstAnnouncementAt != null && totalLoadingMs > 0 && firstAnnouncementAt > B.maxAnnouncementLatency) verdicts.push({ metric: "announcementLatency", value: firstAnnouncementAt, budget: B.maxAnnouncementLatency });
 
         const result = {
-          timestamp: nowIso(), seconds, bursts, totalLoadingMs, silentMs, focusLossCount: focusLoss, focusJumps, budget: B, verdicts, events, href: w.location.href,
+          timestamp: nowIso(), seconds, bursts, totalLoadingMs, silentMs, focusLossCount: focusLoss, focusJumps, budget: B, verdicts, events, findings, href: w.location.href,
           announcements, announcementCount, emptyAnnouncementCount, firstAnnouncementAt,
           announcementLatency: (firstAnnouncementAt != null && totalLoadingMs > 0) ? firstAnnouncementAt : null,
         };
@@ -3054,6 +3392,35 @@
           }
           focusChangeTimestamps.push(performance.now());
         }
+
+        // CHAT_INPUT_LOSES_FOCUS_ON_UPDATE — watch only, heuristic
+        // If prevActiveElement was a chat input candidate and focus moved away
+        // after a mutation tick, and the input is still in DOM + enabled => emit.
+        if (!chatInputFocusLostEmitted && prevActiveElement && curActive &&
+            curActive !== prevActiveElement && prevActiveElement !== doc.body) {
+          try {
+            const prev = prevActiveElement;
+            const tag = (prev.tagName || "").toLowerCase();
+            const isChatInput = (tag === "textarea" || (tag === "input" && (prev.type || "text") === "text")) &&
+              !!prev.closest("[role='log'],[role='feed'],[aria-label*='chat' i],[aria-label*='message' i]");
+            if (isChatInput && prev.isConnected && !prev.disabled &&
+                curActive !== prev && !(curActive.compareDocumentPosition?.(prev) & 16)) {
+              // Only emit if there was recent mutation activity (loader/content update)
+              if (loaderNow || events.length > 0) {
+                chatInputFocusLostEmitted = true;
+                add(findings, {
+                  type: "CHAT_INPUT_LOSES_FOCUS_ON_UPDATE",
+                  el: prev,
+                  severity: "medium",
+                  wcag: "2.4.3",
+                  confidence: "heuristic",
+                  note: "Chat input lost focus after a content update; may disrupt typing.",
+                });
+              }
+            }
+          } catch {}
+        }
+
         prevActiveElement = curActive;
 
         // Focus thrashing detection: rapid focus changes from loader mount/unmount
@@ -3062,6 +3429,49 @@
         if (focusChangeTimestamps.length >= 3) {
           events.push({ t, type: "focus_thrashing", note: `${focusChangeTimestamps.length} focus changes in <600ms — likely loader mount/unmount churn.` });
           focusChangeTimestamps = [];
+        }
+
+        // CHAT_NEW_MESSAGE_NOT_ANNOUNCED — watch mode state-based detection
+        // Track chat container child counts across ticks. If children increase
+        // but container lacks role=log/feed/aria-live, emit a heuristic finding.
+        if (!chatNewMsgEmittedW) {
+          try {
+            const chatContainers = doc.querySelectorAll(
+              "[role='log'],[role='feed'],[aria-live]:not([aria-live='off'])," +
+              "[aria-label*='chat' i],[aria-label*='message' i]"
+            );
+            const candidates = [];
+            for (let ci = 0; ci < Math.min(chatContainers.length, 3); ci++) {
+              candidates.push(chatContainers[ci]);
+            }
+            if (chatMsgCandidatesW === null) {
+              chatMsgCandidatesW = new Map();
+              for (const c of candidates) chatMsgCandidatesW.set(c, c.children.length);
+            } else {
+              for (const c of candidates) {
+                const prevCount = chatMsgCandidatesW.get(c) || 0;
+                const currCount = c.children.length;
+                if (currCount > prevCount) {
+                  const hasAnnounce = c.matches("[role='log'],[role='feed']") ||
+                    c.hasAttribute("aria-live") ||
+                    !!c.closest("[role='log'],[role='feed'],[aria-live]:not([aria-live='off'])");
+                  if (!hasAnnounce) {
+                    chatNewMsgEmittedW = true;
+                    add(findings, {
+                      type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED",
+                      el: c,
+                      severity: "medium",
+                      wcag: "4.1.3",
+                      confidence: "heuristic",
+                      note: "Chat container received new messages but lacks announcement semantics (role=log, role=feed, or aria-live).",
+                    });
+                    break;
+                  }
+                }
+                chatMsgCandidatesW.set(c, currCount);
+              }
+            }
+          } catch {}
         }
 
         if (t >= seconds * 1000) {

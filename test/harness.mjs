@@ -14,7 +14,9 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PANEL_JS = join(__dirname, '..', 'panel.js');
+const FLOW_PROFILES_JS = join(__dirname, '..', 'src', 'shared', 'flow-profiles.js');
+const WCAG_COVERAGE_JS = join(__dirname, '..', 'src', 'shared', 'wcag-coverage.js');
+const PANEL_JS = join(__dirname, '..', 'src', 'panel', 'panel.js');
 
 // Cut source before the "wire up" section where imperative DOM binding code begins.
 const INIT_MARKER = '\n// --- wire up ---\n';
@@ -219,6 +221,15 @@ export function createContext(opts = {}) {
     __mockChrome: mockChrome,
   });
 
+  // Load shared modules before panel.js (mirrors script tag order in panel.html)
+  const flowProfilesSource = readFileSync(FLOW_PROFILES_JS, 'utf8');
+  const flowProfilesScript = new Script(flowProfilesSource, { filename: 'flow-profiles.js' });
+  flowProfilesScript.runInContext(ctx);
+
+  const wcagCoverageSource = readFileSync(WCAG_COVERAGE_JS, 'utf8');
+  const wcagScript = new Script(wcagCoverageSource, { filename: 'wcag-coverage.js' });
+  wcagScript.runInContext(ctx);
+
   const script = new Script(safeSource, { filename: 'panel.js' });
   script.runInContext(ctx);
 
@@ -228,6 +239,12 @@ export function createContext(opts = {}) {
     this.__state = state;
     this.__VT = VT;
     this.__MODE_COLORS = typeof MODE_COLORS !== 'undefined' ? MODE_COLORS : {};
+    this.__GENERIC_PROFILES = typeof GENERIC_PROFILES !== 'undefined' ? GENERIC_PROFILES : {};
+    this.__FLOW_PROFILES_VERSION = typeof FLOW_PROFILES_VERSION !== 'undefined' ? FLOW_PROFILES_VERSION : 0;
+    this.__WCAG_COVERAGE_VERSION = typeof WCAG_COVERAGE_VERSION !== 'undefined' ? WCAG_COVERAGE_VERSION : 0;
+    this.__WCAG_TARGET = typeof WCAG_TARGET !== 'undefined' ? WCAG_TARGET : {};
+    this.__WCAG_CRITERIA = typeof WCAG_CRITERIA !== 'undefined' ? WCAG_CRITERIA : [];
+    this.__RULE_TO_WCAG = typeof RULE_TO_WCAG !== 'undefined' ? RULE_TO_WCAG : {};
   `, { filename: 'expose.js' });
   expose.runInContext(ctx);
 

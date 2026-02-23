@@ -3,8 +3,15 @@
   "name": "flowlens",
   "version": "3.0.1",
   "scripts": {
-    "build": "node build.mjs",
-    "build:clean": "rm -rf dist && node build.mjs"
+    "test": "node --test test/*.test.mjs",
+    "build": "node scripts/build.mjs",
+    "build:dev": "node scripts/build.mjs --dev",
+    "build:clean": "rm -rf dist && node scripts/build.mjs",
+    "package": "node scripts/package.mjs",
+    "package:audit": "node scripts/package-audit.mjs",
+    "release:guard": "node scripts/release-guard.mjs",
+    "release:check": "npm run build && npm run package && npm run package:audit && npm run release:guard",
+    "ci": "npm test && npm run build && npm run package && npm run package:audit && npm run release:guard"
   },
   "devDependencies": {
     "esbuild": "^0.25.0"

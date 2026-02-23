@@ -540,6 +540,32 @@ body {
   line-height: 1.3;
 }
 
+/* ═══ JUNIT CI OPTIONS ═══ */
+.emCiOption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--tx2);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.emCiOption:hover { background: var(--emphasis); color: var(--tx); }
+.emCiOption input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--pri); }
+.emCiOption--number { gap: 8px; justify-content: space-between; }
+.ciNumInput {
+  width: 52px;
+  padding: 2px 6px;
+  border: 1px solid var(--brd);
+  border-radius: 4px;
+  background: var(--overlay);
+  color: var(--tx);
+  font-size: 12px;
+  text-align: center;
+}
+
 select,
 input[type="text"] {
   padding: 8px 12px;
@@ -710,6 +736,47 @@ kbd {
 .topTab .tabLabel { font-size: 15px; }
 
 .topTab--settings { flex: 0 0 auto; }
+.topTab--about { flex: 0 0 auto; }
+
+/* ═══ ABOUT / DIAGNOSTICS ═══ */
+.aboutSection {
+  max-width: 520px;
+  padding: 20px 16px;
+}
+.aboutHeading {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
+  margin: 0 0 12px;
+}
+.aboutDl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+.aboutDl dt {
+  color: var(--dim);
+  white-space: nowrap;
+}
+.aboutDl dd {
+  margin: 0;
+  color: var(--fg);
+  word-break: break-all;
+}
+.aboutActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.coverageLine { margin: 0; font-size: 13px; color: var(--fg2); }
+.coverageDetails { margin-top: 6px; }
+.coverageSummary { font-size: 12px; cursor: pointer; color: var(--fg3); }
+.coverageList { margin: 4px 0 0 16px; padding: 0; font-size: 12px; color: var(--fg3); list-style: disc; }
+.coverageList li { padding: 1px 0; }
+.coverageMore { font-style: italic; color: var(--fg3); }
 
 /* ═══ SUBTABS ═══ */
 .subTabBar {
@@ -1603,6 +1670,42 @@ kbd {
 .pill.medium{color:var(--sev-medium);background:rgba(196,168,85,0.2);border-color:rgba(196,168,85,0.3)}
 .pill.low{color:var(--sev-low);background:rgba(90,184,154,0.2);border-color:rgba(90,184,154,0.3)}
 .pill.info{color:var(--sev-info);background:rgba(122,142,166,0.2);border-color:rgba(122,142,166,0.3)}
+
+/* ═══ SHADOW COVERAGE ═══ */
+.shadowCoverageRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font: 500 11px/1.3 var(--font-mono);
+  color: var(--tx3);
+}
+.shadowCoverageRow:empty { display: none; }
+.shadowCoverageBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.shadowCoverageBadge--ok { color: var(--sev-low); background: rgba(90,184,154,0.15); }
+.shadowCoverageBadge--warning { color: var(--sev-medium); background: rgba(196,168,85,0.15); }
+.shadowCoverageWarningBanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin: 4px 0;
+  background: rgba(196,168,85,0.08);
+  border: 1px solid rgba(196,168,85,0.24);
+  border-radius: var(--radius-sm);
+  font: 500 12px/1.4 var(--font-mono);
+  color: var(--sev-medium);
+}
 
 .tableWrap {
   overflow-x: hidden;

@@ -34,7 +34,7 @@ function readVersion() {
 
 // ── File map: source path → dist path ───────────────────────────────────────
 
-function buildFileMap(version) {
+function buildFileMap() {
   return [
     // JS entrypoints
     { src: "panel/panel.js",               dist: "panel.js",               type: "js" },
@@ -42,9 +42,11 @@ function buildFileMap(version) {
     { src: "snippet/a11y-audit-snippet.js", dist: "a11y-audit-snippet.js", type: "js" },
     { src: "devtools/devtools.js",         dist: "devtools.js",            type: "js" },
     { src: "shared/en301549-map.js",       dist: "en301549-map.js",        type: "js" },
+    { src: "shared/flow-profiles.js",      dist: "flow-profiles.js",       type: "js" },
+    { src: "shared/wcag-coverage.js",      dist: "wcag-coverage.js",       type: "js" },
 
     // HTML
-    { src: "panel/panel.html",    dist: "panel.html",    type: "html", version },
+    { src: "panel/panel.html",    dist: "panel.html",    type: "html" },
     { src: "devtools/devtools.html", dist: "devtools.html", type: "html" },
 
     // CSS
@@ -73,11 +75,14 @@ async function loadEsbuild() {
   }
 }
 
-async function processJS(code) {
-  if (isDev) return code;
+async function processJS(code, { define } = {}) {
+  if (isDev && !define) return code;
   const esbuild = await loadEsbuild();
   if (!esbuild) return code;
-  const result = await esbuild.transform(code, { minify: true, target: "es2022" });
+  const opts = { target: "es2022" };
+  if (!isDev) opts.minify = true;
+  if (define) opts.define = define;
+  const result = await esbuild.transform(code, opts);
   return result.code;
 }
 
@@ -95,13 +100,6 @@ function processHTML(html) {
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/>\s+</g, "> <")
     .split("\n").map(l => l.trim()).filter(Boolean).join("\n");
-}
-
-function patchHTMLVersion(html, version) {
-  return html.replace(
-    /(<span[^>]*id="versionBadge"[^>]*data-version=")[^"]*("[^>]*>)[^<]*/,
-    `$1${version}$2${version}`
-  );
 }
 
 function copyDirRecursive(srcDir, destDir) {
@@ -149,7 +147,7 @@ async function main() {
   console.log(`  ${"manifest.json".padEnd(28)} (version: ${version})`);
 
   // ── Process files ──
-  const fileMap = buildFileMap(version);
+  const fileMap = buildFileMap();
   let totalSrc = 0, totalDist = 0;
 
   for (const entry of fileMap) {
@@ -158,11 +156,14 @@ async function main() {
     let output;
 
     if (entry.type === "js") {
-      output = await processJS(raw);
+      const jsOpts = {};
+      if (entry.dist === "panel.js") {
+        jsOpts.define = { "__FLOWLENS_VERSION__": JSON.stringify(version) };
+      }
+      output = await processJS(raw, jsOpts);
     } else if (entry.type === "css") {
       output = await processCSS(raw);
     } else if (entry.type === "html") {
-      if (entry.version) raw = patchHTMLVersion(raw, entry.version);
       output = processHTML(raw);
     } else {
       output = raw;
