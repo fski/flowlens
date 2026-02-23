@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build extension
+        run: npm run build
+
+      - name: Verify dist/ structure
+        run: |
+          test -f dist/manifest.json || (echo "FAIL: dist/manifest.json missing" && exit 1)
+          test -f dist/panel.js || (echo "FAIL: dist/panel.js missing" && exit 1)
+          test -f dist/sw.js || (echo "FAIL: dist/sw.js missing" && exit 1)
+          test -f dist/a11y-audit-snippet.js || (echo "FAIL: dist/a11y-audit-snippet.js missing" && exit 1)
+          test -f dist/panel.html || (echo "FAIL: dist/panel.html missing" && exit 1)
+          test -f dist/panel.css || (echo "FAIL: dist/panel.css missing" && exit 1)
+          test -f dist/devtools.html || (echo "FAIL: dist/devtools.html missing" && exit 1)
+          test -f dist/devtools.js || (echo "FAIL: dist/devtools.js missing" && exit 1)
+          test -f dist/en301549-map.js || (echo "FAIL: dist/en301549-map.js missing" && exit 1)
+          test -d dist/icons || (echo "FAIL: dist/icons/ missing" && exit 1)
+          echo "dist/ structure OK"
+
+      - name: Package extension
+        run: npm run package
+
+      - name: Audit package
+        run: npm run package:audit
+
+      - name: Release guard
+        run: npm run release:guard
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowlens-extension
+          path: artifacts/*.zip
+          retention-days: 30

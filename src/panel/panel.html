@@ -10,8 +10,8 @@
     <a class="skipLink" href="#mainContent">Skip to main content</a>
     <main id="mainContent" class="wrap" role="main" tabindex="-1">
 
-      <!-- Version data source (hidden) -->
-      <span hidden id="versionBadge" data-version="3.0.0">3.0.0</span>
+      <!-- Version badge (populated by JS at runtime) -->
+      <span hidden id="versionBadge"></span>
 
       <!-- ═══ TOP-LEVEL TABS ═══ -->
       <nav class="topTabBar" id="topTabBar" role="tablist" aria-label="Main navigation">
@@ -29,6 +29,10 @@
           <img class="tabSvg" src="icons/Settings Icon.svg" alt="" width="16" height="16" aria-hidden="true" />
           <span class="tabLabel">Settings</span>
           <kbd class="keycap" aria-hidden="true">3</kbd>
+        </button>
+        <button class="topTab topTab--about" id="topTabAbout" role="tab" data-tab="about" aria-controls="aboutContent" aria-selected="false" tabindex="-1" type="button">
+          <span class="tabLabel">About</span>
+          <kbd class="keycap" aria-hidden="true">4</kbd>
         </button>
       </nav>
 
@@ -94,6 +98,9 @@
 
         <!-- Results zone -->
         <div class="resultsZone" id="resultsZone">
+
+          <!-- Shadow coverage receipt (populated by JS) -->
+          <div class="shadowCoverageRow" id="shadowCoverageRow" hidden></div>
 
           <!-- All findings explorer -->
           <section class="findingsCard" id="explorerSection">
@@ -226,7 +233,13 @@
                   <button class="emItem" id="copyJson" type="button" role="menuitem"><span class="l">Copy JSON</span></button>
                   <button class="emItem" id="copyMd" type="button" role="menuitem" hidden><span class="l">Copy Markdown</span></button>
                   <button class="emItem" id="sheetCopyRaw" type="button" role="menuitem" hidden><span class="l">Copy Raw</span></button>
+                  <button class="emItem" id="downloadJunitXml" type="button" role="menuitem"><span class="l">Download JUnit XML</span></button>
+                  <div class="emLabel">JUnit CI Options</div>
+                  <label class="emCiOption"><input type="checkbox" id="ciFailOnBlocking" checked /><span>Fail CI on blocking issues</span></label>
+                  <label class="emCiOption"><input type="checkbox" id="ciTreatNeedsReview" /><span>Treat needs_review as failures</span></label>
+                  <label class="emCiOption emCiOption--number"><span>Max failures allowed</span><input type="number" id="ciMaxFailures" min="0" step="1" value="0" class="ciNumInput" /></label>
                   <div class="emLabel" id="sessionExportMenuLabel" hidden>Session</div>
+                  <button class="emItem" id="exportSessionJunitMenu" type="button" role="menuitem" hidden><span class="l">Session JUnit XML</span><span class="dd">Last ended session</span></button>
                   <button class="emItem" id="exportSessionJsonMenu" type="button" role="menuitem" hidden><span class="l">Session JSON</span><span class="dd">Last ended session</span></button>
                   <button class="emItem" id="exportSessionMdMenu" type="button" role="menuitem" hidden><span class="l">Session Markdown</span><span class="dd">Last ended session</span></button>
                   <span class="inlineHint sr-only" id="copyMdHint" aria-live="polite"></span>
@@ -423,6 +436,57 @@
 
       </div><!-- /settingsContent -->
 
+      <!-- ═══════════════════════ ABOUT / DIAGNOSTICS ═══════════════════════ -->
+      <div id="aboutContent" role="tabpanel" aria-labelledby="topTabAbout" hidden inert>
+        <section class="aboutSection">
+          <h2 class="aboutHeading">FlowLens Diagnostics</h2>
+          <dl class="aboutDl">
+            <dt>Version</dt>
+            <dd id="diagVersion">—</dd>
+            <dt>Schema</dt>
+            <dd id="diagSchema">—</dd>
+            <dt>Signature</dt>
+            <dd id="diagSignature">—</dd>
+            <dt>FrameKey</dt>
+            <dd id="diagFrameKey">—</dd>
+            <dt>EN Mapping</dt>
+            <dd id="diagEnMapping">—</dd>
+            <dt>Data versions</dt>
+            <dd id="diagDataVersions">—</dd>
+            <dt>URL origin</dt>
+            <dd id="diagUrl" class="mono">—</dd>
+            <dt>Environment</dt>
+            <dd id="diagEnv">—</dd>
+            <dt>Frame scope</dt>
+            <dd id="diagFrameScope">—</dd>
+            <dt>Best frame ID</dt>
+            <dd id="diagBestFrameId" class="mono">—</dd>
+            <dt>Best frame key</dt>
+            <dd id="diagBestFrameKey" class="mono">—</dd>
+            <dt>Scope</dt>
+            <dd id="diagScope">—</dd>
+            <dt>Shadow coverage</dt>
+            <dd id="diagShadowCoverage">—</dd>
+            <dt>Active profile</dt>
+            <dd id="diagActiveProfile">—</dd>
+            <dt>Profile signals</dt>
+            <dd id="diagProfileSignals">—</dd>
+          </dl>
+          <div class="aboutActions">
+            <button class="btn sm" id="copyDiagnostics" type="button">Copy diagnostics</button>
+            <button class="btn sm" id="copyDiagnosticsMdBtn" type="button">Copy diagnostics (Markdown)</button>
+            <span class="inlineHint" id="copyDiagHint" aria-live="polite"></span>
+          </div>
+        </section>
+        <section class="aboutSection">
+          <h2 class="aboutHeading">WCAG Coverage</h2>
+          <p class="coverageLine" id="coverageLine">—</p>
+          <details class="coverageDetails" id="coverageDetails">
+            <summary class="coverageSummary">Missing criteria</summary>
+            <ul class="coverageList" id="coverageMissingList"></ul>
+          </details>
+        </section>
+      </div><!-- /aboutContent -->
 
       <!-- Hidden runtime metadata (used by JS) -->
       <div class="runtimeMeta" hidden aria-hidden="true">
@@ -435,6 +499,8 @@
       <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
     </main>
 
+    <script src="flow-profiles.js"></script>
+    <script src="wcag-coverage.js"></script>
     <script src="panel.js"></script>
   </body>
 </html>

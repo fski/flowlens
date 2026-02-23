@@ -30,6 +30,11 @@ const els = {
   sessionExportMenuLabel: document.getElementById("sessionExportMenuLabel"),
   exportSessionJsonMenu: document.getElementById("exportSessionJsonMenu"),
   exportSessionMdMenu: document.getElementById("exportSessionMdMenu"),
+  downloadJunitXml: document.getElementById("downloadJunitXml"),
+  exportSessionJunitMenu: document.getElementById("exportSessionJunitMenu"),
+  ciFailOnBlocking: document.getElementById("ciFailOnBlocking"),
+  ciTreatNeedsReview: document.getElementById("ciTreatNeedsReview"),
+  ciMaxFailures: document.getElementById("ciMaxFailures"),
   copyMdHint: document.getElementById("copyMdHint"),
   sessionStart: document.getElementById("sessionStart"),
   sessionMark: document.getElementById("sessionMark"),
@@ -47,6 +52,7 @@ const els = {
   sevTabs: document.getElementById("sevTabs"),
   emptyState: document.getElementById("emptyState"),
   resultsZone: document.getElementById("resultsZone"),
+  shadowCoverageRow: document.getElementById("shadowCoverageRow"),
 
   // explorer
   q: document.getElementById("q"),
@@ -77,6 +83,29 @@ const els = {
   rawJsonToggle: document.getElementById("rawJsonToggle"),
   rawJsonBody: document.getElementById("rawJsonBody"),
   sheetCopyRaw: document.getElementById("sheetCopyRaw"),
+
+  // about / diagnostics
+  aboutContent: document.getElementById("aboutContent"),
+  diagVersion: document.getElementById("diagVersion"),
+  diagSchema: document.getElementById("diagSchema"),
+  diagSignature: document.getElementById("diagSignature"),
+  diagFrameKey: document.getElementById("diagFrameKey"),
+  diagEnMapping: document.getElementById("diagEnMapping"),
+  diagDataVersions: document.getElementById("diagDataVersions"),
+  diagUrl: document.getElementById("diagUrl"),
+  diagEnv: document.getElementById("diagEnv"),
+  diagFrameScope: document.getElementById("diagFrameScope"),
+  diagBestFrameId: document.getElementById("diagBestFrameId"),
+  diagBestFrameKey: document.getElementById("diagBestFrameKey"),
+  diagScope: document.getElementById("diagScope"),
+  diagShadowCoverage: document.getElementById("diagShadowCoverage"),
+  diagActiveProfile: document.getElementById("diagActiveProfile"),
+  diagProfileSignals: document.getElementById("diagProfileSignals"),
+  copyDiagnostics: document.getElementById("copyDiagnostics"),
+  copyDiagnosticsMdBtn: document.getElementById("copyDiagnosticsMdBtn"),
+  copyDiagHint: document.getElementById("copyDiagHint"),
+  coverageLine: document.getElementById("coverageLine"),
+  coverageMissingList: document.getElementById("coverageMissingList"),
 
   // new tab shell elements
   snapContent: document.getElementById("snapContent"),
@@ -847,7 +876,7 @@ function showMode(mode) {
 function showView(tab, sub) {
   // Update top-level tab
   if (tab) state.topTab = tab;
-  const panels = { snap: els.snapContent, flow: els.flowContent, settings: els.settingsContent };
+  const panels = { snap: els.snapContent, flow: els.flowContent, settings: els.settingsContent, about: els.aboutContent };
   document.querySelectorAll("#topTabBar [role='tab']").forEach(btn => {
     const isActive = btn.dataset.tab === state.topTab;
     btn.setAttribute("aria-selected", String(isActive));
@@ -865,6 +894,11 @@ function showView(tab, sub) {
   if (state.topTab === "snap" && sub) {
     setPressed(sub);
     showMode(sub);
+  }
+
+  // Auto-render about/diagnostics when switching to About
+  if (state.topTab === "about") {
+    renderDiagnostics();
   }
 
   // Auto-render flow tab content when switching to Flow
@@ -1103,6 +1137,7 @@ function renderRecord(rec) {
   els.allTableBody.innerHTML = "";
   state.currentFindings = [];
   if (mode !== "contrast") renderSevTabs();
+  if (els.shadowCoverageRow) els.shadowCoverageRow.hidden = true;
   showMode(mode);
 
   if (mode === "run") {
@@ -2185,6 +2220,7 @@ function renderStepDrillDown(stepIndex) {
       <dt>Mode</dt><dd>${escapeHtml(s.activeModeCaptured || "run")}</dd>
       <dt>URL</dt><dd title="${escapeHtml(s.url || "")}">${escapeHtml(txt(s.routeHint || s.url || "—", 60))}</dd>
       <dt>Diff</dt><dd>+${d.added || 0} new, -${d.fixed || 0} fixed, ${d.persisting || 0} persisting</dd>
+      ${(() => { const _cov = s.snapshots?.run?.best?.shadowCoverage; const _fmt = formatShadowCoverage(_cov); if (!_fmt.text) return ""; const _b = _fmt.badges.map(b => `<span class="shadowCoverageBadge shadowCoverageBadge--${escapeHtml(b.kind)}">${escapeHtml(b.label)}</span>`).join(" "); return `<dt>Shadow</dt><dd>${escapeHtml(_fmt.text)} ${_b}</dd>`; })()}
     </dl>
     <div class="stepDetailSection">
       <div class="stepDetailSectionTitle">Added (${data.added.length})</div>
@@ -2273,6 +2309,11 @@ function updateSessionButtons() {
   if (els.exportSessionMdMenu) {
     els.exportSessionMdMenu.hidden = !hasExportableSession;
     const desc = els.exportSessionMdMenu.querySelector(".dd");
+    if (desc) desc.textContent = hasSession ? "Active session" : "Last ended session";
+  }
+  if (els.exportSessionJunitMenu) {
+    els.exportSessionJunitMenu.hidden = !hasExportableSession;
+    const desc = els.exportSessionJunitMenu.querySelector(".dd");
     if (desc) desc.textContent = hasSession ? "Active session" : "Last ended session";
   }
   if (els.exportAnchor) els.exportAnchor.hidden = !((state.records.length > 0) || hasExportableSession);
@@ -2405,7 +2446,16 @@ function runSessionComparison() {
       const cls = better ? "compareDelta--better" : "compareDelta--worse";
       return `<span class="${cls}">${d > 0 ? "+" : ""}${d}</span>`;
     };
-    resultEl.innerHTML = `
+    // Shadow coverage warning between sessions
+    const stepsA = Array.isArray(sessA.steps) ? sessA.steps : [];
+    const stepsB = Array.isArray(sessB.steps) ? sessB.steps : [];
+    const lastSnapA = stepsA.length ? stepsA[stepsA.length - 1]?.snapshots?.run?.best : null;
+    const lastSnapB = stepsB.length ? stepsB[stepsB.length - 1]?.snapshots?.run?.best : null;
+    const covWarning = checkShadowCoverageChange(lastSnapA, lastSnapB);
+    const covBannerHtml = covWarning
+      ? `<div class="shadowCoverageWarningBanner">${escapeHtml(formatShadowCoverageWarning(covWarning))}</div>`
+      : "";
+    resultEl.innerHTML = `${covBannerHtml}
       <table class="compareTable">
         <thead><tr><th>Metric</th><th>A</th><th>B</th><th>Delta</th></tr></thead>
         <tbody>
@@ -3001,6 +3051,252 @@ function sortFindingsForExport(findings, ctx = {}) {
   return sorted;
 }
 
+// --- Upgrade: JUnit XML export ---
+
+/**
+ * Escape a string for safe XML attribute/text content.
+ * Covers the five XML predefined entities.
+ */
+function xmlEscape(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+/**
+ * Make a string safe for embedding inside a CDATA section.
+ * Splits any literal "]]>" into "]]]]><![CDATA[>" so the XML parser
+ * never sees an unescaped CDATA end marker.
+ * @param {string} text
+ * @returns {string}
+ */
+function safeCdata(text) {
+  return String(text ?? "").replaceAll("]]>", "]]]]><![CDATA[>");
+}
+
+/**
+ * Normalize JUnit CI export options, filling in defaults.
+ * Default values produce the same classification as the original export.
+ */
+function normalizeJunitCiOptions(opts) {
+  const o = opts || {};
+  return {
+    failOnBlocking: o.failOnBlocking !== false,
+    treatNeedsReviewAsFailure: o.treatNeedsReviewAsFailure === true,
+    maxFailuresAllowed: typeof o.maxFailuresAllowed === "number" && o.maxFailuresAllowed >= 0
+      ? Math.floor(o.maxFailuresAllowed) : 0,
+  };
+}
+
+/**
+ * Determine CI pass/fail based on total failures vs threshold.
+ */
+function computeCiStatus(totalFailures, maxFailuresAllowed) {
+  return totalFailures > maxFailuresAllowed ? "fail" : "pass";
+}
+
+/**
+ * Returns true if CI options differ from defaults (used for filename suffix).
+ */
+function isNonDefaultJunitCiOptions(opts) {
+  const n = normalizeJunitCiOptions(opts);
+  return n.treatNeedsReviewAsFailure === true
+    || n.maxFailuresAllowed !== 0
+    || n.failOnBlocking === false;
+}
+
+/**
+ * Build a single <testsuite> XML string from sorted findings.
+ * Pure function — deterministic given the same inputs.
+ * Returns { xml: string, failures: number, skipped: number }.
+ */
+function buildJunitTestsuiteXml({ suiteName, findings, ctx, meta, capturedAt, ciOptions }) {
+  const sorted = sortFindingsForExport(findings || [], ctx);
+  const opts = normalizeJunitCiOptions(ciOptions);
+  let failures = 0;
+  let skipped = 0;
+  const cases = [];
+
+  const _failureBody = (f) =>
+    `severity: ${f.severity || "\u2014"}\n` +
+    `confidence: ${f.confidence || "\u2014"}\n` +
+    `wcag: ${f.wcag || "\u2014"}\n` +
+    `en301549: ${Array.isArray(f.en301549Clauses) ? f.en301549Clauses.join(", ") : "\u2014"}\n` +
+    `path: ${f.path || "\u2014"}\n` +
+    `testId: ${f.testId || "\u2014"}\n` +
+    `note: ${f.note || "\u2014"}`;
+
+  for (const f of sorted) {
+    const reviewStatus = classifyReviewStatus(f);
+    const blocking = isRunFindingBlocking(f);
+    const type = xmlEscape(f.type || "\u2014");
+    const severity = xmlEscape(f.severity || "\u2014");
+    const confidence = xmlEscape(f.confidence || "\u2014");
+    const caseName = `${f.type || "unknown"} \u2014 ${f.wcag || "no-wcag"}`;
+
+    if (reviewStatus === "needs_review" && opts.treatNeedsReviewAsFailure) {
+      failures++;
+      cases.push(
+        `    <testcase name="${xmlEscape(caseName)}" classname="${type}" time="0">\n` +
+        `      <failure message="needs_review: ${confidence}" type="needs_review"><![CDATA[\n` +
+        `${safeCdata(_failureBody(f))}]]></failure>\n` +
+        `    </testcase>`
+      );
+    } else if (reviewStatus === "needs_review") {
+      skipped++;
+      cases.push(
+        `    <testcase name="${xmlEscape(caseName)}" classname="${type}" time="0">\n` +
+        `      <skipped message="needs_review: ${confidence}" />\n` +
+        `    </testcase>`
+      );
+    } else if (blocking && opts.failOnBlocking) {
+      failures++;
+      cases.push(
+        `    <testcase name="${xmlEscape(caseName)}" classname="${type}" time="0">\n` +
+        `      <failure message="${severity} / ${confidence}" type="${type}"><![CDATA[\n` +
+        `${safeCdata(_failureBody(f))}]]></failure>\n` +
+        `    </testcase>`
+      );
+    } else if (blocking) {
+      cases.push(
+        `    <testcase name="${xmlEscape(caseName)}" classname="${type}" time="0">\n` +
+        `      <system-out><![CDATA[${safeCdata(`severity: ${f.severity || "\u2014"} | wcag: ${f.wcag || "\u2014"} | confidence: ${f.confidence || "\u2014"} | blocking: true`)}]]></system-out>\n` +
+        `    </testcase>`
+      );
+    } else {
+      cases.push(
+        `    <testcase name="${xmlEscape(caseName)}" classname="${type}" time="0">\n` +
+        `      <system-out><![CDATA[${safeCdata(`severity: ${f.severity || "\u2014"} | wcag: ${f.wcag || "\u2014"} | confidence: ${f.confidence || "\u2014"}`)}]]></system-out>\n` +
+        `    </testcase>`
+      );
+    }
+  }
+
+  const propsXml = [
+    `    <properties>`,
+    `      <property name="failOnBlocking" value="${opts.failOnBlocking}" />`,
+    `      <property name="treatNeedsReviewAsFailure" value="${opts.treatNeedsReviewAsFailure}" />`,
+    `      <property name="maxFailuresAllowed" value="${opts.maxFailuresAllowed}" />`,
+    `      <property name="suiteFailures" value="${failures}" />`,
+    `      <property name="suiteSkipped" value="${skipped}" />`,
+    `    </properties>`,
+  ].join("\n");
+
+  const tsAttrs = [
+    `name="${xmlEscape(suiteName || "FlowLens")}"`,
+    `tests="${sorted.length}"`,
+    `failures="${failures}"`,
+    `errors="0"`,
+    `skipped="${skipped}"`,
+    `time="0"`,
+  ];
+  if (capturedAt) tsAttrs.push(`timestamp="${xmlEscape(capturedAt)}"`);
+
+  const xml = `  <testsuite ${tsAttrs.join(" ")}>\n${propsXml}\n${cases.join("\n")}\n  </testsuite>`;
+  return { xml, failures, skipped };
+}
+
+/**
+ * Build JUnit XML for a single run.
+ * meta: { extensionVersion, schemaVersion, signatureVersion, frameKeyVersion, enMappingVersion, url, envTag, wcagLevel }
+ * ctx: { frameKey, scope: { type, rootSelector } }
+ */
+function buildJunitXmlForRun({ findings, ctx, meta, ciOptions }) {
+  const m = meta || {};
+  const c = ctx || {};
+  const capturedAt = m.capturedAt || "";
+  const opts = normalizeJunitCiOptions(ciOptions);
+  const rootAttrs = [
+    `name="FlowLens"`,
+    `extensionVersion="${xmlEscape(m.extensionVersion || "")}"`,
+    `schemaVersion="${xmlEscape(String(m.schemaVersion ?? ""))}"`,
+    `signatureVersion="${xmlEscape(String(m.signatureVersion ?? ""))}"`,
+    `frameKeyVersion="${xmlEscape(String(m.frameKeyVersion ?? ""))}"`,
+    `enMappingVersion="${xmlEscape(String(m.enMappingVersion ?? ""))}"`,
+    `url="${xmlEscape(m.url || "")}"`,
+    `envTag="${xmlEscape(m.envTag || "")}"`,
+    `wcagLevel="${xmlEscape(m.wcagLevel || "")}"`,
+  ];
+  if (capturedAt) rootAttrs.push(`capturedAt="${xmlEscape(capturedAt)}"`);
+  if (c.frameKey) rootAttrs.push(`frameKey="${xmlEscape(c.frameKey)}"`);
+  rootAttrs.push(`scopeType="${xmlEscape(c.scope?.type || "document")}"`);
+  rootAttrs.push(`scopeRootSelector="${xmlEscape(c.scope?.rootSelector || "")}"`);
+
+  const result = buildJunitTestsuiteXml({
+    suiteName: "run",
+    findings,
+    ctx: c,
+    meta: m,
+    capturedAt,
+    ciOptions,
+  });
+
+  const totalFailures = result.failures;
+  const totalSkipped = result.skipped;
+  rootAttrs.push(`totalFailures="${totalFailures}"`);
+  rootAttrs.push(`totalSkipped="${totalSkipped}"`);
+  rootAttrs.push(`ciStatus="${computeCiStatus(totalFailures, opts.maxFailuresAllowed)}"`);
+
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<testsuites ${rootAttrs.join(" ")}>\n${result.xml}\n</testsuites>`;
+}
+
+/**
+ * Build JUnit XML for an entire session (one testsuite per step).
+ * Uses run-mode snapshot findings for each step.
+ */
+function buildJunitXmlForSession({ session, rawAppendix, meta, ciOptions }) {
+  const m = meta || {};
+  const sess = session || {};
+  const steps = Array.isArray(sess.steps) ? sess.steps : [];
+  const opts = normalizeJunitCiOptions(ciOptions);
+  const rootAttrs = [
+    `name="FlowLens Session ${xmlEscape(sess.id || "unknown")}"`,
+    `extensionVersion="${xmlEscape(m.extensionVersion || "")}"`,
+    `schemaVersion="${xmlEscape(String(m.schemaVersion ?? ""))}"`,
+    `signatureVersion="${xmlEscape(String(m.signatureVersion ?? ""))}"`,
+    `frameKeyVersion="${xmlEscape(String(m.frameKeyVersion ?? ""))}"`,
+    `enMappingVersion="${xmlEscape(String(m.enMappingVersion ?? ""))}"`,
+    `url="${xmlEscape(m.url || "")}"`,
+    `envTag="${xmlEscape(m.envTag || "")}"`,
+    `wcagLevel="${xmlEscape(m.wcagLevel || "")}"`,
+  ];
+  if (sess.startedAt) rootAttrs.push(`capturedAt="${xmlEscape(sess.startedAt)}"`);
+
+  const suiteXmls = [];
+  let totalFailures = 0;
+  let totalSkipped = 0;
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const stepLabel = step.label || step.url || `step-${i + 1}`;
+    const suiteName = `Step ${i + 1} \u2014 ${stepLabel}`;
+    const runSnapshot = step.snapshots?.run || null;
+    const raw = resolveSnapshotRaw(runSnapshot, rawAppendix);
+    const findings = Array.isArray(raw?.findings) ? raw.findings : [];
+    const fk = runSnapshot?.best?.frameKey || "";
+    const ctx = { frameKey: fk };
+    const result = buildJunitTestsuiteXml({
+      suiteName,
+      findings,
+      ctx,
+      meta: m,
+      capturedAt: step.at || "",
+      ciOptions,
+    });
+    suiteXmls.push(result.xml);
+    totalFailures += result.failures;
+    totalSkipped += result.skipped;
+  }
+
+  rootAttrs.push(`totalFailures="${totalFailures}"`);
+  rootAttrs.push(`totalSkipped="${totalSkipped}"`);
+  rootAttrs.push(`ciStatus="${computeCiStatus(totalFailures, opts.maxFailuresAllowed)}"`);
+
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<testsuites ${rootAttrs.join(" ")}>\n${suiteXmls.join("\n")}\n</testsuites>`;
+}
+
 // --- Upgrade: Shadow coverage diff warning ---
 
 /**
@@ -3042,6 +3338,121 @@ function checkShadowCoverageChange(prevSnap, currSnap) {
       depthLimitReached: currCov.depthLimitReached,
     },
   };
+}
+
+// --- Shadow coverage UI helpers ---
+
+/**
+ * Format shadow coverage data into a display-ready object.
+ * Pure function — no DOM access.
+ * @param {object|null|undefined} cov - shadowCoverage object from snapshot
+ * @returns {{ text: string, badges: Array<{ label: string, kind: string }> }}
+ */
+function formatShadowCoverage(cov) {
+  if (!cov || typeof cov !== "object") {
+    return { text: "", badges: [] };
+  }
+  const found = Number(cov.scopesFound) || 0;
+  const audited = Number(cov.scopesAudited) || 0;
+  if (found === 0) {
+    return { text: "No shadow roots detected", badges: [] };
+  }
+  const badges = [];
+  const text = `${audited}/${found} shadow scopes audited`;
+  if (cov.scopesCapped) {
+    badges.push({ label: "CAPPED", kind: "warning" });
+  }
+  if (cov.depthLimitReached) {
+    badges.push({ label: "DEPTH LIMIT", kind: "warning" });
+  }
+  if (found > 0 && audited === found && !cov.scopesCapped && !cov.depthLimitReached) {
+    badges.push({ label: "FULL", kind: "ok" });
+  }
+  return { text, badges };
+}
+
+/**
+ * Format a SHADOW_COVERAGE_CHANGED warning into a human-readable banner string.
+ * Pure function — no DOM access.
+ * @param {{ type: string, from: object, to: object }} warning
+ * @returns {string}
+ */
+function formatShadowCoverageWarning(warning) {
+  if (!warning || warning.type !== "SHADOW_COVERAGE_CHANGED") return "";
+  const f = warning.from || {};
+  const t = warning.to || {};
+  const parts = [];
+  const fromAudited = Number(f.scopesAudited) || 0;
+  const toAudited = Number(t.scopesAudited) || 0;
+  if (fromAudited !== toAudited) {
+    parts.push(`scopes audited: ${fromAudited} \u2192 ${toAudited}`);
+  }
+  if (f.scopesCapped !== t.scopesCapped) {
+    parts.push(`capped: ${!!f.scopesCapped} \u2192 ${!!t.scopesCapped}`);
+  }
+  if (f.depthLimitReached !== t.depthLimitReached) {
+    parts.push(`depth limit: ${!!f.depthLimitReached} \u2192 ${!!t.depthLimitReached}`);
+  }
+  if (!parts.length) return "Shadow coverage changed between sessions";
+  return `Shadow coverage changed: ${parts.join(", ")}`;
+}
+
+/**
+ * Format shadow coverage as a single Markdown/text line.
+ * Pure function — no DOM access.
+ * @param {object|null|undefined} cov
+ * @returns {string}  e.g. "Shadow coverage: 5/8 shadow scopes audited (CAPPED, DEPTH LIMIT)" or ""
+ */
+function formatShadowCoverageLine(cov) {
+  if (!cov || typeof cov !== "object") return "";
+  const found = Number(cov.scopesFound) || 0;
+  if (found === 0) return "";
+  const fmt = formatShadowCoverage(cov);
+  if (!fmt.text) return "";
+  const badgePart = fmt.badges.length
+    ? ` (${fmt.badges.map(b => b.label).join(", ")})`
+    : "";
+  return `Shadow coverage: ${fmt.text}${badgePart}`;
+}
+
+/**
+ * Compute SHADOW_COVERAGE_CHANGED warnings between consecutive session steps.
+ * Pure function — no DOM access.
+ * @param {Array} steps
+ * @param {object} rawAppendix
+ * @returns {Array<{ stepIndex: number, warning: object }>}  sorted by stepIndex
+ */
+function computeSessionShadowWarnings(steps) {
+  if (!Array.isArray(steps) || steps.length < 2) return [];
+  const warnings = [];
+  for (let i = 1; i < steps.length; i++) {
+    const prevCov = steps[i - 1]?.snapshots?.run?.best?.shadowCoverage || null;
+    const currCov = steps[i]?.snapshots?.run?.best?.shadowCoverage || null;
+    const w = checkShadowCoverageChange(
+      prevCov ? { shadowCoverage: prevCov } : null,
+      currCov ? { shadowCoverage: currCov } : null,
+    );
+    if (w) warnings.push({ fromStepIndex: steps[i - 1].index ?? (i - 1), toStepIndex: steps[i].index ?? i, stepIndex: steps[i].index ?? i, warning: w });
+  }
+  warnings.sort((a, b) => a.toStepIndex - b.toStepIndex);
+  return warnings;
+}
+
+/**
+ * Enrich a single-run JSON export with top-level shadowCoverage.
+ * Pure function — returns a new object (shallow clone + added field).
+ * @param {object|null} result - state.lastResult
+ * @returns {object}
+ */
+function enrichRunJsonExport(result) {
+  if (!result || typeof result !== "object") return result || {};
+  const out = Object.assign({}, result);
+  const best = out.bestEntry || out.best || null;
+  out.shadowCoverage = best?.result?.shadowCoverage || best?.shadowCoverage || null;
+  out.engineCoverage = engineCoverageSummary();
+  const findings = best?.result?.findings || [];
+  out.observedCoverage = runCoverageObserved(findings);
+  return out;
 }
 
 // --- Upgrade: Signature quality for shadow nth paths ---
@@ -3152,7 +3563,21 @@ function compactSessionForExport(session) {
     for (const key of keys.slice(0, keys.length - MAX_RAW_APPENDIX_ENTRIES)) delete clone.rawAppendix[key];
   }
   pruneSessionRawAppendix(clone);
+  // Promote per-step shadowCoverage to step level for export consumers
+  for (const step of clone.steps || []) {
+    const cov = step?.snapshots?.run?.best?.shadowCoverage || null;
+    step.shadowCoverage = cov || null;
+  }
+  // Compute shadow coverage change warnings between consecutive steps
+  clone.shadowCoverageWarnings = computeSessionShadowWarnings(clone.steps || []);
   clone.determinismMeta = buildDeterminismMeta(clone);
+  // WCAG coverage: engine once + per-step observed
+  clone.engineCoverage = engineCoverageSummary();
+  for (const step of clone.steps || []) {
+    const findings = step?.snapshots?.run?.best?.result?.findings
+      || step?.snapshots?.run?.best?.findings || [];
+    step.observedCoverage = runCoverageObserved(Array.isArray(findings) ? findings : []);
+  }
   return clone;
 }
 
@@ -3168,6 +3593,8 @@ function buildSessionMarkdown(session) {
   lines.push(`Steps: ${steps.length} • Frames: ${frameKeys.length}`);
   lines.push(`Versions: schema=v${asNumber(session.schemaVersion, 1)} signature=v${asNumber(session.signatureVersion, 1)} frameKey=v${asNumber(session.frameKeyVersion, 1)}`);
   lines.push(`Settings: baselineRun=${session.settings?.captureBaselineRun ? "yes" : "no"}, activeMode=${session.settings?.captureActiveMode ? "yes" : "no"}, scope=${session.settings?.scopeAtCapture || session.settings?.targetModeAtCapture || "primary"}, hcMatch=${session.settings?.helpCenterMatchEnabled ? "yes" : "no"}`);
+  const _secs = session.engineCoverage || engineCoverageSummary();
+  lines.push(`Coverage (engine): ${_secs.coveredCount}/${_secs.totalCount} WCAG ${_secs.target.version} ${_secs.target.level} criteria`);
   lines.push("");
 
   const flowMap = new Map();
@@ -3223,6 +3650,17 @@ function buildSessionMarkdown(session) {
   }
   lines.push("");
 
+  const _covWarnings = computeSessionShadowWarnings(steps);
+  if (_covWarnings.length) {
+    lines.push("\u26A0 Shadow DOM coverage changed between snapshots. Diffs may be incomplete.");
+    for (const cw of _covWarnings) {
+      const f = cw.warning.from || {};
+      const t = cw.warning.to || {};
+      lines.push(`- Step ${cw.fromStepIndex} \u2192 Step ${cw.toStepIndex}: audited ${Number(f.scopesAudited) || 0} \u2192 ${Number(t.scopesAudited) || 0}, capped ${!!f.scopesCapped} \u2192 ${!!t.scopesCapped}, depthLimit ${!!f.depthLimitReached} \u2192 ${!!t.depthLimitReached}`);
+    }
+    lines.push("");
+  }
+
   lines.push("Per-step:");
   for (const step of steps) {
     const routeHint = txt(step?.routeHint || "(unknown)", 120);
@@ -3231,6 +3669,12 @@ function buildSessionMarkdown(session) {
     lines.push(`- At: ${step.at || "—"}`);
     lines.push(`- URL: ${shortUrlForMarkdown(step.url || "—")} (\`${txt(step.url || "—", 180)}\`)`);
     lines.push(`- Modes: ${modeLabel("run")}${step.snapshots?.active ? ` + ${modeLabel(step.snapshots.active.mode)}` : ""}`);
+    const _stepCov = formatShadowCoverageLine(step?.snapshots?.run?.best?.shadowCoverage);
+    if (_stepCov) {
+      const _isCappedOrLimited = step?.snapshots?.run?.best?.shadowCoverage?.scopesCapped || step?.snapshots?.run?.best?.shadowCoverage?.depthLimitReached;
+      lines.push(`- ${_stepCov}`);
+      if (_isCappedOrLimited) lines.push(`- Coverage limited; diffs may be incomplete.`);
+    }
     const diff = step.diffs?.consolidated || {};
     lines.push(`- Diff: new=${asNumber(diff.added, 0)} • persisting=${asNumber(diff.persisting, 0)} • fixed=${asNumber(diff.fixed, 0)} • blocking +${asNumber(diff.blockingAdded, 0)}/-${asNumber(diff.blockingFixed, 0)}`);
     const runTarget = step?.snapshots?.run?.targeting || null;
@@ -3256,7 +3700,7 @@ function buildSessionMarkdown(session) {
   return lines.join("\n");
 }
 
-function buildMarkdown({ inspectedUrl, best, perFrame, usedFrameIds, envTag }) {
+function buildMarkdown({ inspectedUrl, best, perFrame, usedFrameIds, envTag, shadowCoverage }) {
   const r = best?.result;
   if (!r) return `FlowLens — no result (env=${envTag})\nURL: ${inspectedUrl}`;
   const normalized = best?.normalized || normalizeResultForExport(r);
@@ -3274,6 +3718,12 @@ function buildMarkdown({ inspectedUrl, best, perFrame, usedFrameIds, envTag }) {
   lines.push(`FrameIds: ${(usedFrameIds || []).join(", ") || "?"}`);
   lines.push(`Mode: ${modeLabel(r.mode || "run")} • inIframe: ${String(r?.env?.inIframe ?? "—")}`);
   lines.push(`Findings: high=${c.high}, medium=${c.medium}, low=${c.low}, info=${c.info} (total=${findings.length})`);
+  const _covLine = formatShadowCoverageLine(shadowCoverage || r?.shadowCoverage || null);
+  if (_covLine) lines.push(_covLine);
+  const _ecs = engineCoverageSummary();
+  lines.push(`Coverage (engine): ${_ecs.coveredCount}/${_ecs.totalCount} WCAG ${_ecs.target.version} ${_ecs.target.level} criteria`);
+  const _ocs = runCoverageObserved(findings);
+  lines.push(`Coverage (observed): ${_ocs.coveredCount}/${_ocs.totalCount}`);
   if (actionIsWatch(r)) {
     const w = r;
     const watchCounts = normalized?.type === "watch" ? normalized.primaryCounts : {};
@@ -3352,13 +3802,35 @@ function actionIsWatch(resultObj) {
   return !!(resultObj && ("silentMs" in resultObj || "bursts" in resultObj) && ("focusLossCount" in resultObj));
 }
 
+/**
+ * Render shadow coverage receipt into a container element.
+ * @param {HTMLElement|null} containerEl
+ * @param {object|null|undefined} shadowCoverage
+ */
+function renderShadowCoverage(containerEl, shadowCoverage) {
+  if (!containerEl) return;
+  const fmt = formatShadowCoverage(shadowCoverage);
+  if (!fmt.text) {
+    containerEl.hidden = true;
+    containerEl.innerHTML = "";
+    return;
+  }
+  const badgeHtml = fmt.badges.map(b =>
+    `<span class="shadowCoverageBadge shadowCoverageBadge--${escapeHtml(b.kind)}">${escapeHtml(b.label)}</span>`
+  ).join("");
+  containerEl.innerHTML = `<span>${escapeHtml(fmt.text)}</span>${badgeHtml}`;
+  containerEl.hidden = false;
+}
+
 function renderRunSummary(r, rec = null) {
   if (!r) {
     renderSevTabs();
+    renderShadowCoverage(els.shadowCoverageRow, null);
     return;
   }
   const findings = Array.isArray(r?.findings) ? r.findings : [];
   renderSevTabs(findings);
+  renderShadowCoverage(els.shadowCoverageRow, r?.shadowCoverage || null);
 }
 
 
@@ -3954,6 +4426,7 @@ async function runAction(action, opts = {}) {
   }
 
   state.lastResult = r;
+  state._lastCapturedAt = nowIso();
   // Inject fix suggestions into raw payload so Raw JSON / export includes them
   if (r?.bestEntry?.result?.findings) {
     r.bestEntry.result.findings = applyFixSuggestions(r.bestEntry.result.findings);
@@ -4401,12 +4874,14 @@ async function exportSessionMarkdown() {
 async function copyMarkdown() {
   const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
   const envTag = `${originFrom(url) || "—"} • ${detectEnv(url)}`;
+  const _best = state.lastResult?.bestEntry || state.lastResult?.best;
   const md = buildMarkdown({
     inspectedUrl: url,
-    best: state.lastResult?.bestEntry || state.lastResult?.best,
+    best: _best,
     perFrame: state.lastResult?.perFrame,
     usedFrameIds: state.lastResult?.usedFrameIds,
     envTag,
+    shadowCoverage: _best?.result?.shadowCoverage || _best?.shadowCoverage || null,
   });
   const ok = await copyText(md);
   if (ok) flashInlineHint(els.copyMdHint);
@@ -4425,7 +4900,9 @@ function setVersionBadge() {
   try {
     const badge = document.getElementById("versionBadge");
     if (!badge) return;
-    const v = (__runtime && __runtime.getManifest) ? __runtime.getManifest().version : (badge.dataset.version || badge.textContent.replace(/^v/, ""));
+    const v = (typeof __FLOWLENS_VERSION__ !== "undefined")
+      ? __FLOWLENS_VERSION__
+      : (__runtime && __runtime.getManifest) ? __runtime.getManifest().version : "dev";
     badge.dataset.version = v;
     badge.textContent = v + " DH";
     const emptyVer = document.getElementById("emptyVersion");
@@ -4433,10 +4910,97 @@ function setVersionBadge() {
   } catch {}
 }
 
+function gatherDiagnosticsOpts() {
+  const url = els.inspectedUrl?.dataset?.full || els.inspectedUrl?.textContent || "";
+  const env = detectEnv(url);
+  const version = (typeof __FLOWLENS_VERSION__ !== "undefined") ? __FLOWLENS_VERSION__ : "dev";
+  const best = state.lastResult?.bestEntry || state.lastResult?.best || null;
+  const bestResult = best?.result || best || {};
+  return {
+    version,
+    dataVersions: {
+      schemaVersion: 3,
+      signatureVersion: asNumber(bestResult.signatureVersion, 2),
+      frameKeyVersion: asNumber(bestResult.frameKeyVersion, 1),
+      enMappingVersion: asNumber(bestResult.enMappingVersion, 1),
+    },
+    url: originFrom(url) || url,
+    env,
+    bestFrameId: state.bestFrameId ?? null,
+    bestFrameKey: best?.frameKey || null,
+    frameScope: getScopeValue(),
+    scope: bestResult.scope || { type: "document", rootSelector: null },
+    shadowCoverage: bestResult.shadowCoverage || null,
+    activeProfileId: profileState.active[0] || null,
+    activeProfileLabel: profileState.active[0]
+      ? (profileState.profiles[profileState.active[0]]?.label || null) : null,
+    profileMatchSignals: (() => {
+      const id = profileState.active[0];
+      if (!id) return [];
+      const sels = profileState.profiles[id]?.frame?.domSelectors || [];
+      return [...sels].sort().slice(0, 3);
+    })(),
+  };
+}
+
+function renderDiagnostics() {
+  const o = gatherDiagnosticsOpts();
+  const payload = buildDiagnosticsPayload(o);
+  if (els.diagVersion) els.diagVersion.textContent = payload.version;
+  if (els.diagSchema) els.diagSchema.textContent = String(payload.dataVersions.schemaVersion);
+  if (els.diagSignature) els.diagSignature.textContent = String(payload.dataVersions.signatureVersion);
+  if (els.diagFrameKey) els.diagFrameKey.textContent = String(payload.dataVersions.frameKeyVersion);
+  if (els.diagEnMapping) els.diagEnMapping.textContent = String(payload.dataVersions.enMappingVersion);
+  if (els.diagDataVersions) els.diagDataVersions.textContent = payload.dataVersionsLine;
+  if (els.diagUrl) els.diagUrl.textContent = payload.url || "\u2014";
+  if (els.diagEnv) els.diagEnv.textContent = payload.env || "\u2014";
+  if (els.diagFrameScope) els.diagFrameScope.textContent = payload.frameScope;
+  if (els.diagBestFrameId) els.diagBestFrameId.textContent = payload.bestFrameId != null ? String(payload.bestFrameId) : "\u2014";
+  if (els.diagBestFrameKey) els.diagBestFrameKey.textContent = payload.bestFrameKey || "\u2014";
+  if (els.diagScope) {
+    const s = payload.scope;
+    els.diagScope.textContent = s.rootSelector ? `${s.type} (${s.rootSelector})` : s.type;
+  }
+  if (els.diagShadowCoverage) {
+    const cov = payload.shadowCoverage;
+    if (cov) {
+      const fmt = formatShadowCoverage(cov);
+      els.diagShadowCoverage.textContent = fmt.text || "\u2014";
+    } else {
+      els.diagShadowCoverage.textContent = "\u2014";
+    }
+  }
+  if (els.diagActiveProfile) {
+    els.diagActiveProfile.textContent = payload.activeProfileLabel || "\u2014";
+  }
+  if (els.diagProfileSignals) {
+    els.diagProfileSignals.textContent = payload.profileMatchSignals.length
+      ? payload.profileMatchSignals.join(", ") : "\u2014";
+  }
+  // Render WCAG coverage section
+  const ecs = engineCoverageSummary();
+  if (els.coverageLine) {
+    els.coverageLine.textContent = `WCAG ${ecs.target.version} ${ecs.target.level} coverage: ${ecs.coveredCount}/${ecs.totalCount} criteria (engine)`;
+  }
+  if (els.coverageMissingList) {
+    const MAX_SHOWN = 20;
+    const _crit = typeof WCAG_CRITERIA !== "undefined" ? WCAG_CRITERIA : [];
+    const titleMap = {};
+    for (const c of _crit) titleMap[c.criterion] = c.title;
+    const items = ecs.criteriaMissing.slice(0, MAX_SHOWN);
+    els.coverageMissingList.innerHTML = items.map(c =>
+      `<li>${escapeHtml(c)} ${escapeHtml(titleMap[c] || "")}</li>`
+    ).join("") + (ecs.criteriaMissing.length > MAX_SHOWN
+      ? `<li class="coverageMore">+${ecs.criteriaMissing.length - MAX_SHOWN} more</li>`
+      : "");
+  }
+}
+
 async function loadProfiles() {
   const { customProfiles = {}, activeProfiles } = await storageGet(["customProfiles", "activeProfiles"]);
-  // Merge custom profiles into registry (custom override builtins with same id)
-  profileState.profiles = { ...BUILTIN_PROFILES, ...customProfiles };
+  // Merge profiles: generics (lowest) → builtins → custom (highest priority)
+  const generics = (typeof GENERIC_PROFILES !== "undefined") ? GENERIC_PROFILES : {};
+  profileState.profiles = { ...generics, ...BUILTIN_PROFILES, ...customProfiles };
   if (Array.isArray(activeProfiles)) {
     profileState.active = activeProfiles.filter(id => id in profileState.profiles);
   }
@@ -4494,7 +5058,220 @@ async function loadUiPrefs() {
   applyTheme(light);
   if (els.alsoConsole) els.alsoConsole.checked = !!uiPrefs.alsoConsole;
   if (els.wcagLevel && uiPrefs.wcagLevel) els.wcagLevel.value = uiPrefs.wcagLevel;
+  const ciOpts = uiPrefs.junitCiOptions || {};
+  if (els.ciFailOnBlocking) els.ciFailOnBlocking.checked = ciOpts.failOnBlocking !== false;
+  if (els.ciTreatNeedsReview) els.ciTreatNeedsReview.checked = !!ciOpts.treatNeedsReviewAsFailure;
+  if (els.ciMaxFailures) els.ciMaxFailures.value = String(ciOpts.maxFailuresAllowed || 0);
   await loadProfiles();
+}
+
+/**
+ * Build a deterministic, PII-free diagnostics payload for clipboard export.
+ * Pure function — no DOM, no network, no side effects.
+ * @param {object} opts
+ * @param {string} opts.version - FlowLens version string
+ * @param {object} opts.dataVersions - { schemaVersion, signatureVersion, frameKeyVersion, enMappingVersion }
+ * @param {string} opts.url - inspected URL (origin only for safety)
+ * @param {string} opts.env - environment tag
+ * @param {number|null} opts.bestFrameId - runtime frame ID
+ * @param {string|null} opts.bestFrameKey - deterministic frame key
+ * @param {string} opts.frameScope - frame scope mode (primary/host/embedded/all)
+ * @param {object|null} opts.scope - { type, rootSelector }
+ * @param {object|null} opts.shadowCoverage - shadow coverage object
+ * @returns {object}
+ */
+/**
+ * Format data versions into a compact summary line.
+ * Pure function — deterministic, no side effects.
+ * @param {{ schemaVersion: number, signatureVersion: number, frameKeyVersion: number, enMappingVersion: number }} dv
+ * @returns {string}
+ */
+function formatDataVersionsLine(dv) {
+  const d = dv || {};
+  return `schema v${asNumber(d.schemaVersion, 0)} \u2022 sig v${asNumber(d.signatureVersion, 0)} \u2022 frameKey v${asNumber(d.frameKeyVersion, 0)} \u2022 EN map v${asNumber(d.enMappingVersion, 0)}`;
+}
+
+// ── WCAG Coverage Summary ───────────────────────────────────────────────────
+
+/**
+ * Engine coverage summary — based on RULE_TO_WCAG presence (static, page-independent).
+ * Returns which target criteria have at least one rule mapping.
+ * Pure, deterministic.
+ */
+function engineCoverageSummary(opts) {
+  const _criteria = typeof WCAG_CRITERIA !== "undefined" ? WCAG_CRITERIA : [];
+  const _ruleMap = typeof RULE_TO_WCAG !== "undefined" ? RULE_TO_WCAG : {};
+  const _target = typeof WCAG_TARGET !== "undefined" ? WCAG_TARGET : { version: "2.2", level: "AA" };
+  const _version = typeof WCAG_COVERAGE_VERSION !== "undefined" ? WCAG_COVERAGE_VERSION : 0;
+  const targetVersion = (opts && opts.targetVersion) || _target.version;
+  const targetLevel = (opts && opts.targetLevel) || _target.level;
+  const targetSet = new Set();
+  const levelIncluded = targetLevel === "AA" ? new Set(["A", "AA"]) : new Set(["A"]);
+  for (const c of _criteria) {
+    if (c.isInTarget && levelIncluded.has(c.level)) targetSet.add(c.criterion);
+  }
+  // Collect unique criteria covered by at least one rule
+  const coveredSet = new Set();
+  for (const key of Object.keys(_ruleMap)) {
+    const mapping = _ruleMap[key];
+    if (mapping && mapping.criterion && targetSet.has(mapping.criterion)) {
+      coveredSet.add(mapping.criterion);
+    }
+    // Handle compound mappings (also field)
+    if (mapping && Array.isArray(mapping.also)) {
+      for (const c of mapping.also) {
+        if (targetSet.has(c)) coveredSet.add(c);
+      }
+    }
+  }
+  const criteriaCovered = [...coveredSet].sort();
+  const allTarget = [...targetSet].sort();
+  const criteriaMissing = allTarget.filter(c => !coveredSet.has(c));
+  return {
+    target: { version: targetVersion, level: targetLevel },
+    coverageVersion: _version,
+    criteriaCovered,
+    criteriaMissing,
+    coveredCount: criteriaCovered.length,
+    totalCount: allTarget.length,
+  };
+}
+
+/**
+ * Parse a wcag value string into an array of valid criterion tokens (X.X.X format).
+ * Handles mixed separators (/, comma, space), normalizes whitespace,
+ * deduplicates, and ignores invalid tokens.
+ * Pure, deterministic.
+ * @param {*} value - wcag string like "2.4.4", "2.4.4 / 4.1.2", "2.4.4,4.1.2", "2.4.4 4.1.2"
+ * @returns {string[]} sorted, deduplicated array of valid criterion tokens
+ */
+function parseWcagCriteria(value) {
+  if (!value) return [];
+  const raw = String(value);
+  // Split on /, comma, or whitespace (handles all mixed separators)
+  const tokens = raw.split(/[\/,\s]+/).map(s => s.trim()).filter(Boolean);
+  // Only keep tokens matching X.X.X or X.X.XX numeric criterion format
+  const CRITERION_RE = /^\d+\.\d+\.\d+$/;
+  const seen = new Set();
+  const result = [];
+  for (const t of tokens) {
+    if (CRITERION_RE.test(t) && !seen.has(t)) {
+      seen.add(t);
+      result.push(t);
+    }
+  }
+  return result.sort();
+}
+
+/**
+ * Observed coverage — based on findings present in a specific run.
+ * A criterion counts as "observed" if at least one finding references it.
+ * Pure, deterministic.
+ */
+function runCoverageObserved(findings, opts) {
+  const _criteria = typeof WCAG_CRITERIA !== "undefined" ? WCAG_CRITERIA : [];
+  const _target = typeof WCAG_TARGET !== "undefined" ? WCAG_TARGET : { version: "2.2", level: "AA" };
+  const _version = typeof WCAG_COVERAGE_VERSION !== "undefined" ? WCAG_COVERAGE_VERSION : 0;
+  const targetVersion = (opts && opts.targetVersion) || _target.version;
+  const targetLevel = (opts && opts.targetLevel) || _target.level;
+  const targetSet = new Set();
+  const levelIncluded = targetLevel === "AA" ? new Set(["A", "AA"]) : new Set(["A"]);
+  for (const c of _criteria) {
+    if (c.isInTarget && levelIncluded.has(c.level)) targetSet.add(c.criterion);
+  }
+  // Collect unique criteria from findings' wcag fields
+  const observedSet = new Set();
+  const items = Array.isArray(findings) ? findings : [];
+  for (const f of items) {
+    if (!f || !f.wcag) continue;
+    const parsed = parseWcagCriteria(f.wcag);
+    for (const p of parsed) {
+      if (targetSet.has(p)) observedSet.add(p);
+    }
+  }
+  const criteriaCovered = [...observedSet].sort();
+  const allTarget = [...targetSet].sort();
+  const criteriaMissing = allTarget.filter(c => !observedSet.has(c));
+  return {
+    target: { version: targetVersion, level: targetLevel },
+    coverageVersion: _version,
+    criteriaCovered,
+    criteriaMissing,
+    coveredCount: criteriaCovered.length,
+    totalCount: allTarget.length,
+  };
+}
+
+function buildDiagnosticsPayload(opts) {
+  const o = opts || {};
+  const dv = o.dataVersions || {};
+  return {
+    version: String(o.version || "unknown"),
+    dataVersions: {
+      schemaVersion: asNumber(dv.schemaVersion, 0),
+      signatureVersion: asNumber(dv.signatureVersion, 0),
+      frameKeyVersion: asNumber(dv.frameKeyVersion, 0),
+      enMappingVersion: asNumber(dv.enMappingVersion, 0),
+    },
+    url: String(o.url || ""),
+    env: String(o.env || ""),
+    bestFrameId: o.bestFrameId != null ? Number(o.bestFrameId) : null,
+    bestFrameKey: o.bestFrameKey ? String(o.bestFrameKey) : null,
+    frameScope: String(o.frameScope || "primary"),
+    scope: o.scope && typeof o.scope === "object"
+      ? { type: String(o.scope.type || "document"), rootSelector: o.scope.rootSelector || null }
+      : { type: "document", rootSelector: null },
+    shadowCoverage: o.shadowCoverage && typeof o.shadowCoverage === "object"
+      ? {
+          scopesFound: Number(o.shadowCoverage.scopesFound) || 0,
+          scopesAudited: Number(o.shadowCoverage.scopesAudited) || 0,
+          scopesCapped: !!o.shadowCoverage.scopesCapped,
+          maxDepthObserved: Number(o.shadowCoverage.maxDepthObserved) || 0,
+          depthLimitReached: !!o.shadowCoverage.depthLimitReached,
+        }
+      : null,
+    activeProfileId: o.activeProfileId ? String(o.activeProfileId) : null,
+    activeProfileLabel: o.activeProfileLabel ? String(o.activeProfileLabel) : null,
+    profileMatchSignals: Array.isArray(o.profileMatchSignals)
+      ? [...o.profileMatchSignals].map(String).sort().slice(0, 3) : [],
+    dataVersionsLine: formatDataVersionsLine(dv),
+    buildInfo: { mv3: true },
+  };
+}
+
+function buildDiagnosticsMarkdown(payload) {
+  const p = payload || {};
+  const d = (v) => (v != null && v !== "") ? String(v) : "\u2014";
+  const signals = Array.isArray(p.profileMatchSignals) && p.profileMatchSignals.length
+    ? p.profileMatchSignals.join(", ") : "\u2014";
+  const shadowLine = p.shadowCoverage
+    ? `${p.shadowCoverage.scopesAudited}/${p.shadowCoverage.scopesFound} scopes` +
+      (p.shadowCoverage.scopesCapped ? " (capped)" : "") +
+      `, depth ${p.shadowCoverage.maxDepthObserved}` +
+      (p.shadowCoverage.depthLimitReached ? " (limit reached)" : "")
+    : "\u2014";
+  return [
+    "# FlowLens Diagnostics",
+    "",
+    "## Environment",
+    `- Version: ${d(p.version)}`,
+    `- Data Versions: ${d(p.dataVersionsLine)}`,
+    `- URL: ${d(p.url)}`,
+    `- Environment Tag: ${d(p.env)}`,
+    "",
+    "## Frame",
+    `- Best Frame ID: ${d(p.bestFrameId)}`,
+    `- Frame Key: ${d(p.bestFrameKey)}`,
+    `- Frame Scope: ${d(p.frameScope)}`,
+    "",
+    "## Profiles",
+    `- Active Profile: ${d(p.activeProfileLabel)}`,
+    `- Profile Signals: ${signals}`,
+    "",
+    "## Shadow DOM",
+    `- Shadow Coverage: ${shadowLine}`,
+    "",
+  ].join("\n");
 }
 
 // --- wire up ---
@@ -4627,13 +5404,13 @@ if (els.copyFrameUrl) {
 }
 
 els.copyJson.addEventListener("click", async () => {
-  await copyText(pretty(state.lastResult || {}));
+  await copyText(pretty(enrichRunJsonExport(state.lastResult)));
   setExportMenuOpen(false);
   toast("Copied JSON");
 });
 
 els.downloadJson.addEventListener("click", () => {
-  downloadText(`a11yflowaudit-${Date.now()}.json`, pretty(state.lastResult || {}), "application/json");
+  downloadText(`a11yflowaudit-${Date.now()}.json`, pretty(enrichRunJsonExport(state.lastResult)), "application/json");
   setExportMenuOpen(false);
   toast("Downloaded JSON");
 });
@@ -4642,12 +5419,14 @@ if (els.downloadMd) {
   els.downloadMd.addEventListener("click", () => {
     const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
     const envTag = `${originFrom(url) || "\u2014"} \u2022 ${detectEnv(url)}`;
+    const _best = state.lastResult?.bestEntry || state.lastResult?.best;
     const md = buildMarkdown({
       inspectedUrl: url,
-      best: state.lastResult?.bestEntry || state.lastResult?.best,
+      best: _best,
       perFrame: state.lastResult?.perFrame,
       usedFrameIds: state.lastResult?.usedFrameIds,
       envTag,
+      shadowCoverage: _best?.result?.shadowCoverage || _best?.shadowCoverage || null,
     });
     downloadText(`a11yflowaudit-${Date.now()}.md`, md, "text/markdown");
     setExportMenuOpen(false);
@@ -4669,6 +5448,73 @@ if (els.exportSessionMdMenu) {
   els.exportSessionMdMenu.addEventListener("click", async () => {
     await exportSessionMarkdown();
     setExportMenuOpen(false);
+  });
+}
+if (els.downloadJunitXml) {
+  els.downloadJunitXml.addEventListener("click", () => {
+    const raw = state.lastResult || {};
+    const findings = Array.isArray(raw.findings) ? raw.findings : [];
+    const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
+    const env = detectEnv(url);
+    const bestEntry = raw.bestEntry || raw.best || null;
+    const fk = bestEntry?.frameKey || "";
+    const capturedAt = state._lastCapturedAt || "";
+    const version = (typeof __FLOWLENS_VERSION__ !== "undefined") ? __FLOWLENS_VERSION__ : "dev";
+    const wcagLevel = els.wcagLevel ? els.wcagLevel.value : "";
+    const ciOptions = getJunitCiOptionsFromUi();
+    const xml = buildJunitXmlForRun({
+      findings,
+      ctx: { frameKey: fk },
+      meta: {
+        extensionVersion: version,
+        schemaVersion: sessionState.current?.schemaVersion || 3,
+        signatureVersion: sessionState.current?.signatureVersion || 2,
+        frameKeyVersion: sessionState.current?.frameKeyVersion || 1,
+        enMappingVersion: typeof EN_MAPPING_VERSION !== "undefined" ? EN_MAPPING_VERSION : 0,
+        url,
+        envTag: `${originFrom(url) || "\u2014"} \u2022 ${env}`,
+        wcagLevel,
+        capturedAt,
+      },
+      ciOptions,
+    });
+    const mode = state.lastResult?.mode || "run";
+    const ciSuffix = isNonDefaultJunitCiOptions(ciOptions) ? ".ci-strict" : "";
+    downloadText(`flowlens-${version}-${env}-${mode}${ciSuffix}.junit.xml`, xml, "application/xml");
+    setExportMenuOpen(false);
+    toast("Downloaded JUnit XML");
+  });
+}
+if (els.exportSessionJunitMenu) {
+  els.exportSessionJunitMenu.addEventListener("click", () => {
+    const session = sessionState.current || sessionState.lastEndedSession;
+    if (!session) { toast("No session available"); return; }
+    const payload = compactSessionForExport(normalizeLoadedSession(session));
+    if (!payload) { toast("Session JUnit export failed"); return; }
+    const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
+    const env = detectEnv(url);
+    const version = (typeof __FLOWLENS_VERSION__ !== "undefined") ? __FLOWLENS_VERSION__ : "dev";
+    const wcagLevel = els.wcagLevel ? els.wcagLevel.value : "";
+    const ciOptions = getJunitCiOptionsFromUi();
+    const xml = buildJunitXmlForSession({
+      session: payload,
+      rawAppendix: payload.rawAppendix || {},
+      meta: {
+        extensionVersion: version,
+        schemaVersion: payload.schemaVersion || 3,
+        signatureVersion: payload.signatureVersion || 2,
+        frameKeyVersion: payload.frameKeyVersion || 1,
+        enMappingVersion: typeof EN_MAPPING_VERSION !== "undefined" ? EN_MAPPING_VERSION : 0,
+        url,
+        envTag: `${originFrom(url) || "\u2014"} \u2022 ${env}`,
+        wcagLevel,
+      },
+      ciOptions,
+    });
+    const ciSuffix = isNonDefaultJunitCiOptions(ciOptions) ? ".ci-strict" : "";
+    downloadText(`flowlens-${version}-${env}-session-${payload.id || "unknown"}${ciSuffix}.junit.xml`, xml, "application/xml");
+    setExportMenuOpen(false);
+    toast("Session JUnit XML exported");
   });
 }
 if (els.sessionStart) {
@@ -4922,6 +5768,46 @@ if (els.alsoConsole) {
   });
 }
 
+// --- JUnit CI options persistence ---
+function getJunitCiOptionsFromUi() {
+  return {
+    failOnBlocking: els.ciFailOnBlocking ? els.ciFailOnBlocking.checked : true,
+    treatNeedsReviewAsFailure: els.ciTreatNeedsReview ? !!els.ciTreatNeedsReview.checked : false,
+    maxFailuresAllowed: els.ciMaxFailures ? Math.max(0, parseInt(els.ciMaxFailures.value, 10) || 0) : 0,
+  };
+}
+async function saveJunitCiOptions() {
+  const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
+  uiPrefs.junitCiOptions = getJunitCiOptionsFromUi();
+  await storageSet({ uiPrefs });
+}
+if (els.ciFailOnBlocking) els.ciFailOnBlocking.addEventListener("change", saveJunitCiOptions);
+if (els.ciTreatNeedsReview) els.ciTreatNeedsReview.addEventListener("change", saveJunitCiOptions);
+if (els.ciMaxFailures) els.ciMaxFailures.addEventListener("change", saveJunitCiOptions);
+
+// Copy diagnostics
+if (els.copyDiagnostics) {
+  els.copyDiagnostics.addEventListener("click", async () => {
+    const payload = buildDiagnosticsPayload(gatherDiagnosticsOpts());
+    const ok = await copyText(pretty(payload));
+    if (els.copyDiagHint) {
+      els.copyDiagHint.textContent = ok ? "Copied!" : "Copy failed";
+      setTimeout(() => { els.copyDiagHint.textContent = ""; }, 2000);
+    }
+  });
+}
+if (els.copyDiagnosticsMdBtn) {
+  els.copyDiagnosticsMdBtn.addEventListener("click", async () => {
+    const payload = buildDiagnosticsPayload(gatherDiagnosticsOpts());
+    const md = buildDiagnosticsMarkdown(payload);
+    const ok = await copyText(md);
+    if (els.copyDiagHint) {
+      els.copyDiagHint.textContent = ok ? "Copied!" : "Copy failed";
+      setTimeout(() => { els.copyDiagHint.textContent = ""; }, 2000);
+    }
+  });
+}
+
 // Explorer reactive filters (debounced)
 let __explorerT = null;
 function scheduleExplorerRender() {
@@ -5014,6 +5900,7 @@ window.addEventListener("keydown", (e) => {
   if (key === "1") { showView("snap"); return; }
   if (key === "2") { showView("flow"); return; }
   if (key === "3") { showView("settings"); return; }
+  if (key === "4") { showView("about"); return; }
 
   if (state.topTab === "flow") {
     // s = mark step (if session active), e = end session

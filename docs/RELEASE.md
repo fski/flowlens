@@ -6,7 +6,7 @@
    ```js
    const FLOWLENS_VERSION = "x.y.z";
    ```
-   This is the single source of truth. The build injects it into `manifest.json` and `panel.html`.
+   This is the single source of truth. The build injects it into `manifest.json` and `panel.js` (via esbuild define).
 
 2. **Update `package.json` version** to match (for npm metadata consistency):
    ```json
@@ -18,16 +18,21 @@
    npm test
    ```
 
-4. **Build and package**:
+4. **Build, package, and verify** (single command):
+   ```sh
+   npm run release:check
+   ```
+   This runs: build → package → package:audit → release:guard.
+
+   Or step by step:
    ```sh
    npm run build
    npm run package
    npm run package:audit
+   npm run release:guard
    ```
 
-5. **Verify**:
-   - `dist/manifest.json` has the correct version
-   - `artifacts/flowlens-x.y.z.zip` exists and audit passes
+5. **Manual verification**:
    - Load `dist/` as an unpacked extension in `chrome://extensions` and verify it works
 
 ## Publish

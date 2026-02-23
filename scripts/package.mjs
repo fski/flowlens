@@ -5,7 +5,7 @@
  *
  * The zip contains dist/ CONTENTS at root (manifest.json at zip root).
  */
-import { readFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 
@@ -34,6 +34,9 @@ if (!version) {
 mkdirSync(ARTIFACTS, { recursive: true });
 const zipName = `flowlens-${version}.zip`;
 const zipPath = join(ARTIFACTS, zipName);
+
+// Remove stale zip first so zip -r doesn't merge into an existing archive
+if (existsSync(zipPath)) rmSync(zipPath);
 
 // Use system zip — cd into dist so zip root = dist contents
 try {
