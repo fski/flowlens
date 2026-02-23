@@ -5453,10 +5453,10 @@ if (els.exportSessionMdMenu) {
 if (els.downloadJunitXml) {
   els.downloadJunitXml.addEventListener("click", () => {
     const raw = state.lastResult || {};
-    const findings = Array.isArray(raw.findings) ? raw.findings : [];
+    const bestEntry = raw.bestEntry || raw.best || null;
+    const findings = Array.isArray(bestEntry?.result?.findings) ? bestEntry.result.findings : [];
     const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
     const env = detectEnv(url);
-    const bestEntry = raw.bestEntry || raw.best || null;
     const fk = bestEntry?.frameKey || "";
     const capturedAt = state._lastCapturedAt || "";
     const version = (typeof __FLOWLENS_VERSION__ !== "undefined") ? __FLOWLENS_VERSION__ : "dev";
