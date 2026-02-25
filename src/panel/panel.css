@@ -2425,6 +2425,18 @@ body.compact .brandLogo { width: 72px; height: auto; }
   border: 1px solid var(--brd0);
 }
 
+/* Profile confidence color-coding */
+.confidence-high { color: #4caf50; }
+.confidence-medium { color: #ff9800; }
+.confidence-low { color: #f44336; outline: 1px solid #f44336; outline-offset: 1px; }
+.confidence-manual { color: var(--tx2); font-style: italic; }
+.confidenceBadge { display: inline-block; padding: 0 4px; border-radius: 2px; font: 600 10px/1.6 var(--font-mono); text-transform: uppercase; letter-spacing: .03em; }
+.confidenceBadge[data-level="H"] { color: #4caf50; }
+.confidenceBadge[data-level="M"] { color: #ff9800; }
+.confidenceBadge[data-level="L"] { color: #f44336; }
+.confidenceBadge[data-level="PIN"] { color: var(--tx2); font-style: italic; border: 1px solid var(--brd); }
+.diffConfidenceReduced { color: #ff9800; font: 500 11px/1 var(--font-mono); padding: 2px 6px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .01ms !important;

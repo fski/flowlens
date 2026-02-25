@@ -245,12 +245,19 @@ export function createContext(opts = {}) {
     this.__WCAG_TARGET = typeof WCAG_TARGET !== 'undefined' ? WCAG_TARGET : {};
     this.__WCAG_CRITERIA = typeof WCAG_CRITERIA !== 'undefined' ? WCAG_CRITERIA : [];
     this.__RULE_TO_WCAG = typeof RULE_TO_WCAG !== 'undefined' ? RULE_TO_WCAG : {};
+    this.__STABLE_SIGNATURE_VERSION = typeof STABLE_SIGNATURE_VERSION !== 'undefined' ? STABLE_SIGNATURE_VERSION : 0;
+    this.__RECIPES = typeof RECIPES !== 'undefined' ? RECIPES : {};
+    this.__activeRecipeId = typeof activeRecipeId !== 'undefined' ? activeRecipeId : 'auto';
+    this.__els = typeof els !== 'undefined' ? els : {};
   `, { filename: 'expose.js' });
   expose.runInContext(ctx);
 
   // Convenience: also attach them as top-level properties
   ctx.sessionState = ctx.__sessionState;
   ctx._state = ctx.__state;
+  ctx.RECIPES = ctx.__RECIPES;
+  ctx.state = ctx.__state;
+  ctx.els = ctx.__els;
 
   // Pre-set inspected URL so getCurrentScopeInfo() returns a valid origin.
   // The real `els` is a const built from document.getElementById() inside panel.js,

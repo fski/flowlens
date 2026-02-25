@@ -284,11 +284,11 @@ describe('buildDiagnosticsPayload — profile explainability', () => {
     assert.equal(result.profileMatchSignals[2], "z-selector");
   });
 
-  it('caps profileMatchSignals to 3', () => {
+  it('caps profileMatchSignals to 5', () => {
     const result = buildDiagnosticsPayload({
-      profileMatchSignals: ["a", "b", "c", "d", "e"],
+      profileMatchSignals: ["a", "b", "c", "d", "e", "f", "g"],
     });
-    assert.equal(result.profileMatchSignals.length, 3);
+    assert.equal(result.profileMatchSignals.length, 5);
   });
 
   it('handles non-array profileMatchSignals gracefully', () => {
@@ -306,6 +306,55 @@ describe('buildDiagnosticsPayload — profile explainability', () => {
     const a = JSON.stringify(buildDiagnosticsPayload(opts));
     const b = JSON.stringify(buildDiagnosticsPayload(opts));
     assert.equal(a, b);
+  });
+
+  it('includes profileConfidence field', () => {
+    const result = buildDiagnosticsPayload({ profileConfidence: 'high' });
+    assert.equal(result.profileConfidence, 'high');
+  });
+
+  it('includes profileSuspect field', () => {
+    const result = buildDiagnosticsPayload({ profileSuspect: true });
+    assert.equal(result.profileSuspect, true);
+    const result2 = buildDiagnosticsPayload({});
+    assert.equal(result2.profileSuspect, false);
+  });
+
+  it('includes rootSelector field', () => {
+    const result = buildDiagnosticsPayload({ rootSelector: '#chat-root' });
+    assert.equal(result.rootSelector, '#chat-root');
+    const result2 = buildDiagnosticsPayload({});
+    assert.equal(result2.rootSelector, null);
+  });
+
+  it('includes rootSelectorNotFound field', () => {
+    const result = buildDiagnosticsPayload({ rootSelectorNotFound: true });
+    assert.equal(result.rootSelectorNotFound, true);
+    const result2 = buildDiagnosticsPayload({});
+    assert.equal(result2.rootSelectorNotFound, false);
+  });
+
+  it('includes rootSelectorMatchedFrameIds field', () => {
+    const result = buildDiagnosticsPayload({ rootSelectorMatchedFrameIds: [3, 5] });
+    assert.ok(Array.isArray(result.rootSelectorMatchedFrameIds));
+    assert.equal(result.rootSelectorMatchedFrameIds.length, 2);
+    assert.equal(result.rootSelectorMatchedFrameIds[0], 3);
+    assert.equal(result.rootSelectorMatchedFrameIds[1], 5);
+    const result2 = buildDiagnosticsPayload({});
+    assert.ok(Array.isArray(result2.rootSelectorMatchedFrameIds));
+    assert.equal(result2.rootSelectorMatchedFrameIds.length, 0);
+  });
+
+  it('includes reducedDiffConfidence field', () => {
+    const result = buildDiagnosticsPayload({ reducedDiffConfidence: true });
+    assert.equal(result.reducedDiffConfidence, true);
+    const result2 = buildDiagnosticsPayload({});
+    assert.equal(result2.reducedDiffConfidence, false);
+  });
+
+  it('manual override confidence is "manual" in payload', () => {
+    const result = buildDiagnosticsPayload({ profileConfidence: 'manual' });
+    assert.equal(result.profileConfidence, 'manual');
   });
 });
 
@@ -391,5 +440,43 @@ describe('buildDiagnosticsMarkdown', () => {
     const md = buildDiagnosticsMarkdown(payload);
     assert.ok(md.includes('5/5 scopes'), 'should show scopes ratio');
     assert.ok(md.includes('depth 2'), 'should show depth');
+  });
+
+  it('renders rootSelector and match status in markdown', () => {
+    const payload = buildDiagnosticsPayload({
+      rootSelector: '#chat-root',
+      rootSelectorNotFound: false,
+      rootSelectorMatchedFrameIds: [3, 5],
+    });
+    const md = buildDiagnosticsMarkdown(payload);
+    assert.ok(md.includes('#chat-root'), 'should include root selector');
+    assert.ok(md.includes('OK'), 'should show OK for found selector');
+    assert.ok(md.includes('3, 5'), 'should show matched frame IDs');
+  });
+
+  it('renders rootSelector NOT FOUND in markdown', () => {
+    const payload = buildDiagnosticsPayload({
+      rootSelector: '#missing',
+      rootSelectorNotFound: true,
+    });
+    const md = buildDiagnosticsMarkdown(payload);
+    assert.ok(md.includes('NOT FOUND'), 'should show NOT FOUND');
+  });
+
+  it('renders reduced diff confidence in markdown', () => {
+    const payload = buildDiagnosticsPayload({
+      reducedDiffConfidence: true,
+    });
+    const md = buildDiagnosticsMarkdown(payload);
+    assert.ok(md.includes('reduced'), 'should show reduced confidence');
+  });
+
+  it('renders profileConfidence in markdown', () => {
+    const payload = buildDiagnosticsPayload({
+      activeProfileLabel: 'Chat Widget',
+      profileConfidence: 'high',
+    });
+    const md = buildDiagnosticsMarkdown(payload);
+    assert.ok(md.includes('high'), 'should include profile confidence');
   });
 });

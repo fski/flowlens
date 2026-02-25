@@ -242,7 +242,7 @@ describe('Diff calculation', () => {
         schemaVersion: '2',
         signatureVersion: undefined,
       });
-      assert.equal(sess.schemaVersion, 3); // migrated to current
+      assert.equal(sess.schemaVersion, 4); // migrated to current
       assert.equal(sess.signatureVersion, 1); // default (input had none)
       assert.equal(sess.frameKeyVersion, 1); // default
     });

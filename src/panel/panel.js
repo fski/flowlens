@@ -30,6 +30,7 @@ const els = {
   sessionExportMenuLabel: document.getElementById("sessionExportMenuLabel"),
   exportSessionJsonMenu: document.getElementById("exportSessionJsonMenu"),
   exportSessionMdMenu: document.getElementById("exportSessionMdMenu"),
+  exportDiffReportMenu: document.getElementById("exportDiffReportMenu"),
   downloadJunitXml: document.getElementById("downloadJunitXml"),
   exportSessionJunitMenu: document.getElementById("exportSessionJunitMenu"),
   ciFailOnBlocking: document.getElementById("ciFailOnBlocking"),
@@ -100,12 +101,24 @@ const els = {
   diagScope: document.getElementById("diagScope"),
   diagShadowCoverage: document.getElementById("diagShadowCoverage"),
   diagActiveProfile: document.getElementById("diagActiveProfile"),
+  diagProfileConfidence: document.getElementById("diagProfileConfidence"),
   diagProfileSignals: document.getElementById("diagProfileSignals"),
+  diagRootSelector: document.getElementById("diagRootSelector"),
+  diagRootSelectorMatch: document.getElementById("diagRootSelectorMatch"),
+  diagDepthMax: document.getElementById("diagDepthMax"),
+  diagRecipe: document.getElementById("diagRecipe"),
+  depthMax: document.getElementById("depthMax"),
+  recipeSelect: document.getElementById("recipeSelect"),
   copyDiagnostics: document.getElementById("copyDiagnostics"),
   copyDiagnosticsMdBtn: document.getElementById("copyDiagnosticsMdBtn"),
   copyDiagHint: document.getElementById("copyDiagHint"),
   coverageLine: document.getElementById("coverageLine"),
   coverageMissingList: document.getElementById("coverageMissingList"),
+
+  // save status HUD
+  saveStatusHud: document.getElementById("saveStatusHud"),
+  saveStatusDot: document.getElementById("saveStatusDot"),
+  saveStatusText: document.getElementById("saveStatusText"),
 
   // new tab shell elements
   snapContent: document.getElementById("snapContent"),
@@ -148,6 +161,7 @@ const state = {
   currentFindings: [],
   lastResult: null,
   bestFrameId: 0,
+  _activeHighlightCtx: null,
   _toastTimer: null,
   running: false,
   _progressInterval: null,
@@ -307,6 +321,44 @@ const BUILTIN_PROFILES = {
 
 // Active profile state: { profiles: { [id]: profileObj }, active: string[] }
 const profileState = { profiles: { ...BUILTIN_PROFILES }, active: ["helpcenter"] };
+
+// --- Recipes: pre-configured capture strategies ---
+const RECIPES = {
+  auto: {
+    label: "Auto",
+    description: "Profile detection as default — no overrides",
+    frameScope: null,
+    depthMax: null,
+    activeMode: null,
+    profileAllowlist: null,
+  },
+  chat_widget: {
+    label: "Chat Widget",
+    description: "Embedded chat widget — embedded scope, balanced depth, observe mode",
+    frameScope: "embedded",
+    depthMax: 2,
+    activeMode: "observe",
+    profileAllowlist: ["chat"],
+  },
+  helpcenter: {
+    label: "Help Center",
+    description: "Help center + bot — embedded scope, full depth, observe mode",
+    frameScope: "embedded",
+    depthMax: 3,
+    activeMode: "observe",
+    profileAllowlist: ["helpcenter"],
+  },
+  hybrid: {
+    label: "Hybrid",
+    description: "Multi-frame portal — all frames, full depth, observe mode",
+    frameScope: "all",
+    depthMax: 3,
+    activeMode: "observe",
+    profileAllowlist: null,
+  },
+};
+let activeRecipeId = "auto";
+let activeRulePack = null; // { enabledRuleIds?: string[], disabledRuleIds?: string[] } or null
 
 // --- Column sorting ---
 const sortState = {
@@ -535,6 +587,15 @@ function toast(message, action) {
   els.toast.classList.add("show");
   clearTimeout(state._toastTimer);
   state._toastTimer = setTimeout(() => els.toast.classList.remove("show"), action ? 4000 : 2500);
+}
+
+function renderSaveStatus(status, detail) {
+  if (!els.saveStatusHud) return;
+  els.saveStatusHud.hidden = false;
+  els.saveStatusHud.dataset.status = status;
+  const labels = { saved: "Saved", saving: "Saving\u2026", error: "Not saved" };
+  const text = labels[status] || "Saved";
+  els.saveStatusText.textContent = detail ? `${text} \u2014 ${detail}` : text;
 }
 
 const DURATIONS = { watch: 40, observe: 12, tabWalk: 5, contrast: 3, run: 2 };
@@ -859,9 +920,10 @@ function showMode(mode) {
 
   // Restore cached findings when switching between run/observe
   if (runLike && state.findingsByMode[mode]) {
-    state.currentFindings = state.findingsByMode[mode];
-    renderSevTabs(state.currentFindings);
-    renderExplorer(state.currentFindings);
+    const filtered = applyAllFindingFilters(state.findingsByMode[mode]);
+    state.currentFindings = filtered;
+    renderSevTabs(filtered);
+    renderExplorer(filtered);
   } else if (runLike) {
     renderSevTabs();
   }
@@ -1084,6 +1146,7 @@ async function persistRecords(scopeKey) {
     for (const rec of state.records) state.byId[String(rec.id)] = rec;
   }
 
+  renderSaveStatus("saving");
   let lastErr = null;
   for (let i = 0; i < PERSIST_LIMIT_STEPS.length; i++) {
     const limits = PERSIST_LIMIT_STEPS[i];
@@ -1095,6 +1158,7 @@ async function persistRecords(scopeKey) {
       if (i > 0) {
         console.warn(`persistRecords recovered with compact level ${i + 1}/${PERSIST_LIMIT_STEPS.length}`, { bytes: estimateJsonBytes(compacted) });
       }
+      renderSaveStatus("saved");
       return true;
     } catch (err) {
       lastErr = err;
@@ -1103,6 +1167,7 @@ async function persistRecords(scopeKey) {
   }
 
   console.error("persistRecords failed", lastErr);
+  renderSaveStatus("error", "quota");
   return false;
 }
 
@@ -1126,6 +1191,12 @@ function renderRecord(rec) {
   if (!rec) return;
   state.currentId = rec.id;
   state.hasRunMode.add(rec.action);
+  // Store per-record highlight context (prevents global leakage)
+  state._activeHighlightCtx = rec._highlightContext || {
+    bestFrameId: rec.best?.frameId ?? 0,
+    usedFrameIds: rec.usedFrameIds || [],
+  };
+  state.bestFrameId = state._activeHighlightCtx.bestFrameId;
   setPressed(rec.action);
   updateResultsVisibility(true);
   resetFilters();
@@ -1142,9 +1213,10 @@ function renderRecord(rec) {
 
   if (mode === "run") {
     renderRunSummary(bestResult, rec);
-    const findings = Array.isArray(bestResult?.findings) ? bestResult.findings : [];
+    const allFindings = Array.isArray(bestResult?.findings) ? bestResult.findings : [];
+    const findings = applyAllFindingFilters(allFindings);
     state.currentFindings = findings;
-    state.findingsByMode.run = findings;
+    state.findingsByMode.run = allFindings;
     renderExplorer(findings);
   } else if (mode === "contrast") {
     state.contrastFilter = "all";
@@ -1154,11 +1226,12 @@ function renderRecord(rec) {
     renderSevTabs();
     renderTabWalk(bestResult);
   } else if (mode === "observe" && bestResult) {
-    const oFindings = Array.isArray(bestResult.findings) ? bestResult.findings : [];
+    const allFindings = Array.isArray(bestResult.findings) ? bestResult.findings : [];
+    const oFindings = applyAllFindingFilters(allFindings);
     if (oFindings.length) {
       renderSevTabs(oFindings);
       state.currentFindings = oFindings;
-      state.findingsByMode.observe = oFindings;
+      state.findingsByMode.observe = allFindings;
       showMode("observe");
       renderExplorer(oFindings);
     } else {
@@ -1642,8 +1715,8 @@ function buildSessionFileName(session) {
 
 function classifyPersistReason(err) {
   const msg = String(err?.message || err || "").toLowerCase();
-  if (msg.includes("quota") || msg.includes("max write") || msg.includes("exceeded")) return "persist:quota";
-  return "persist:error";
+  if (msg.includes("quota") || msg.includes("max write") || msg.includes("exceeded")) return "QUOTA_EXCEEDED";
+  return "TRANSIENT";
 }
 
 function reasonDetail(reasonCode) {
@@ -1652,6 +1725,7 @@ function reasonDetail(reasonCode) {
 
 function normalizeReasonLabel(reasonCode = "-") {
   const code = String(reasonCode || "-").toLowerCase();
+  if (code.includes("manual_frames_missing")) return "MANUAL_FRAMES_MISSING";
   if (code.includes("no_scope_match")) return "NO_SCOPE_MATCH";
   if (code.includes("transport")) return "TRANSPORT";
   if (code.includes("parse")) return "PARSE";
@@ -1778,6 +1852,84 @@ function getSessionKeys(origin, env, sessionId = null) {
   };
 }
 
+/**
+ * Migrate a single snapshot to stable signatures during v3→v4 migration.
+ * If rawAppendix has data, compute full signatures. Otherwise use degraded fallback.
+ */
+function migrateStepStableSignatures(snapshot, rawAppendix, step) {
+  if (!snapshot || !snapshot.best) {
+    return { stableFindingSignatureSet: [], severityCounts: { high: 0, medium: 0, low: 0, info: 0 }, blockingSet: [], summaryScore: 0, stepQuality: { degraded: false } };
+  }
+  const raw = resolveSnapshotRaw(snapshot, rawAppendix);
+  const frameKeyStable = snapshot.best.frameKeyStable || snapshot.best.frameKey || "fk::unknown";
+  const mode = snapshot.mode || "run";
+
+  // Check if raw has meaningful content (findings, failures, events, verdicts)
+  const rawHasContent = raw && typeof raw === "object" && (
+    (Array.isArray(raw.findings) && raw.findings.length > 0) ||
+    (Array.isArray(raw.failures) && raw.failures.length > 0) ||
+    (Array.isArray(raw.events) && raw.events.length > 0) ||
+    (Array.isArray(raw.verdicts) && raw.verdicts.length > 0)
+  );
+
+  if (rawHasContent) {
+    // Full quality: can compute from raw
+    const result = computeStableSignatureSet(snapshot, rawAppendix);
+    result.stepQuality = { degraded: false };
+    return result;
+  }
+
+  // Degraded fallback: rawAppendix missing (raw_capped case).
+  // Build degraded signatures from whatever metadata is available.
+  const signatures = [];
+  const severityCounts = { high: 0, medium: 0, low: 0, info: 0 };
+  const blockingSet = [];
+  let summaryScore = 0;
+
+  // Try to reconstruct from bestEntry.result.findings (stored inline in some cases)
+  const inlineFindings = snapshot.best?.result?.findings
+    || snapshot.best?.normalized?.raw?.findings
+    || [];
+  const findings = Array.isArray(inlineFindings) ? inlineFindings : [];
+
+  if (findings.length > 0) {
+    for (const f of findings) {
+      const sig = buildStableSignature(f, frameKeyStable, mode);
+      signatures.push(sig);
+      const sev = normalizeWs(f?.severity, 10) || "info";
+      if (sev in severityCounts) severityCounts[sev]++;
+      if (sev === "high" || sev === "medium") { blockingSet.push(sig); }
+      summaryScore += ({ high: 5, medium: 3, low: 1, info: 0 })[sev] || 0;
+    }
+    return { stableFindingSignatureSet: signatures, severityCounts, blockingSet, summaryScore, stepQuality: { degraded: false } };
+  }
+
+  // Last resort: build degraded signatures from type/severity counts only
+  const counts = snapshot.best?.normalized?.primaryCounts || {};
+  if (counts.findings > 0 || counts.high > 0 || counts.medium > 0) {
+    // We know there were findings but don't have their details.
+    // Build a single degraded signature per severity bucket.
+    for (const [sev, count] of Object.entries({ high: counts.high || 0, medium: counts.medium || 0, low: counts.low || 0, info: counts.info || 0 })) {
+      for (let i = 0; i < count; i++) {
+        const degradedHash = fnv1aHash8(`${mode}|${frameKeyStable}|${sev}|${i}`);
+        const sig = `${mode}|degraded|${sev}|${degradedHash}`;
+        signatures.push(sig);
+        if (sev in severityCounts) severityCounts[sev]++;
+        if (sev === "high" || sev === "medium") blockingSet.push(sig);
+        summaryScore += ({ high: 5, medium: 3, low: 1, info: 0 })[sev] || 0;
+      }
+    }
+  }
+
+  return {
+    stableFindingSignatureSet: signatures,
+    severityCounts,
+    blockingSet,
+    summaryScore,
+    stepQuality: { degraded: true, signatureQualityCounts: { degraded: signatures.length } },
+  };
+}
+
 function normalizeLoadedSession(session) {
   if (!session || typeof session !== "object") return null;
   const out = { ...session };
@@ -1831,7 +1983,29 @@ function normalizeLoadedSession(session) {
     }
   }
 
-  out.schemaVersion = 3;
+  // --- Schema v3 → v4 migration ---
+  if (loadedSchema < 4) {
+    if (loadedSchema >= 3) {
+      migrated = true;
+      warnings.push(`Session migrated from schemaVersion ${loadedSchema} to 4.`);
+    }
+    // Compute stableSignatures for each step from rawAppendix or degraded fallback.
+    for (const step of out.steps) {
+      if (!step || typeof step !== "object") continue;
+      if (step.stableSignatures) continue; // already has v4 data
+      const rawAppendix = out.rawAppendix || {};
+
+      const runStable = migrateStepStableSignatures(step.snapshots?.run, rawAppendix, step);
+      const activeStable = step.snapshots?.active
+        ? migrateStepStableSignatures(step.snapshots.active, rawAppendix, step)
+        : null;
+
+      step.stableSignatures = { run: runStable, active: activeStable };
+    }
+    if (!out.stableSignatureVersion) out.stableSignatureVersion = STABLE_SIGNATURE_VERSION;
+  }
+
+  out.schemaVersion = 4;
   out._migrated = migrated;
   out._migrationWarnings = warnings;
   return out;
@@ -1940,10 +2114,26 @@ function _buildTimelineRowHtml(s) {
   const delBtn = sessionState.current
     ? ` <button class="stepDeleteBtn" data-delete-step="${s.index}" type="button" aria-label="Delete step ${s.index}" title="Delete step">&times;</button>`
     : "";
+  // Profile confidence badge (H/M/L)
+  const confLevel = s.profileConfidence;
+  const confBadge = confLevel === "high" ? "H" : confLevel === "medium" ? "M" : confLevel === "low" ? "L" : confLevel === "manual" ? "PIN" : "";
+  const confData = confBadge ? ` data-level="${escapeHtml(confBadge === "PIN" ? "PIN" : confBadge[0])}"` : "";
+  // Build explicit tooltip: prefer rootSelector reason over generic signals
+  let confTooltip = "";
+  if (s.profileSuspect && s.rootSelectorNotFound) {
+    confTooltip = "Root selector not found";
+  } else if (Array.isArray(s.profileMatchSignals) && s.profileMatchSignals.length) {
+    confTooltip = s.profileMatchSignals.join(", ");
+  } else {
+    confTooltip = confLevel || "";
+  }
+  const confHtml = confBadge
+    ? `<span class="confidenceBadge"${confData} title="${escapeHtml(confTooltip)}">${escapeHtml(confBadge)}</span>`
+    : "";
   return `<tr class="trow" data-step-index="${s.index}" tabindex="0">
     <td>${s.index}${delBtn}</td>
     <td title="${escapeHtml(route)}">${label}${escapeHtml(shortRoute)}</td>
-    <td>${escapeHtml(mode)}</td>
+    <td>${escapeHtml(mode)}${confHtml ? " " + confHtml : ""}</td>
     <td>${d.added ?? 0}</td>
     <td>${d.fixed ?? 0}</td>
     <td>${d.persisting ?? 0}</td>
@@ -2073,8 +2263,21 @@ function renderFlowVerdict() {
   } else {
     summary = `${totalBlockingAdded} blocking issue${totalBlockingAdded !== 1 ? "s" : ""} introduced in step${blockingSteps.length !== 1 ? "s" : ""} ${blockingSteps.join(", ")}`;
   }
+  // Diff confidence: reduced — when any step has profileSuspect or degraded stableSignatures
+  let diffConfNote = "";
+  const hasSuspect = steps.some(s => s.profileSuspect === true);
+  const hasDegraded = steps.some(s => s.stableSignatures?.run?.stepQuality?.degraded === true);
+  const hasRootMissing = steps.some(s => s.rootSelectorNotFound === true);
+  if (hasSuspect || hasDegraded) {
+    const reasons = [];
+    if (hasDegraded) reasons.push("degraded signatures");
+    if (hasRootMissing) reasons.push("root selector not found");
+    else if (hasSuspect) reasons.push("low profile confidence");
+    const tooltip = reasons.length ? reasons.join("; ") : "reduced confidence";
+    diffConfNote = ` <span class="diffConfidenceReduced" title="${escapeHtml(tooltip)}">Diff confidence: reduced</span>`;
+  }
   el.className = `flowVerdict ${wrapCls}`;
-  el.innerHTML = `<span class="flowVerdictBadge ${badgeCls}">${badge}</span><span class="flowVerdictText">${escapeHtml(summary)}</span>`;
+  el.innerHTML = `<span class="flowVerdictBadge ${badgeCls}">${badge}</span><span class="flowVerdictText">${escapeHtml(summary)}</span>${diffConfNote}`;
   el.hidden = false;
 }
 
@@ -2244,7 +2447,7 @@ function renderStepDrillDown(stepIndex) {
     e.stopPropagation();
     const fi = Number(btn.dataset.drillI);
     const finding = Number.isFinite(fi) ? _drillFindings[fi] : null;
-    if (finding) await highlightFinding(finding);
+    if (finding) await highlightFinding(finding, state._activeHighlightCtx);
   });
 }
 
@@ -2316,6 +2519,11 @@ function updateSessionButtons() {
     const desc = els.exportSessionJunitMenu.querySelector(".dd");
     if (desc) desc.textContent = hasSession ? "Active session" : "Last ended session";
   }
+  if (els.exportDiffReportMenu) {
+    const sess = sessionState.current || sessionState.lastEndedSession;
+    const hasMultiStep = (sess?.steps?.length || 0) >= 2;
+    els.exportDiffReportMenu.hidden = !(hasExportableSession && hasMultiStep);
+  }
   if (els.exportAnchor) els.exportAnchor.hidden = !((state.records.length > 0) || hasExportableSession);
   renderSessionHud();
 }
@@ -2325,38 +2533,73 @@ async function persistActiveSessionBestEffort(session) {
   const { origin, env } = getCurrentScopeInfo();
   const keys = getSessionKeys(origin || session.inspectedOrigin || "", env || "prod");
   const estimatedBytes = estimateJsonBytes(session);
+  renderSaveStatus("saving");
   try {
     await storageSet({ [keys.active]: session });
     sessionState.lastPersistReasonCode = "-";
     debugSession("persist_active_ok", { estimatedBytes });
+    renderSaveStatus("saved");
     return true;
   } catch (err) {
-    console.warn("persist active session failed", err);
-    toast("Session save failed \u2014 data may be lost if DevTools closes");
-    sessionState.lastPersistReasonCode = classifyPersistReason(err);
+    const reason = classifyPersistReason(err);
+    console.warn("persist active session failed", { reason, err });
+    // Only retry for transient errors — quota errors won't resolve on retry
+    if (reason === "TRANSIENT") {
+      try {
+        await storageSet({ [keys.active]: session });
+        sessionState.lastPersistReasonCode = "-";
+        renderSaveStatus("saved");
+        return true;
+      } catch (retryErr) {
+        const retryReason = classifyPersistReason(retryErr);
+        toast("Session save failed \u2014 data may be lost if DevTools closes");
+        sessionState.lastPersistReasonCode = retryReason;
+        debugSession("persist_active_fail", { estimatedBytes, error: String(retryErr?.message || retryErr) });
+        renderSaveStatus("error", retryReason === "QUOTA_EXCEEDED" ? "quota" : "error");
+        return false;
+      }
+    }
+    toast("Session save failed \u2014 storage quota exceeded");
+    sessionState.lastPersistReasonCode = reason;
     debugSession("persist_active_fail", { estimatedBytes, error: String(err?.message || err) });
+    renderSaveStatus("error", "quota");
     return false;
   }
 }
 
+const _archiveInFlight = new Set(); // prevent duplicate archive writes per sessionId
 async function archiveSessionBestEffort(session) {
   if (!session) return false;
-  const { origin, env } = getCurrentScopeInfo();
-  const keys = getSessionKeys(origin || session.inspectedOrigin || "", env || "prod", session.id);
-  const estimatedBytes = estimateJsonBytes(session);
-  try {
-    await storageSet({
-      [keys.archive]: session,
-      [getSessionKeys(origin || session.inspectedOrigin || "", env || "prod").active]: null
-    });
-    sessionState.lastArchiveId = session.id;
-    debugSession("archive_ok", { estimatedBytes });
-    return true;
-  } catch (err) {
-    console.warn("archive session failed", err);
-    toast("Session archive failed");
-    debugSession("archive_fail", { estimatedBytes, error: String(err?.message || err) });
+  const sessionId = session.id || "";
+  if (_archiveInFlight.has(sessionId)) {
+    debugSession("archive_skipped_inflight", { sessionId });
     return false;
+  }
+  _archiveInFlight.add(sessionId);
+  try {
+    const { origin, env } = getCurrentScopeInfo();
+    const keys = getSessionKeys(origin || session.inspectedOrigin || "", env || "prod", session.id);
+    const estimatedBytes = estimateJsonBytes(session);
+    renderSaveStatus("saving");
+    try {
+      await storageSet({
+        [keys.archive]: session,
+        [getSessionKeys(origin || session.inspectedOrigin || "", env || "prod").active]: null
+      });
+      sessionState.lastArchiveId = session.id;
+      debugSession("archive_ok", { estimatedBytes });
+      renderSaveStatus("saved");
+      return true;
+    } catch (err) {
+      const reason = classifyPersistReason(err);
+      console.warn("archive session failed", { reason, err });
+      toast(`Session archive failed \u2014 ${reason === "QUOTA_EXCEEDED" ? "quota exceeded" : "storage error"}`);
+      debugSession("archive_fail", { estimatedBytes, error: String(err?.message || err) });
+      renderSaveStatus("error", reason === "QUOTA_EXCEEDED" ? "quota" : "error");
+      return false;
+    }
+  } finally {
+    _archiveInFlight.delete(sessionId);
   }
 }
 
@@ -2562,6 +2805,7 @@ function toModeSnapshot(capture, mode, capturedAt, targeting = null) {
     ? {
       frameId: best.frameId,
       frameKey: best.frameKey || `fk::unknown::unknown::root::00000000`,
+      frameKeyStable: best.frameKeyStable || null,
       normalized: {
         type: bestNormalized?.type || mode,
         blockingCount: asNumber(bestNormalized?.blockingCount, 0),
@@ -2584,6 +2828,7 @@ function toModeSnapshot(capture, mode, capturedAt, targeting = null) {
     return {
       frameId: f?.frameId ?? 0,
       frameKey: f?.frameKey || `fk::unknown::unknown::root::00000000`,
+      frameKeyStable: f?.frameKeyStable || null,
       ok: !!f?.ok,
       normalized: normalizedNoRaw,
       error: f?.error || null,
@@ -2930,6 +3175,75 @@ function diffModeBundles(prevBundle, nextBundle) {
 }
 
 function buildStepDiffs(step, prevStep, rawAppendix = null) {
+  // Prefer stable diff when both steps have stableSignatures (v4+).
+  const hasStable = step?.stableSignatures?.run && prevStep?.stableSignatures?.run;
+  if (hasStable) {
+    const stableRunDiff = computeStableDiff(
+      prevStep.stableSignatures.run.stableFindingSignatureSet,
+      step.stableSignatures.run.stableFindingSignatureSet
+    );
+    // Also compute blocking counts from stable blockingSets
+    const prevBlocking = new Set(prevStep.stableSignatures.run.blockingSet || []);
+    const currBlocking = new Set(step.stableSignatures.run.blockingSet || []);
+    const currSigs = new Set(step.stableSignatures.run.stableFindingSignatureSet || []);
+    const prevSigs = new Set(prevStep.stableSignatures.run.stableFindingSignatureSet || []);
+    let blockingAdded = 0, blockingFixed = 0;
+    for (const sig of currBlocking) if (!prevSigs.has(sig)) blockingAdded++;
+    for (const sig of prevBlocking) if (!currSigs.has(sig)) blockingFixed++;
+    stableRunDiff.blockingAdded = blockingAdded;
+    stableRunDiff.blockingFixed = blockingFixed;
+
+    const runCounts = step.stableSignatures.run.severityCounts || {};
+    const prevRunCounts = prevStep.stableSignatures.run.severityCounts || {};
+    const countsDelta = computeCountsDelta(runCounts, prevRunCounts);
+    stableRunDiff.countsDelta = countsDelta;
+    stableRunDiff.text = summarizeDiff(stableRunDiff);
+
+    // Active diff (if both have stable active)
+    let activeDiff;
+    if (step?.stableSignatures?.active && prevStep?.stableSignatures?.active) {
+      activeDiff = computeStableDiff(
+        prevStep.stableSignatures.active.stableFindingSignatureSet,
+        step.stableSignatures.active.stableFindingSignatureSet
+      );
+      const activeCounts = step.stableSignatures.active.severityCounts || {};
+      const prevActiveCounts = prevStep.stableSignatures.active.severityCounts || {};
+      activeDiff.countsDelta = computeCountsDelta(activeCounts, prevActiveCounts);
+      activeDiff.text = summarizeDiff(activeDiff);
+    }
+
+    // Consolidated = run + active combined
+    const allCurrSigs = [
+      ...(step.stableSignatures.run?.stableFindingSignatureSet || []),
+      ...(step.stableSignatures.active?.stableFindingSignatureSet || []),
+    ];
+    const allPrevSigs = [
+      ...(prevStep.stableSignatures.run?.stableFindingSignatureSet || []),
+      ...(prevStep.stableSignatures.active?.stableFindingSignatureSet || []),
+    ];
+    const consolidated = computeStableDiff(allPrevSigs, allCurrSigs);
+    // Recompute blocking deltas from merged blocking sets
+    const allCurrBlocking = new Set([
+      ...(step.stableSignatures.run?.blockingSet || []),
+      ...(step.stableSignatures.active?.blockingSet || []),
+    ]);
+    const allPrevBlocking = new Set([
+      ...(prevStep.stableSignatures.run?.blockingSet || []),
+      ...(prevStep.stableSignatures.active?.blockingSet || []),
+    ]);
+    consolidated.blockingAdded = [...allCurrBlocking].filter(s => !allPrevBlocking.has(s)).length;
+    consolidated.blockingFixed = [...allPrevBlocking].filter(s => !allCurrBlocking.has(s)).length;
+    consolidated.countsDelta = countsDelta;
+    consolidated.text = summarizeDiff(consolidated);
+
+    return {
+      run: step?.snapshots?.run ? stableRunDiff : undefined,
+      active: activeDiff,
+      consolidated,
+    };
+  }
+
+  // Legacy fallback (v3 sessions without stableSignatures)
   const runNext = buildModeSignatureBundle(step?.snapshots?.run, rawAppendix);
   const runPrev = buildModeSignatureBundle(prevStep?.snapshots?.run, rawAppendix);
   const activeNext = buildModeSignatureBundle(step?.snapshots?.active, rawAppendix);
@@ -3484,6 +3798,177 @@ function computeSignatureQuality(finding) {
   return "low";
 }
 
+// --- Stable Signature Engine (v4 shadow mode) ---
+
+const STABLE_SIGNATURE_VERSION = 1;
+
+/**
+ * Build a stable finding signature that does NOT depend on rawAppendix.
+ * Format: `${ruleId}|${severity}|${normalizedLocatorHash}`
+ *
+ * ruleId = `${mode}|${type}|${wcag}` (canonical, no labels, no text)
+ * severity = normalized enum
+ * normalizedLocatorHash = hash(frameKeyStable + testId + role + stablePathHash + tagName)
+ *
+ * Excludes: text content, aria-label, dynamic attributes, marker hash.
+ */
+function buildStableSignature(finding, frameKeyStable, mode = "run") {
+  const typeNorm = normalizeIdentityText(finding?.type, 40);
+  const wcagNorm = normalizeIdentityText(finding?.wcag, 24);
+  const severityNorm = normalizeWs(finding?.severity, 10) || "info";
+  const ruleId = `${mode}|${typeNorm}|${wcagNorm}`;
+
+  const locatorParts = [
+    frameKeyStable || "fk::unknown",
+    finding?.testId ? normalizeIdentityText(finding.testId, 60) : "",
+    finding?.role ? normalizeWs(finding.role, 20) : "",
+    pathHashForSig(finding?.path),
+    normalizeWs(finding?.tag, 16) || "",
+  ];
+  const normalizedLocatorHash = fnv1aHash8(locatorParts.join("|"));
+
+  return `${ruleId}|${severityNorm}|${normalizedLocatorHash}`;
+}
+
+/**
+ * Build a stable signature for non-finding items (contrast, tabWalk, watch).
+ */
+function buildStableItemSignature(item, frameKeyStable, mode) {
+  if (mode === "contrast") {
+    const wcag = normalizeIdentityText(item?.wcag || "1.4.3", 24);
+    const locator = [
+      frameKeyStable || "fk::unknown",
+      normalizeIdentityText(item?.testId, 60) || "",
+      pathHashForSig(item?.path),
+      normalizeWs(item?.tag, 16) || "",
+    ];
+    return `contrast|${wcag}|high|${fnv1aHash8(locator.join("|"))}`;
+  }
+  if (mode === "tabWalk") {
+    const type = normalizeIdentityText(item?.type, 40);
+    const sev = TAB_BLOCKING_TYPES.has(normalizeWs(item?.type, 40)) ? "medium" : "info";
+    const locator = [
+      frameKeyStable || "fk::unknown",
+      pathHashForSig(item?.path),
+      normalizeWs(item?.name, 80) || "",
+    ];
+    return `tabwalk|${type}|${sev}|${fnv1aHash8(locator.join("|"))}`;
+  }
+  if (mode === "watch") {
+    const metric = normalizeWs(item?.metric, 32);
+    const locator = [frameKeyStable || "fk::unknown", metric];
+    return `watch|${metric}|medium|${fnv1aHash8(locator.join("|"))}`;
+  }
+  // fallback
+  return `${mode}|unknown|info|${fnv1aHash8(JSON.stringify(item || {}).slice(0, 200))}`;
+}
+
+/**
+ * Compute the stable signature set for a step's snapshot.
+ * Returns { stableFindingSignatureSet, severityCounts, blockingSet, summaryScore }.
+ */
+function computeStableSignatureSet(snapshot, rawAppendix = null) {
+  const empty = { stableFindingSignatureSet: [], severityCounts: { high: 0, medium: 0, low: 0, info: 0 }, blockingSet: [], summaryScore: 0 };
+  if (!snapshot || !snapshot.best) return empty;
+
+  const frameKeyStable = snapshot.best.frameKeyStable || snapshot.best.frameKey || "fk::unknown";
+  const mode = snapshot.mode || "run";
+  const raw = resolveSnapshotRaw(snapshot, rawAppendix) || {};
+  const signatures = [];
+  const severityCounts = { high: 0, medium: 0, low: 0, info: 0 };
+  const blockingSet = [];
+  let summaryScore = 0;
+
+  if (mode === "run" || mode === "observe") {
+    const findings = Array.isArray(raw.findings) ? raw.findings : [];
+    for (const f of findings) {
+      const sig = buildStableSignature(f, frameKeyStable, mode);
+      signatures.push(sig);
+      const sev = normalizeWs(f?.severity, 10) || "info";
+      if (sev in severityCounts) severityCounts[sev]++;
+      const isBlocking = sev === "high" || sev === "medium";
+      if (isBlocking) blockingSet.push(sig);
+      summaryScore += ({ high: 5, medium: 3, low: 1, info: 0 })[sev] || 0;
+    }
+  } else if (mode === "contrast") {
+    const failures = Array.isArray(raw.failures) ? raw.failures : [];
+    for (const f of failures) {
+      const sig = buildStableItemSignature(f, frameKeyStable, mode);
+      signatures.push(sig);
+      severityCounts.high++;
+      blockingSet.push(sig);
+      summaryScore += 5;
+    }
+  } else if (mode === "tabWalk") {
+    const events = Array.isArray(raw.events) ? raw.events : [];
+    for (const e of events) {
+      const sig = buildStableItemSignature(e, frameKeyStable, mode);
+      signatures.push(sig);
+      const isBlocking = TAB_BLOCKING_TYPES.has(normalizeWs(e?.type, 40));
+      if (isBlocking) { severityCounts.medium++; blockingSet.push(sig); summaryScore += 3; }
+      else { severityCounts.info++; summaryScore += 0; }
+    }
+  } else if (mode === "watch") {
+    const verdicts = Array.isArray(raw.verdicts) ? raw.verdicts : [];
+    for (const v of verdicts) {
+      const sig = buildStableItemSignature(v, frameKeyStable, mode);
+      signatures.push(sig);
+      severityCounts.medium++;
+      blockingSet.push(sig);
+      summaryScore += 3;
+    }
+  }
+
+  return { stableFindingSignatureSet: signatures, severityCounts, blockingSet, summaryScore };
+}
+
+/**
+ * Compute diff using stable signature sets only — no rawAppendix dependency.
+ */
+function computeStableDiff(prevSignatures, currSignatures) {
+  const prevSet = new Set(Array.isArray(prevSignatures) ? prevSignatures : []);
+  const currSet = new Set(Array.isArray(currSignatures) ? currSignatures : []);
+
+  let added = 0, fixed = 0, persisting = 0;
+  let blockingAdded = 0, blockingFixed = 0;
+
+  for (const sig of currSet) {
+    if (prevSet.has(sig)) persisting++;
+    else added++;
+  }
+  for (const sig of prevSet) {
+    if (!currSet.has(sig)) fixed++;
+  }
+
+  return { added, fixed, persisting, blockingAdded, blockingFixed };
+}
+
+/**
+ * Run parallel diff validation (shadow mode): compares legacy diff with stable diff.
+ * Logs mismatches in non-production. Does NOT break production.
+ */
+function validateDiffParity(step, prevStep, rawAppendix, stableRun, stablePrev) {
+  if (!step || !prevStep) return;
+  try {
+    const legacy = buildStepDiffs(step, prevStep, rawAppendix);
+    const legacyRun = legacy?.run || {};
+    const stableDiff = computeStableDiff(
+      stablePrev?.stableFindingSignatureSet || [],
+      stableRun?.stableFindingSignatureSet || []
+    );
+
+    if (legacyRun.blockingAdded !== stableDiff.blockingAdded ||
+        legacyRun.blockingFixed !== stableDiff.blockingFixed) {
+      console.warn("[FlowLens] Diff parity mismatch (shadow mode)", {
+        legacy: { blockingAdded: legacyRun.blockingAdded, blockingFixed: legacyRun.blockingFixed },
+        stable: { blockingAdded: stableDiff.blockingAdded, blockingFixed: stableDiff.blockingFixed },
+      });
+    }
+  } catch (e) {
+    console.warn("[FlowLens] Diff parity validation error", e);
+  }
+}
+
 // --- Upgrade: Overlay allowed modes ---
 
 const OVERLAY_ALLOWED_MODES = new Set(["run"]);
@@ -3573,6 +4058,19 @@ function compactSessionForExport(session) {
   clone.determinismMeta = buildDeterminismMeta(clone);
   // WCAG coverage: engine once + per-step observed
   clone.engineCoverage = engineCoverageSummary();
+  // Run config summary for CI/export consumers
+  const lastStep = (clone.steps || []).slice(-1)[0];
+  clone.runConfigSummary = {
+    recipeId: lastStep?.recipeId || "auto",
+    depthMax: lastStep?.depthMax || 3,
+    profileLabel: lastStep?.profileLabel || null,
+    profileConfidence: lastStep?.profileConfidence || null,
+    profileMatchSignals: lastStep?.profileMatchSignals || [],
+    frameScope: clone.settings?.scopeAtCapture || clone.settings?.targetModeAtCapture || "primary",
+    rulePack: lastStep?.rulePack || null,
+    reducedDiffConfidence: (clone.steps || []).some(s => s.profileSuspect === true) ||
+      (clone.steps || []).some(s => s.stableSignatures?.run?.stepQuality?.degraded === true),
+  };
   for (const step of clone.steps || []) {
     const findings = step?.snapshots?.run?.best?.result?.findings
       || step?.snapshots?.run?.best?.findings || [];
@@ -3896,22 +4394,26 @@ function updateContrastView() {
     });
   }
   const sorted = applySortState(data, 'contrast');
-  if (els.contrastEmpty) {
-    if (!hasData) {
-      els.contrastEmpty.textContent = "Run a Contrast check to see results";
-      els.contrastEmpty.hidden = false;
-    } else if (sorted.length === 0) {
-      els.contrastEmpty.textContent = "No results match your search";
-      els.contrastEmpty.hidden = false;
-    } else {
-      els.contrastEmpty.hidden = true;
-    }
-  }
   if (!VT.contrast) initVirtualTables();
   if (VT.contrast) {
     VT.contrast.setData(sorted);
-    return;
   }
+  // Empty state based on actual rendered rows — defer one frame to avoid flicker
+  if (els.contrastEmpty) {
+    requestAnimationFrame(() => {
+      const visibleRows = VT.contrast ? VT.contrast.data.length : sorted.length;
+      if (!hasData) {
+        els.contrastEmpty.textContent = "Run a Contrast check to see results";
+        els.contrastEmpty.hidden = false;
+      } else if (visibleRows === 0) {
+        els.contrastEmpty.textContent = "No results match your search";
+        els.contrastEmpty.hidden = false;
+      } else {
+        els.contrastEmpty.hidden = true;
+      }
+    });
+  }
+  if (VT.contrast) return;
   const tbody = els.contrastTbody;
   if (!tbody) return;
   tbody.innerHTML = sorted.slice(0, 200).map(contrastRowHtml).join("");
@@ -3933,22 +4435,26 @@ function renderTabWalk(res) {
     });
   }
   const events = applySortState(filtered, 'tab');
-  if (els.tabWalkEmpty) {
-    if (raw.length === 0) {
-      els.tabWalkEmpty.textContent = "Run a Tab Walk to see results";
-      els.tabWalkEmpty.hidden = false;
-    } else if (events.length === 0) {
-      els.tabWalkEmpty.textContent = "No results match your search";
-      els.tabWalkEmpty.hidden = false;
-    } else {
-      els.tabWalkEmpty.hidden = true;
-    }
-  }
   if (!VT.tab) initVirtualTables();
   if (VT.tab) {
     VT.tab.setData(events);
-    return;
   }
+  // Empty state based on actual rendered rows — defer one frame to avoid flicker
+  if (els.tabWalkEmpty) {
+    requestAnimationFrame(() => {
+      const visibleRows = VT.tab ? VT.tab.data.length : events.length;
+      if (raw.length === 0) {
+        els.tabWalkEmpty.textContent = "Run a Tab Walk to see results";
+        els.tabWalkEmpty.hidden = false;
+      } else if (visibleRows === 0) {
+        els.tabWalkEmpty.textContent = "No results match your search";
+        els.tabWalkEmpty.hidden = false;
+      } else {
+        els.tabWalkEmpty.hidden = true;
+      }
+    });
+  }
+  if (VT.tab) return;
   // fallback (should not happen)
   const tbody = els.tabTbody;
   if (!tbody) return;
@@ -4112,6 +4618,61 @@ function applyFixSuggestions(findings) {
   return findings;
 }
 
+function applyRecipe(recipeId) {
+  const recipe = RECIPES[recipeId];
+  if (!recipe) return;
+  activeRecipeId = recipeId;
+  if (recipeId === "auto") return; // auto = no overrides
+  if (recipe.frameScope && els.target) els.target.value = recipe.frameScope;
+  if (recipe.depthMax && els.depthMax) els.depthMax.value = String(recipe.depthMax);
+  if (recipe.activeMode) state.activeMode = recipe.activeMode;
+}
+
+function getActiveRecipeId() {
+  return activeRecipeId || "auto";
+}
+
+function getActiveDepthMax() {
+  const v = Number(els.depthMax?.value);
+  return (v === 1 || v === 2 || v === 3) ? v : 3;
+}
+
+function filterFindingsByDepth(findings, depthMax) {
+  if (!Array.isArray(findings)) return [];
+  if (depthMax >= 3 || !depthMax) return findings;
+  const ruleMap = typeof RULE_TO_WCAG !== "undefined" ? RULE_TO_WCAG : {};
+  return findings.filter(f => {
+    const meta = ruleMap[f.type];
+    if (!meta) return true; // unknown rules pass through
+    return (meta.depthLevel || 1) <= depthMax;
+  });
+}
+
+function filterFindingsByRulePack(findings, rulePack) {
+  if (!Array.isArray(findings) || !rulePack) return findings || [];
+  const { enabledRuleIds, disabledRuleIds } = rulePack;
+  const hasEnabled = Array.isArray(enabledRuleIds) && enabledRuleIds.length > 0;
+  const hasDisabled = Array.isArray(disabledRuleIds) && disabledRuleIds.length > 0;
+  if (!hasEnabled && !hasDisabled) return findings;
+  const enabledSet = hasEnabled ? new Set(enabledRuleIds) : null;
+  const disabledSet = hasDisabled ? new Set(disabledRuleIds) : null;
+  return findings.filter(f => {
+    if (enabledSet && !enabledSet.has(f.type)) return false;
+    if (disabledSet && disabledSet.has(f.type)) return false;
+    return true;
+  });
+}
+
+function getActiveRulePack() {
+  return activeRulePack;
+}
+
+function applyAllFindingFilters(findings) {
+  let result = filterFindingsByDepth(findings, getActiveDepthMax());
+  result = filterFindingsByRulePack(result, getActiveRulePack());
+  return result;
+}
+
 function renderExplorer(findings) {
   const all = Array.isArray(findings) ? findings : [];
   const filtered = applySortState(applyExplorerFilters(findings), 'explorer');
@@ -4124,17 +4685,20 @@ function renderExplorer(findings) {
     els.findingsCount.textContent = shown === total ? `${total} findings` : `${shown} of ${total}`;
   }
 
-  // Show empty state when filters produce zero results from non-empty data
-  if (els.explorerEmpty) {
-    els.explorerEmpty.hidden = filtered.length > 0 || all.length === 0;
-  }
-
   if (!VT.all) initVirtualTables();
   if (VT.all) {
     VT.all.setData(filtered);
   } else {
     // fallback
     els.allTableBody.innerHTML = filtered.slice(0, 200).map(explorerRowHtml).join("");
+  }
+
+  // Empty state based on actual rendered rows — defer one frame to avoid flicker
+  if (els.explorerEmpty) {
+    requestAnimationFrame(() => {
+      const visibleRowsCount = VT.all ? VT.all.data.length : filtered.length;
+      els.explorerEmpty.hidden = visibleRowsCount > 0 || all.length === 0;
+    });
   }
 }
 
@@ -4321,6 +4885,130 @@ function buildAppMarkers() {
   return sels.length ? sels.join(", ") : null;
 }
 
+/**
+ * Build rootSelector from active profiles.
+ * Returns the first non-empty rootSelector, or null.
+ * Does NOT apply when manual override is active.
+ */
+function buildProfileRootSelector() {
+  for (const id of profileState.active) {
+    const p = profileState.profiles[id];
+    if (p?.rootSelector && typeof p.rootSelector === "string") return p.rootSelector;
+  }
+  return null;
+}
+
+/**
+ * Profiles v2 — deterministic profile match scoring.
+ *
+ * Computes a match score for a single profile against frame probe data
+ * and page URL. Returns { profileId, label, matchScore, matchSignals, confidence }.
+ */
+function computeProfileMatch(profileId, profile, probeData, frameUrl) {
+  const signals = [];
+  let score = 0;
+
+  // +3 for urlIncludes match
+  const urlIncludes = Array.isArray(profile?.frame?.urlIncludes) ? profile.frame.urlIncludes : [];
+  const urlLower = (frameUrl || "").toLowerCase();
+  for (const inc of urlIncludes) {
+    if (inc && urlLower.includes(String(inc).toLowerCase())) {
+      score += 3;
+      signals.push(`url:${String(inc).slice(0, 40)}`);
+      break; // only +3 once
+    }
+  }
+
+  // +2 per domSelectorsAny hit (cap at 4 hits = max +8)
+  const domSelectors = Array.isArray(profile?.frame?.domSelectors) ? profile.frame.domSelectors : [];
+  const markerHits = (probeData && typeof probeData === "object" && probeData.markerHits) ? probeData.markerHits : {};
+  let domHits = 0;
+  for (const sel of domSelectors) {
+    if (markerHits[sel] === true && domHits < 4) {
+      domHits++;
+      score += 2;
+      signals.push(`dom:${String(sel).slice(0, 40)}`);
+    }
+  }
+
+  // +2 if hasChat/hasHelpRoot matches profile intent
+  const frameScope = profile?.frameScope || "primary";
+  if (probeData) {
+    if (frameScope === "embedded" && probeData.hasChat) {
+      score += 2;
+      signals.push("intent:hasChat");
+    } else if (frameScope === "primary" && probeData.hasHelpRoot) {
+      score += 2;
+      signals.push("intent:hasHelpRoot");
+    } else if (probeData.hasArticle && (frameScope === "primary" || frameScope === "all")) {
+      score += 2;
+      signals.push("intent:hasArticle");
+    }
+  }
+
+  // +1 for frameScope alignment
+  const bestFrameId = probeData?.frameId;
+  if (bestFrameId != null) {
+    const isTopFrame = bestFrameId === 0;
+    if ((frameScope === "primary" || frameScope === "host") && isTopFrame) {
+      score += 1;
+      signals.push("scope:aligned");
+    } else if (frameScope === "embedded" && !isTopFrame) {
+      score += 1;
+      signals.push("scope:aligned");
+    } else if (frameScope === "all") {
+      score += 1;
+      signals.push("scope:all");
+    }
+  }
+
+  // Confidence
+  const confidence = score >= 6 ? "high" : score >= 3 ? "medium" : "low";
+
+  return {
+    profileId: String(profileId),
+    label: profile?.label || String(profileId),
+    matchScore: score,
+    matchSignals: signals,
+    confidence,
+  };
+}
+
+/**
+ * Select the best profile match from all available profiles.
+ * Deterministic tie resolution: alphabetical profileId.
+ */
+function selectBestProfileMatch(probeData, frameUrl, isManualOverride) {
+  // Manual override bypasses profile scoring entirely.
+  if (isManualOverride) {
+    const activeId = profileState.active[0] || null;
+    return {
+      profileId: activeId,
+      label: activeId ? (profileState.profiles[activeId]?.label || activeId) : null,
+      matchScore: 0,
+      matchSignals: ["manual_override"],
+      confidence: "manual",
+    };
+  }
+
+  const allProfiles = profileState.profiles || {};
+  const candidates = [];
+  for (const [id, profile] of Object.entries(allProfiles)) {
+    const match = computeProfileMatch(id, profile, probeData, frameUrl);
+    candidates.push(match);
+  }
+
+  if (!candidates.length) return null;
+
+  // Sort: highest score first, then alphabetical profileId for tie resolution.
+  candidates.sort((a, b) => {
+    if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
+    return a.profileId.localeCompare(b.profileId);
+  });
+
+  return candidates[0].matchScore > 0 ? candidates[0] : null;
+}
+
 async function setPinnedFrameIfNeeded() {
   // stores selected frame for this origin
   const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
@@ -4341,19 +5029,62 @@ async function setPinnedFrameIfNeeded() {
   updateTargetingSummary();
 }
 
-async function highlightFinding(finding) {
+let _highlightInFlight = false;
+async function highlightFinding(finding, highlightCtx) {
   if (!finding) return;
-  const frameId = state.bestFrameId ?? 0;
+  if (_highlightInFlight) return; // concurrency guard — ignore overlapping attempts
+  _highlightInFlight = true;
   try {
-    const res = await send({ type: "HIGHLIGHT", frameId, finding });
-    if (res?.found === false) {
-      toast("Element not found on page — DOM may have changed");
-    } else {
-      toast("Highlighted element");
-    }
-  } catch {
-    toast("Could not highlight — frame may be inaccessible");
+    return await _highlightFindingInner(finding, highlightCtx);
+  } finally {
+    _highlightInFlight = false;
   }
+}
+async function _highlightFindingInner(finding, highlightCtx) {
+  const payload = {
+    path: finding.path ?? null,
+    testId: finding.testId ?? null,
+    tag: finding.tag ?? null,
+    name: finding.name ?? null,
+    role: finding.role ?? null,
+    html: finding.html ?? null,
+  };
+  const bestFrameId = highlightCtx?.bestFrameId ?? state.bestFrameId ?? 0;
+  const usedFrameIds = highlightCtx?.usedFrameIds ?? [];
+
+  // Try best frame first
+  let res;
+  try {
+    res = await send({ type: "HIGHLIGHT", frameId: bestFrameId, finding: payload });
+  } catch {
+    res = { ok: false, found: false, strategy: "none", reason: "FRAME_INACCESSIBLE", frameIdUsed: bestFrameId };
+  }
+
+  // Retry across other used frames if not found
+  if (res?.found === false && usedFrameIds.length > 0) {
+    const retryIds = usedFrameIds.filter(id => id !== bestFrameId).slice(0, 3);
+    for (const fid of retryIds) {
+      try {
+        const retry = await send({ type: "HIGHLIGHT", frameId: fid, finding: payload });
+        if (retry?.found) { res = retry; break; }
+      } catch { /* skip inaccessible frame */ }
+    }
+  }
+
+  // Show toast with strategy + frameIdUsed info
+  const frameUsed = res?.frameIdUsed != null ? ` in frame ${res.frameIdUsed}` : "";
+  if (res?.found) {
+    const via = res.strategy && res.strategy !== "none" ? ` via ${res.strategy.toUpperCase()}` : "";
+    const tag = res.matched?.tag ? `: <${res.matched.tag}>` : "";
+    toast(`Highlighted${via}${tag}${frameUsed}`);
+  } else {
+    const reason = res?.reason === "FRAME_INACCESSIBLE" ? "frame inaccessible" : "element not found";
+    toast(`Not found (${reason})`, {
+      label: usedFrameIds.length > 1 ? "Try other frames" : undefined,
+      fn: usedFrameIds.length > 1 ? () => highlightFinding(finding, { bestFrameId: usedFrameIds[1], usedFrameIds }) : undefined,
+    });
+  }
+  return res;
 }
 
 async function saveHistorySnapshot({ key, snapshot }) {
@@ -4386,6 +5117,54 @@ function diffSnapshots(prev, next) {
   return { added, removed, text };
 }
 
+function buildMachineReadableDiffReport(session) {
+  const steps = Array.isArray(session?.steps) ? session.steps : [];
+  if (steps.length < 2) return null;
+  const diffs = [];
+  for (let i = 1; i < steps.length; i++) {
+    const prev = steps[i - 1];
+    const curr = steps[i];
+    const prevSigs = prev?.stableSignatures?.run || {};
+    const currSigs = curr?.stableSignatures?.run || {};
+    const prevBlocking = new Set(Array.isArray(prevSigs.blockingSet) ? prevSigs.blockingSet : []);
+    const currBlocking = new Set(Array.isArray(currSigs.blockingSet) ? currSigs.blockingSet : []);
+    const blockingAdded = [...currBlocking].filter(s => !prevBlocking.has(s));
+    const blockingFixed = [...prevBlocking].filter(s => !currBlocking.has(s));
+    const prevCounts = prevSigs.severityCounts || { high: 0, medium: 0, low: 0, info: 0 };
+    const currCounts = currSigs.severityCounts || { high: 0, medium: 0, low: 0, info: 0 };
+    diffs.push({
+      stepPair: [i - 1, i],
+      labels: [prev.label || `step-${i - 1}`, curr.label || `step-${i}`],
+      blockingAdded,
+      blockingFixed,
+      countsBySeverity: {
+        prev: { ...prevCounts },
+        curr: { ...currCounts },
+        delta: {
+          high: (currCounts.high || 0) - (prevCounts.high || 0),
+          medium: (currCounts.medium || 0) - (prevCounts.medium || 0),
+          low: (currCounts.low || 0) - (prevCounts.low || 0),
+          info: (currCounts.info || 0) - (prevCounts.info || 0),
+        },
+      },
+      degraded: !!(currSigs.stepQuality?.degraded),
+    });
+  }
+  return {
+    version: 1,
+    sessionId: session?.id || null,
+    stepsCount: steps.length,
+    runConfigSummary: session?.runConfigSummary || null,
+    confidence: {
+      reducedDiffConfidence: steps.some(s => s.profileSuspect === true) ||
+        steps.some(s => s.stableSignatures?.run?.stepQuality?.degraded === true),
+      profileSuspect: steps.some(s => s.profileSuspect === true),
+      rootSelectorNotFound: steps.some(s => s.rootSelectorNotFound === true),
+    },
+    diffs,
+  };
+}
+
 async function runAction(action, opts = {}) {
   state.activeMode = action;
   setPressed(action);
@@ -4403,6 +5182,7 @@ async function runAction(action, opts = {}) {
 
   let r;
   try {
+    const rootSelector = target?.manual ? null : buildProfileRootSelector();
     r = await send({
       type: "RUN_AUDIT",
       action,
@@ -4410,6 +5190,7 @@ async function runAction(action, opts = {}) {
       match,
       modeHints: buildModeHints(),
       appMarkers: buildAppMarkers(),
+      rootSelector,
       alsoConsole: !!els.alsoConsole.checked,
       wcagLevel: els.wcagLevel?.value || "2.1-AA",
       ...opts,
@@ -4434,7 +5215,18 @@ async function runAction(action, opts = {}) {
   els.json.textContent = pretty(r);
   if (!r?.ok) {
     const noScope = r?.reason === "NO_SCOPE_MATCH" || r?.error === "NO_SCOPE_MATCH";
-    setRunTelemetry({ usedFrames: "—", diff: noScope ? "(no frame matches selected scope)" : "(run failed)" });
+    const manualMissing = r?.reason === "MANUAL_FRAMES_MISSING" || r?.error === "MANUAL_FRAMES_MISSING";
+    if (manualMissing) {
+      setRunTelemetry({ usedFrames: "\u2014", diff: "(pinned frame not available)" });
+      setPersistentStatus("FAILED", "MANUAL_FRAMES_MISSING", "Pinned frame not available");
+      console.warn("RUN_AUDIT: pinned frame missing", r);
+      toast("Pinned frame not available. Clear pin to continue.", {
+        label: "Clear Pin",
+        fn: () => { if (els.pinFrame) { els.pinFrame.checked = false; state.pinnedFrameId = null; } },
+      });
+      return false;
+    }
+    setRunTelemetry({ usedFrames: "\u2014", diff: noScope ? "(no frame matches selected scope)" : "(run failed)" });
     setPersistentStatus("FAILED", noScope ? "NO_SCOPE_MATCH" : "BACKEND", noScope ? "No frame matches selected scope" : "Run failed");
     console.error("RUN_AUDIT backend failure", r);
     toast(noScope ? "No frame matches selected scope" : `${action} failed`);
@@ -4454,6 +5246,10 @@ async function runAction(action, opts = {}) {
     envTag,
     usedFrameIds: r?.usedFrameIds || [],
     best: r?.bestEntry || null,
+    _highlightContext: {
+      bestFrameId: r?.bestEntry?.frameId ?? 0,
+      usedFrameIds: r?.usedFrameIds || [],
+    },
   };
   // newest first
   state.records = [rec, ...state.records.filter(x => String(x.id) !== String(rec.id))];
@@ -4468,21 +5264,24 @@ async function runAction(action, opts = {}) {
   setRunTelemetry({ usedFrames: (r?.usedFrameIds || []).join(", ") || "—" });
 
   const bestEntry = rec.best || null;
+  // Per-record highlight context — no global leakage
   state.bestFrameId = bestEntry?.frameId ?? 0;
+  state._activeHighlightCtx = rec._highlightContext || null;
 
   const bestResult = bestEntry?.result || null;
-  const findings = Array.isArray(bestResult?.findings) ? bestResult.findings : [];
+  const allFindings = Array.isArray(bestResult?.findings) ? bestResult.findings : [];
+  const findings = applyAllFindingFilters(allFindings);
 
-  // History/diff (only if we have findings)
+  // History/diff uses unfiltered findings for consistency across depth/rulePack changes
   const key = `snap::${originFrom(url)}::${detectEnv(url)}::${bestEntry?.frameUrl || ""}`;
   const prev = await loadHistorySnapshot(key);
   const snapshot = {
     at: new Date().toISOString(),
     envTag,
-    counts: countBySeverity(findings),
-    findingHashes: findings.map(hashFinding),
+    counts: countBySeverity(allFindings),
+    findingHashes: allFindings.map(hashFinding),
   };
-  if (findings.length) {
+  if (allFindings.length) {
     const d = diffSnapshots(prev, snapshot);
     setRunTelemetry({ diff: d.text });
     await saveHistorySnapshot({ key, snapshot });
@@ -4511,8 +5310,9 @@ async function startSession() {
   }
   sessionState.current = {
     id: makeId("sess"),
-    schemaVersion: 3,
+    schemaVersion: 4,
     signatureVersion: 2,
+    stableSignatureVersion: STABLE_SIGNATURE_VERSION,
     startedAt: nowIso(),
     endedAt: null,
     frameKeyVersion: 1,
@@ -4641,6 +5441,7 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
 
     let r;
     try {
+      const rootSelector = target?.manual ? null : buildProfileRootSelector();
       r = await send({
         type: "CAPTURE_STEP",
         activeMode,
@@ -4648,6 +5449,7 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
         match,
         modeHints: buildModeHints(),
         appMarkers: buildAppMarkers(),
+        rootSelector,
         alsoConsole: !!els.alsoConsole.checked,
         wcagLevel: els.wcagLevel?.value || "2.1-AA",
       });
@@ -4662,6 +5464,16 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     if (!r?.ok || !r?.run?.ok) {
       console.error("CAPTURE_STEP failure", r);
       const noScope = r?.run?.error === "NO_SCOPE_MATCH" || r?.run?.reason === "NO_SCOPE_MATCH";
+      const manualMissing = r?.run?.error === "MANUAL_FRAMES_MISSING" || r?.run?.reason === "MANUAL_FRAMES_MISSING";
+      if (manualMissing) {
+        setLastMarkStatus("FAILED", "baseline:manual_frames_missing");
+        updateSessionButtons();
+        toast("Pinned frame not available. Clear pin to continue.", {
+          label: "Clear Pin",
+          fn: () => { if (els.pinFrame) { els.pinFrame.checked = false; state.pinnedFrameId = null; } },
+        });
+        return false;
+      }
       setLastMarkStatus("FAILED", noScope ? "baseline:no_scope_match" : "baseline:ok:false");
       updateSessionButtons();
       toast(noScope ? "Step capture failed: no frame matches selected scope" : "Step capture failed");
@@ -4739,6 +5551,48 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     sessionState.current.signatureVersion = asNumber(r?.signatureVersion, sessionState.current.signatureVersion || 1);
     sessionState.current.frameKeyVersion = asNumber(r?.run?.frameKeyVersion, sessionState.current.frameKeyVersion || 1);
     step.diffs = buildStepDiffs(step, prevStep, sessionState.current.rawAppendix || {});
+
+    // Stable signatures (shadow mode) — compute alongside legacy diff
+    const stableRun = computeStableSignatureSet(step.snapshots?.run, sessionState.current.rawAppendix || {});
+    const stableActive = step.snapshots?.active
+      ? computeStableSignatureSet(step.snapshots.active, sessionState.current.rawAppendix || {})
+      : null;
+    step.stableSignatures = {
+      run: stableRun,
+      active: stableActive,
+    };
+    // Parallel validation (shadow mode) — log mismatches, never break production
+    if (prevStep?.stableSignatures?.run) {
+      validateDiffParity(step, prevStep, sessionState.current.rawAppendix || {}, stableRun, prevStep.stableSignatures.run);
+    }
+
+    // Profiles v2 — deterministic profile match scoring
+    const bestFrameProbe = r?.run?.bestFrameProbe || null;
+    const isManual = !!baseTargeting.manual;
+    const profileMatch = selectBestProfileMatch(bestFrameProbe, url, isManual);
+    step.profileLabel = profileMatch?.label || null;
+    step.profileConfidence = profileMatch?.confidence || null;
+    step.profileMatchSignals = Array.isArray(profileMatch?.matchSignals) ? [...profileMatch.matchSignals].sort().slice(0, 5) : [];
+    step.profileSuspect = profileMatch?.confidence === "low" || false;
+
+    // RootSelector contract: track selector and match status
+    const effectiveRootSelector = isManual ? null : buildProfileRootSelector();
+    step.rootSelector = effectiveRootSelector || null;
+    const runRootNotFound = r?.run?.bestEntry?.rootSelectorNotFound === true;
+    const activeRootNotFound = r?.active?.bestEntry?.rootSelectorNotFound === true;
+    step.rootSelectorNotFound = !!(effectiveRootSelector && (runRootNotFound || activeRootNotFound));
+    step.rootSelectorMatchedFrameIds = Array.isArray(r?.run?.rootSelectorMatchedFrameIds)
+      ? [...r.run.rootSelectorMatchedFrameIds] : [];
+    step.depthMax = getActiveDepthMax();
+    step.recipeId = getActiveRecipeId();
+    step.rulePack = getActiveRulePack() || null;
+    if (step.rootSelectorNotFound) {
+      step.profileSuspect = true;
+      if (!step.profileMatchSignals.includes("rootSelector_not_found")) {
+        step.profileMatchSignals = [...step.profileMatchSignals, "rootSelector_not_found"].sort().slice(0, 6);
+      }
+    }
+
     sessionState.current.steps.push(step);
     // Prune only after the new step is attached, so newly written raw refs are discoverable.
     pruneSessionRawAppendix(sessionState.current);
@@ -4919,7 +5773,7 @@ function gatherDiagnosticsOpts() {
   return {
     version,
     dataVersions: {
-      schemaVersion: 3,
+      schemaVersion: 4,
       signatureVersion: asNumber(bestResult.signatureVersion, 2),
       frameKeyVersion: asNumber(bestResult.frameKeyVersion, 1),
       enMappingVersion: asNumber(bestResult.enMappingVersion, 1),
@@ -4931,15 +5785,53 @@ function gatherDiagnosticsOpts() {
     frameScope: getScopeValue(),
     scope: bestResult.scope || { type: "document", rootSelector: null },
     shadowCoverage: bestResult.shadowCoverage || null,
-    activeProfileId: profileState.active[0] || null,
-    activeProfileLabel: profileState.active[0]
-      ? (profileState.profiles[profileState.active[0]]?.label || null) : null,
+    activeProfileId: (() => {
+      const lastStep = (sessionState.current?.steps || []).slice(-1)[0];
+      if (lastStep?.profileLabel) return lastStep.profileLabel;
+      return profileState.active[0] || null;
+    })(),
+    activeProfileLabel: (() => {
+      const lastStep = (sessionState.current?.steps || []).slice(-1)[0];
+      if (lastStep?.profileLabel) return lastStep.profileLabel;
+      return profileState.active[0]
+        ? (profileState.profiles[profileState.active[0]]?.label || null) : null;
+    })(),
+    profileConfidence: (() => {
+      const lastStep = (sessionState.current?.steps || []).slice(-1)[0];
+      return lastStep?.profileConfidence || null;
+    })(),
     profileMatchSignals: (() => {
+      const lastStep = (sessionState.current?.steps || []).slice(-1)[0];
+      if (lastStep?.profileMatchSignals?.length) return [...lastStep.profileMatchSignals].sort().slice(0, 5);
       const id = profileState.active[0];
       if (!id) return [];
       const sels = profileState.profiles[id]?.frame?.domSelectors || [];
       return [...sels].sort().slice(0, 3);
     })(),
+    profileSuspect: (() => {
+      const lastStep = (sessionState.current?.steps || []).slice(-1)[0];
+      return lastStep?.profileSuspect === true;
+    })(),
+    rootSelector: (() => {
+      const lastStep = (sessionState.current?.steps || []).slice(-1)[0];
+      return lastStep?.rootSelector || null;
+    })(),
+    rootSelectorNotFound: (() => {
+      const lastStep = (sessionState.current?.steps || []).slice(-1)[0];
+      return lastStep?.rootSelectorNotFound === true;
+    })(),
+    rootSelectorMatchedFrameIds: (() => {
+      const lastStep = (sessionState.current?.steps || []).slice(-1)[0];
+      return Array.isArray(lastStep?.rootSelectorMatchedFrameIds) ? [...lastStep.rootSelectorMatchedFrameIds] : [];
+    })(),
+    reducedDiffConfidence: (() => {
+      const steps = sessionState.current?.steps || [];
+      return steps.some(s => s.profileSuspect === true) ||
+             steps.some(s => s.stableSignatures?.run?.stepQuality?.degraded === true);
+    })(),
+    depthMax: getActiveDepthMax(),
+    recipeId: getActiveRecipeId(),
+    rulePack: getActiveRulePack(),
   };
 }
 
@@ -4973,9 +5865,52 @@ function renderDiagnostics() {
   if (els.diagActiveProfile) {
     els.diagActiveProfile.textContent = payload.activeProfileLabel || "\u2014";
   }
+  if (els.diagProfileConfidence) {
+    const conf = payload.profileConfidence;
+    els.diagProfileConfidence.textContent = conf || "\u2014";
+    els.diagProfileConfidence.className = "";
+    if (conf === "high") els.diagProfileConfidence.classList.add("confidence-high");
+    else if (conf === "medium") els.diagProfileConfidence.classList.add("confidence-medium");
+    else if (conf === "low") els.diagProfileConfidence.classList.add("confidence-low");
+    else if (conf === "manual") els.diagProfileConfidence.classList.add("confidence-manual");
+  }
   if (els.diagProfileSignals) {
     els.diagProfileSignals.textContent = payload.profileMatchSignals.length
       ? payload.profileMatchSignals.join(", ") : "\u2014";
+  }
+  // Depth filter diagnostics
+  if (els.diagDepthMax) {
+    const dm = payload.depthMax || 3;
+    const label = dm === 1 ? "1 (Fast)" : dm === 2 ? "2 (Balanced)" : "3 (Full)";
+    els.diagDepthMax.textContent = label;
+  }
+  if (els.diagRecipe) {
+    const rid = payload.recipeId || "auto";
+    const recipe = RECIPES[rid];
+    els.diagRecipe.textContent = recipe ? `${recipe.label} (${rid})` : rid;
+  }
+  // RootSelector diagnostics
+  if (els.diagRootSelector) {
+    const lastStep = (sessionState.current?.steps || []).slice(-1)[0];
+    const rs = lastStep?.rootSelector || null;
+    els.diagRootSelector.textContent = rs || "not set";
+  }
+  if (els.diagRootSelectorMatch) {
+    const lastStep = (sessionState.current?.steps || []).slice(-1)[0];
+    const rs = lastStep?.rootSelector || null;
+    if (!rs) {
+      els.diagRootSelectorMatch.textContent = "\u2014";
+      els.diagRootSelectorMatch.className = "";
+    } else if (lastStep?.rootSelectorNotFound) {
+      const frameIds = lastStep.rootSelectorMatchedFrameIds || [];
+      els.diagRootSelectorMatch.textContent = "NOT FOUND — Selector did not match any element in the audited frame(s)";
+      els.diagRootSelectorMatch.className = "confidence-low";
+    } else {
+      const frameIds = lastStep.rootSelectorMatchedFrameIds || [];
+      const frameText = frameIds.length ? ` in frame(s): ${frameIds.join(", ")}` : "";
+      els.diagRootSelectorMatch.textContent = `OK${frameText}`;
+      els.diagRootSelectorMatch.className = "confidence-high";
+    }
   }
   // Render WCAG coverage section
   const ecs = engineCoverageSummary();
@@ -5058,6 +5993,11 @@ async function loadUiPrefs() {
   applyTheme(light);
   if (els.alsoConsole) els.alsoConsole.checked = !!uiPrefs.alsoConsole;
   if (els.wcagLevel && uiPrefs.wcagLevel) els.wcagLevel.value = uiPrefs.wcagLevel;
+  if (els.depthMax && uiPrefs.depthMax) els.depthMax.value = String(uiPrefs.depthMax);
+  if (els.recipeSelect && uiPrefs.recipeId) {
+    els.recipeSelect.value = uiPrefs.recipeId;
+    applyRecipe(uiPrefs.recipeId);
+  }
   const ciOpts = uiPrefs.junitCiOptions || {};
   if (els.ciFailOnBlocking) els.ciFailOnBlocking.checked = ciOpts.failOnBlocking !== false;
   if (els.ciTreatNeedsReview) els.ciTreatNeedsReview.checked = !!ciOpts.treatNeedsReviewAsFailure;
@@ -5232,8 +6172,23 @@ function buildDiagnosticsPayload(opts) {
       : null,
     activeProfileId: o.activeProfileId ? String(o.activeProfileId) : null,
     activeProfileLabel: o.activeProfileLabel ? String(o.activeProfileLabel) : null,
+    profileConfidence: o.profileConfidence ? String(o.profileConfidence) : null,
     profileMatchSignals: Array.isArray(o.profileMatchSignals)
-      ? [...o.profileMatchSignals].map(String).sort().slice(0, 3) : [],
+      ? [...o.profileMatchSignals].map(String).sort().slice(0, 5) : [],
+    profileSuspect: !!o.profileSuspect,
+    rootSelector: o.rootSelector ? String(o.rootSelector) : null,
+    rootSelectorNotFound: !!o.rootSelectorNotFound,
+    rootSelectorMatchedFrameIds: Array.isArray(o.rootSelectorMatchedFrameIds)
+      ? [...o.rootSelectorMatchedFrameIds] : [],
+    reducedDiffConfidence: !!o.reducedDiffConfidence,
+    depthMax: (o.depthMax === 1 || o.depthMax === 2 || o.depthMax === 3) ? o.depthMax : 3,
+    recipeId: o.recipeId ? String(o.recipeId) : "auto",
+    rulePack: o.rulePack && (o.rulePack.enabledRuleIds?.length || o.rulePack.disabledRuleIds?.length)
+      ? {
+          enabledCount: o.rulePack.enabledRuleIds?.length || 0,
+          disabledCount: o.rulePack.disabledRuleIds?.length || 0,
+        }
+      : null,
     dataVersionsLine: formatDataVersionsLine(dv),
     buildInfo: { mv3: true },
   };
@@ -5266,7 +6221,16 @@ function buildDiagnosticsMarkdown(payload) {
     "",
     "## Profiles",
     `- Active Profile: ${d(p.activeProfileLabel)}`,
+    `- Profile Confidence: ${d(p.profileConfidence)}`,
     `- Profile Signals: ${signals}`,
+    `- Profile Suspect: ${p.profileSuspect ? "yes" : "no"}`,
+    `- Root Selector: ${d(p.rootSelector)}`,
+    `- Root Selector Match: ${p.rootSelector ? (p.rootSelectorNotFound ? "NOT FOUND" : "OK") : "\u2014"}`,
+    ...(p.rootSelectorMatchedFrameIds?.length ? [`- Matched in Frame(s): ${p.rootSelectorMatchedFrameIds.join(", ")}`] : []),
+    ...(p.reducedDiffConfidence ? ["- Diff Confidence: **reduced**"] : []),
+    `- Depth Filter: ${p.depthMax || 3} (${p.depthMax === 1 ? "Fast" : p.depthMax === 2 ? "Balanced" : "Full"})`,
+    `- Recipe: ${p.recipeId || "auto"}`,
+    ...(p.rulePack ? [`- Rule Pack: enabled=${p.rulePack.enabledCount}, disabled=${p.rulePack.disabledCount}`] : []),
     "",
     "## Shadow DOM",
     `- Shadow Coverage: ${shadowLine}`,
@@ -5450,11 +6414,26 @@ if (els.exportSessionMdMenu) {
     setExportMenuOpen(false);
   });
 }
+if (els.exportDiffReportMenu) {
+  els.exportDiffReportMenu.addEventListener("click", () => {
+    const session = sessionState.current || sessionState.lastEndedSession;
+    if (!session) { toast("No session available"); return; }
+    const payload = compactSessionForExport(normalizeLoadedSession(session));
+    const report = buildMachineReadableDiffReport(payload);
+    if (!report) { toast("Diff report requires at least 2 steps"); return; }
+    const version = (typeof __FLOWLENS_VERSION__ !== "undefined") ? __FLOWLENS_VERSION__ : "dev";
+    const env = detectEnv(els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "");
+    downloadText(`flowlens-${version}-${env}-diff-report.json`, JSON.stringify(report, null, 2), "application/json");
+    setExportMenuOpen(false);
+    toast("Downloaded diff report JSON");
+  });
+}
 if (els.downloadJunitXml) {
   els.downloadJunitXml.addEventListener("click", () => {
     const raw = state.lastResult || {};
     const bestEntry = raw.bestEntry || raw.best || null;
-    const findings = Array.isArray(bestEntry?.result?.findings) ? bestEntry.result.findings : [];
+    const allFindings = Array.isArray(bestEntry?.result?.findings) ? bestEntry.result.findings : [];
+    const findings = applyAllFindingFilters(allFindings);
     const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
     const env = detectEnv(url);
     const fk = bestEntry?.frameKey || "";
@@ -5671,7 +6650,7 @@ if (els.allTableBody && !els.allTableBody.__bound) {
       if (!f || !VT.all) return;
 
       VT.all.toggleExpanded(idx);
-      if (VT.all.expandedIdx === idx) await highlightFinding(f);
+      if (VT.all.expandedIdx === idx) await highlightFinding(f, state._activeHighlightCtx);
     } catch (err) {
       console.warn("Explorer table click failed", err);
       toast("Could not highlight element");
@@ -5695,9 +6674,9 @@ if (els.contrastTbody && !els.contrastTbody.__bound) {
       const idx = Number(tr.getAttribute("data-i"));
       if (VT.contrast) VT.contrast.selectedIdx = idx;
       const item = Number.isFinite(idx) && VT.contrast ? VT.contrast.data[idx] : null;
-      if (!item || !item.path) return;
+      if (!item) return;
 
-      await highlightFinding({ path: item.path, testId: item.testId, tag: item.tag, name: item.text });
+      await highlightFinding({ path: item.path, testId: item.testId, tag: item.tag, name: item.text }, state._activeHighlightCtx);
     } catch (err) {
       console.warn("Contrast table click failed", err);
       toast("Could not highlight element");
@@ -5722,9 +6701,8 @@ if (els.tabTbody && !els.tabTbody.__bound) {
       if (VT.tab) VT.tab.selectedIdx = idx;
       const item = Number.isFinite(idx) && VT.tab ? VT.tab.data[idx] : null;
       if (!item) return;
-      if (!item.path) { toast("This event has no locatable element"); return; }
 
-      await highlightFinding({ path: item.path, name: item.name, role: item.role });
+      await highlightFinding({ path: item.path, name: item.name, role: item.role }, state._activeHighlightCtx);
     } catch (err) {
       console.warn("Tab walk table click failed", err);
       toast("Could not highlight element");
@@ -5757,6 +6735,36 @@ if (els.wcagLevel) {
     const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
     uiPrefs.wcagLevel = els.wcagLevel.value;
     await storageSet({ uiPrefs });
+  });
+}
+
+if (els.depthMax) {
+  els.depthMax.addEventListener("change", async () => {
+    const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
+    uiPrefs.depthMax = Number(els.depthMax.value) || 3;
+    await storageSet({ uiPrefs });
+    // Re-render current findings with new depth filter
+    const currentRec = state.currentId ? state.byId[state.currentId] : state.records?.[0];
+    const mode = currentRec?.action || "run";
+    const cached = state.findingsByMode[mode];
+    if (cached) {
+      const filtered = applyAllFindingFilters(cached);
+      state.currentFindings = filtered;
+      renderSevTabs(filtered);
+      renderExplorer(filtered);
+    }
+    renderDiagnostics();
+  });
+}
+
+if (els.recipeSelect) {
+  els.recipeSelect.addEventListener("change", async () => {
+    const recipeId = els.recipeSelect.value || "auto";
+    applyRecipe(recipeId);
+    const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
+    uiPrefs.recipeId = recipeId;
+    await storageSet({ uiPrefs });
+    renderDiagnostics();
   });
 }
 

@@ -9,7 +9,7 @@ describe('Session versioning and migration', () => {
   let ctx;
   beforeEach(() => { ctx = createContext(); });
 
-  it('normalizeLoadedSession migrates v1 → v3', () => {
+  it('normalizeLoadedSession migrates v1 → v4', () => {
     const v1Session = {
       id: 'test_123',
       schemaVersion: 1,
@@ -20,7 +20,7 @@ describe('Session versioning and migration', () => {
     };
     const result = ctx.normalizeLoadedSession(v1Session);
     assert.equal(result._migrated, true);
-    assert.equal(result.schemaVersion, 3);
+    assert.equal(result.schemaVersion, 4);
     assert.ok(result._migrationWarnings.length > 0, 'should have migration warnings');
     const scope = { ...result.steps[0].scope };
     assert.deepEqual(scope, { type: 'document', rootSelector: null, rootTestId: null });
@@ -30,17 +30,18 @@ describe('Session versioning and migration', () => {
   it('normalizeLoadedSession is no-op for current version session', () => {
     const currentSession = {
       id: 'test_456',
-      schemaVersion: 3,
+      schemaVersion: 4,
       signatureVersion: 2,
+      stableSignatureVersion: 1,
       enMappingVersion: 1,
       steps: [
-        { index: 0, scope: { type: 'document', rootSelector: null }, snapshots: { run: null } },
+        { index: 0, scope: { type: 'document', rootSelector: null }, snapshots: { run: null }, stableSignatures: { run: { stableFindingSignatureSet: [], severityCounts: {}, blockingSet: [], summaryScore: 0 } } },
       ],
     };
     const result = ctx.normalizeLoadedSession(currentSession);
     assert.equal(result._migrated, false);
     assert.equal(result._migrationWarnings.length, 0);
-    assert.equal(result.schemaVersion, 3);
+    assert.equal(result.schemaVersion, 4);
   });
 
   it('normalizeLoadedSession returns null for invalid input', () => {

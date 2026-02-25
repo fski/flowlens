@@ -1304,19 +1304,15 @@
       ? doc.querySelector(cfg.rootSelector)
       : doc.documentElement;
 
+    let rootSelectorNotFound = false;
     if (cfg.rootSelector && !rootEl) {
-      return {
-        ok: false,
-        error: "ROOT_NOT_FOUND",
-        rootSelector: cfg.rootSelector,
-        mode: "run",
-        findings: [],
-        shadowCoverage: { scopesFound: 0, scopesAudited: 0, scopesCapped: false, maxDepthObserved: 0, depthLimitReached: false },
-      };
+      // Spec: do NOT fail audit when rootSelector not found — fall back to document root
+      rootSelectorNotFound = true;
     }
+    const effectiveRootEl = rootEl || doc.documentElement;
 
     // Collect scopes once — returns coverage metadata at zero extra cost
-    const { scopes, coverage: shadowCoverage } = collectScopesWithCoverage(rootEl);
+    const { scopes, coverage: shadowCoverage } = collectScopesWithCoverage(effectiveRootEl);
     _scopeCache = scopes;
 
     const config = {
@@ -2981,9 +2977,10 @@
       mode,
       config,
       sanity: s,
-      scope: cfg.rootSelector
-        ? { type: "subtree", rootSelector: cfg.rootSelector, rootTestId: rootEl?.getAttribute?.("data-testid") || null }
+      scope: cfg.rootSelector && !rootSelectorNotFound
+        ? { type: "subtree", rootSelector: cfg.rootSelector, rootTestId: effectiveRootEl?.getAttribute?.("data-testid") || null }
         : { type: "document", rootSelector: null, rootTestId: null },
+      rootSelectorNotFound,
       shadowCoverage,
       lists: {
         ul: _qa("ul").length,

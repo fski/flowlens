@@ -19,7 +19,7 @@ describe('Session state machine', () => {
       const sess = ctx.sessionState.current;
       assert.ok(sess, 'session should exist');
       assert.ok(sess.id.startsWith('sess_'), 'id should start with sess_');
-      assert.equal(sess.schemaVersion, 3);
+      assert.equal(sess.schemaVersion, 4);
       assert.equal(sess.signatureVersion, 2);
       assert.equal(sess.frameKeyVersion, 1);
       assert.ok(sess.startedAt, 'should have startedAt');
