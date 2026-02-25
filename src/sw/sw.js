@@ -530,11 +530,12 @@ async function executeAuditAcrossFrames({
   const resolvedScope = resolved?.scope || FRAME_SCOPE.PRIMARY;
   const resolutionReason = resolved?.selectionReason || "unknown";
   if (!resolved?.ok || !usedFrameIds.length) {
+    const resolvedError = resolved?.error || "NO_SCOPE_MATCH";
     return {
       ok: false,
       action,
-      error: "NO_SCOPE_MATCH",
-      reason: "NO_SCOPE_MATCH",
+      error: resolvedError,
+      reason: resolvedError,
       schemaVersion: SESSION_SCHEMA_VERSION,
       signatureVersion: SESSION_SIGNATURE_VERSION,
       usedFrameIds: [],

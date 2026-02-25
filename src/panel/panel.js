@@ -3222,6 +3222,17 @@ function buildStepDiffs(step, prevStep, rawAppendix = null) {
       ...(prevStep.stableSignatures.active?.stableFindingSignatureSet || []),
     ];
     const consolidated = computeStableDiff(allPrevSigs, allCurrSigs);
+    // Recompute blocking deltas from merged blocking sets
+    const allCurrBlocking = new Set([
+      ...(step.stableSignatures.run?.blockingSet || []),
+      ...(step.stableSignatures.active?.blockingSet || []),
+    ]);
+    const allPrevBlocking = new Set([
+      ...(prevStep.stableSignatures.run?.blockingSet || []),
+      ...(prevStep.stableSignatures.active?.blockingSet || []),
+    ]);
+    consolidated.blockingAdded = [...allCurrBlocking].filter(s => !allPrevBlocking.has(s)).length;
+    consolidated.blockingFixed = [...allPrevBlocking].filter(s => !allCurrBlocking.has(s)).length;
     consolidated.countsDelta = countsDelta;
     consolidated.text = summarizeDiff(consolidated);
 
@@ -6733,7 +6744,7 @@ if (els.depthMax) {
     uiPrefs.depthMax = Number(els.depthMax.value) || 3;
     await storageSet({ uiPrefs });
     // Re-render current findings with new depth filter
-    const currentRec = state.records?.[0];
+    const currentRec = state.currentId ? state.byId[state.currentId] : state.records?.[0];
     const mode = currentRec?.action || "run";
     const cached = state.findingsByMode[mode];
     if (cached) {
