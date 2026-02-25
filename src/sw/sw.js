@@ -1,5 +1,5 @@
 const SNIPPET_FILE = "a11y-audit-snippet.js";
-const SESSION_SCHEMA_VERSION = 3;
+const SESSION_SCHEMA_VERSION = 4;
 const SESSION_SIGNATURE_VERSION = 2;
 const EN_MAPPING_VERSION = 1;
 const FRAME_KEY_VERSION = 1;
@@ -128,8 +128,8 @@ function debugSession(...args) {
 }
 
 function deriveFrameKey(frameUrl, parentOrigin, matchHits = {}) {
-  // Invariant: frameKey must remain deterministic and independent from frameId/classification.
-  // Keep only stable URL hints + stable marker hash (sorted keys and fixed boolean encoding).
+  // FrameKey v2: stable identity uses only URL-derived signals (no marker hash).
+  // markerHash is kept as a separate signals hash for diagnostics.
   const frameOrigin = safeOrigin(frameUrl, "");
   const origin = frameOrigin || parentOrigin || "about:blank";
   const pathHint = stablePathHint(frameUrl);
@@ -139,10 +139,15 @@ function deriveFrameKey(frameUrl, parentOrigin, matchHits = {}) {
   const markerSig = markerKeys
     .map(k => `${k}:${matchHits[k] ? 1 : 0}`)
     .join("|");
-  // Keep frameKey independent from dynamic classification to prevent key churn.
-  // Version tag allows future algorithm upgrades without breaking old archives.
   const markerHash8 = fnv1aHash8(markerSig || "no-markers");
-  return `fk::v${FRAME_KEY_VERSION}::${origin}::${pathHint}::${markerHash8}`;
+  // frameKeyStable: identity key — does NOT include marker hash, so it stays the same
+  // when only markerHits toggle between audit steps.
+  const frameKeyStable = `fk::v${FRAME_KEY_VERSION}::${origin}::${pathHint}`;
+  // frameSignalsHash: diagnostic — tracks marker signal changes.
+  const frameSignalsHash = markerHash8;
+  // Legacy frameKey includes marker hash for backward compatibility.
+  const frameKey = `${frameKeyStable}::${markerHash8}`;
+  return { frameKey, frameKeyStable, frameSignalsHash };
 }
 
 function scoreRunResult(result) {
@@ -324,21 +329,26 @@ function sortByScoreThenFrameId(scored = []) {
   return [...scored].sort((a, b) => (b.score - a.score) || (a.frameId - b.frameId));
 }
 
-function chooseBestEntry({ action, perFrame, target }) {
+function chooseBestEntry({ action, perFrame, target, probeByFrameId }) {
   const frames = Array.isArray(perFrame) ? perFrame : [];
   if (!frames.length) return { entry: null, reason: "no_frames" };
+
+  // Strict manual override: if manual frameIds exist, restrict scope entirely.
+  const manualFrameIds = getManualFrameIdsFromTarget(target);
+  if (manualFrameIds.length > 0) {
+    const manualSet = new Set(manualFrameIds);
+    const manualFrames = frames.filter(x => manualSet.has(x.frameId));
+    const okManual = manualFrames.filter(x => x?.ok === true);
+    if (okManual.length) return { entry: okManual[0], reason: "manual_pinned_override" };
+    // Manual frames exist in perFrame but none ok — still prefer them over fallback.
+    if (manualFrames.length) return { entry: manualFrames[0], reason: "manual_pinned_override" };
+    // Manual frames not present at all — do NOT silently fallback.
+    return { entry: null, reason: "manual_frames_missing" };
+  }
 
   const okFrames = frames.filter(x => x?.ok === true);
   if (!okFrames.length) {
     return { entry: (frames.find(x => x.frameId === 0) || frames[0] || null), reason: "no_ok_frames_fallback" };
-  }
-
-  // Legacy manual mode compatibility: pinned frame should win if it executed successfully.
-  const isLegacyManual = !normalizeFrameScope(target?.scope) && target?.mode === "manual";
-  if (isLegacyManual && Array.isArray(target?.frameIds) && target.frameIds.length === 1) {
-    const pinnedId = Number(target.frameIds[0]);
-    const pinned = okFrames.find(x => x.frameId === pinnedId);
-    if (pinned) return { entry: pinned, reason: "manual_pinned_override" };
   }
 
   const scored = okFrames.map(entry => {
@@ -352,7 +362,26 @@ function chooseBestEntry({ action, perFrame, target }) {
     return { entry: positive[0].entry, reason: "scored_best" };
   }
 
-  // If no frame produces a positive score, deterministically fall back to top frame.
+  // Score==0 fallback: use probe heuristics if available.
+  if (probeByFrameId instanceof Map && probeByFrameId.size > 0) {
+    const probeRanked = okFrames
+      .map(entry => {
+        const probe = probeByFrameId.get(entry.frameId) || {};
+        let rank = 0;
+        if (probe.hasChat) rank += 8;
+        if (probe.hasHelpRoot) rank += 4;
+        if (probe.hasArticle) rank += 2;
+        if (!probe.looksShell) rank += 1;
+        return { entry, rank };
+      })
+      .filter(x => x.rank > 0)
+      .sort((a, b) => b.rank - a.rank);
+    if (probeRanked.length) {
+      return { entry: probeRanked[0].entry, reason: "score_zero_probe_heuristic" };
+    }
+  }
+
+  // Deterministic fallback to top frame.
   return { entry: (frames.find(x => x.frameId === 0) || okFrames[0] || frames[0] || null), reason: "score_zero_fallback_top" };
 }
 
@@ -367,6 +396,8 @@ function compactFramePayload(frameEntry) {
     frameId: frameEntry?.frameId,
     frameUrl: frameEntry?.frameUrl || "",
     frameKey: frameEntry?.frameKey || null,
+    frameKeyStable: frameEntry?.frameKeyStable || null,
+    frameSignalsHash: frameEntry?.frameSignalsHash || null,
     ok: !!frameEntry?.ok,
     reason: frameEntry?.reason || null,
     error: frameEntry?.error || null,
@@ -477,6 +508,7 @@ async function executeAuditAcrossFrames({
   match,
   modeHints,
   appMarkers,
+  rootSelector,
   alsoConsole,
   wcagLevel,
   frames,
@@ -521,27 +553,39 @@ async function executeAuditAcrossFrames({
   const execRes = [];
   for (const frameId of usedFrameIds) {
     // Deterministic sequential execution per frame.
-    execRes.push(await execAuditActionInFrame({ tabId, frameId, action, alsoConsole, wcagLevel, modeHints, appMarkers }));
+    execRes.push(await execAuditActionInFrame({ tabId, frameId, action, alsoConsole, wcagLevel, modeHints, appMarkers, rootSelector }));
   }
 
   const scoredFrames = (execRes || []).map(r => {
     const frameId = r.frameId;
     const frameUrl = frameUrlById.get(frameId) || "";
     const probe = probeByFrameId.get(frameId) || {};
-    const frameKey = deriveFrameKey(frameUrl, parentOriginByFrameId.get(frameId), probe.markerHits || {});
+    const derived = deriveFrameKey(frameUrl, parentOriginByFrameId.get(frameId), probe.markerHits || {});
     return {
       frameId,
       frameUrl,
-      frameKey,
+      frameKey: derived.frameKey,
+      frameKeyStable: derived.frameKeyStable,
+      frameSignalsHash: derived.frameSignalsHash,
       ...r.result,
       normalized: r?.result?.ok ? normalizeAuditResult(action, r.result.result) : null
     };
   });
 
-  const picked = chooseBestEntry({ action, perFrame: scoredFrames, target });
+  const picked = chooseBestEntry({ action, perFrame: scoredFrames, target, probeByFrameId });
   const bestEntry = picked?.entry || null;
   const perFrame = scoredFrames.map(compactFramePayload);
   const frameKeyByFrameId = Object.fromEntries(scoredFrames.map(x => [String(x.frameId), x.frameKey]));
+  const frameKeyStableByFrameId = Object.fromEntries(scoredFrames.map(x => [String(x.frameId), x.frameKeyStable]));
+  const frameSignalsHashByFrameId = Object.fromEntries(scoredFrames.map(x => [String(x.frameId), x.frameSignalsHash]));
+
+  // Attach best frame's probe data for profile matching in panel.
+  const bestProbe = bestEntry ? (probeByFrameId.get(bestEntry.frameId) || null) : null;
+
+  // Track which frames had rootSelector matches (for observability).
+  const rootSelectorMatchedFrameIds = rootSelector
+    ? scoredFrames.filter(f => f.ok && !f.rootSelectorNotFound).map(f => f.frameId)
+    : [];
 
   return {
     ok: true,
@@ -551,10 +595,14 @@ async function executeAuditAcrossFrames({
     usedFrameIds,
     perFrame,
     bestEntry,
+    bestFrameProbe: bestProbe,
+    rootSelectorMatchedFrameIds,
     selectionReason: picked?.reason || resolutionReason,
     scope: resolvedScope,
     frameKeyVersion: FRAME_KEY_VERSION,
     frameKeyByFrameId,
+    frameKeyStableByFrameId,
+    frameSignalsHashByFrameId,
     compatibilityMode: !!resolved?.compatibilityMode,
     compatibilityReason: resolved?.compatibilityReason || null,
   };
@@ -589,7 +637,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const tabId = Number(msg.tabId);
       const frameId = Number(msg.frameId);
       const finding = isPlainObject(msg.finding) ? msg.finding : {};
-      const results = await chrome.scripting.executeScript({
+      let results;
+      try {
+      results = await chrome.scripting.executeScript({
         target: { tabId, frameIds: [frameId] },
         world: "MAIN",
         func: (finding) => {
@@ -660,7 +710,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             try {
               if (finding?.path) {
                 const el = queryDeep(finding.path);
-                if (el) return el;
+                if (el) return { el, strategy: "path" };
               }
             } catch {}
 
@@ -671,11 +721,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 const container = queryDeep(sel);
                 if (container) {
                   const tag = (finding.tag || "").toLowerCase();
-                  if (!tag || container.tagName.toLowerCase() === tag) return container;
+                  if (!tag || container.tagName.toLowerCase() === tag) return { el: container, strategy: "testId" };
                   // testId was inherited from ancestor — find the right child
                   const child = container.querySelector(tag);
-                  if (child) return child;
-                  return container; // fallback to container
+                  if (child) return { el: child, strategy: "testId" };
+                  return { el: container, strategy: "testId" }; // fallback to container
                 }
               }
             } catch {}
@@ -699,7 +749,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                   ];
                   if (nameNorm) {
                     for (const t of texts) {
-                      if (t && t.slice(0, 80).includes(nameNorm)) return c;
+                      if (t && t.slice(0, 80).includes(nameNorm)) return { el: c, strategy: "heuristic" };
                     }
                   }
                 }
@@ -707,7 +757,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 if (role && nameNorm) {
                   for (const c of candidates) {
                     const cText = norm(c.textContent).slice(0, 80);
-                    if (cText && cText.includes(nameNorm)) return c;
+                    if (cText && cText.includes(nameNorm)) return { el: c, strategy: "heuristic" };
                   }
                 }
               }
@@ -719,7 +769,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 const tag = finding.tag.toLowerCase();
                 const htmlNorm = norm(finding.html).slice(0, 120);
                 for (const c of document.querySelectorAll(tag)) {
-                  if (norm(c.outerHTML).slice(0, 120).includes(htmlNorm)) return c;
+                  if (norm(c.outerHTML).slice(0, 120).includes(htmlNorm)) return { el: c, strategy: "html" };
                 }
               }
             } catch {}
@@ -727,11 +777,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             return null;
           };
 
-          let el = pick();
-          if (!el) {
+          const result = pick();
+          if (!result) {
             console.warn("[A11YFlow] Could not locate element to highlight.", finding);
-            return { found: false };
+            return { found: false, strategy: "none", reason: "NO_MATCH" };
           }
+
+          let el = result.el;
+          const strategy = result.strategy;
 
           // If element is zero-size or invisible, try its parent
           try {
@@ -741,8 +794,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             }
           } catch {}
 
-          // Scroll into view
-          try { el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" }); } catch {}
+          // Scroll into view only if outside viewport (minimize side effects)
+          try {
+            const rect = el.getBoundingClientRect();
+            const inViewport = rect.top >= 0 && rect.left >= 0 &&
+              rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+              rect.right <= (window.innerWidth || document.documentElement.clientWidth);
+            if (!inViewport) {
+              el.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+            }
+          } catch {}
+
+          // Collect matched element info
+          const matched = {
+            tag: (el.tagName || "").toLowerCase(),
+            role: el.getAttribute("role") || undefined,
+            labelSnippet: (el.getAttribute("aria-label") || el.textContent || "").slice(0, 40) || undefined,
+          };
 
           // Apply highlight directly to the element (no overlay div)
           // This survives z-index wars, stacking contexts, and tracks with scroll
@@ -756,12 +824,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             }, 6000);
           });
 
-          return { found: true };
+          return { found: true, strategy, matched };
         },
         args: [finding]
       });
-      const found = results?.[0]?.result?.found === true;
-      sendResponse({ ok: true, found });
+      } catch (execErr) {
+        sendResponse({ ok: true, found: false, strategy: "none", reason: "FRAME_INACCESSIBLE", frameIdUsed: frameId });
+        return;
+      }
+      const r = results?.[0]?.result || { found: false, strategy: "none", reason: "NO_MATCH" };
+      r.frameIdUsed = frameId;
+      if (r.found === undefined) r.found = false;
+      sendResponse({ ok: true, ...r });
       return;
     }
 
@@ -774,6 +848,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const match = isPlainObject(msg.match) ? msg.match : null;
         const modeHints = isPlainObject(msg.modeHints) ? msg.modeHints : null;
         const appMarkers = typeof msg.appMarkers === "string" ? msg.appMarkers : null;
+        const rootSelector = typeof msg.rootSelector === "string" ? msg.rootSelector : null;
         const alsoConsole = !!msg.alsoConsole;
         const wcagLevel = sanitizeWcagLevel(msg.wcagLevel);
         let frames;
@@ -787,6 +862,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           match,
           modeHints,
           appMarkers,
+          rootSelector,
           alsoConsole,
           wcagLevel,
           frames,
@@ -816,6 +892,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const safeMatch = isPlainObject(match) ? match : null;
       const safeModeHints = isPlainObject(modeHints) ? modeHints : null;
       const safeAppMarkers = typeof appMarkers === "string" ? appMarkers : null;
+      const safeRootSelector = typeof msg.rootSelector === "string" ? msg.rootSelector : null;
       const safeAlsoConsole = !!alsoConsole;
       const safeWcagLevel = sanitizeWcagLevel(wcagLevel);
       const safeActiveMode = AUDIT_ACTIONS.has(String(activeMode)) ? String(activeMode) : "run";
@@ -832,6 +909,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         match: safeMatch,
         modeHints: safeModeHints,
         appMarkers: safeAppMarkers,
+        rootSelector: safeRootSelector,
         alsoConsole: safeAlsoConsole,
         wcagLevel: safeWcagLevel,
         frames,
@@ -848,6 +926,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           match: safeMatch,
           modeHints: safeModeHints,
           appMarkers: safeAppMarkers,
+          rootSelector: safeRootSelector,
           alsoConsole: safeAlsoConsole,
           wcagLevel: safeWcagLevel,
           frames,
@@ -1081,8 +1160,8 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
           ok: false,
           frameIds: [],
           scope: FRAME_SCOPE.HOST,
-          selectionReason: "no_scope_match_manual_outside_scope",
-          error: "NO_SCOPE_MATCH",
+          selectionReason: "manual_frame_missing",
+          error: "MANUAL_FRAMES_MISSING",
         });
       }
       return makeTargetResolution({
@@ -1116,8 +1195,8 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
           ok: false,
           frameIds: [],
           scope: FRAME_SCOPE.EMBEDDED,
-          selectionReason: "no_scope_match_manual_outside_scope",
-          error: "NO_SCOPE_MATCH",
+          selectionReason: "manual_frame_missing",
+          error: "MANUAL_FRAMES_MISSING",
         });
       }
       return makeTargetResolution({
@@ -1161,8 +1240,8 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
         ok: false,
         frameIds: [],
         scope: FRAME_SCOPE.PRIMARY,
-        selectionReason: "no_scope_match_manual_outside_scope",
-        error: "NO_SCOPE_MATCH",
+        selectionReason: "manual_frame_missing",
+        error: "MANUAL_FRAMES_MISSING",
       });
     }
     return makeTargetResolution({

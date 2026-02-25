@@ -159,7 +159,7 @@ describe('Persistence layer', () => {
       await ctx.loadActiveSessionForScope('https://example.com', 'prod');
       const loaded = ctx.sessionState.current;
       assert.ok(loaded);
-      assert.equal(loaded.schemaVersion, 3); // migrated to current
+      assert.equal(loaded.schemaVersion, 4); // migrated to current
       assert.ok(Array.isArray(loaded.steps));
       assert.ok(loaded.rawAppendix);
       assert.ok(loaded.frames);

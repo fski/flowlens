@@ -711,6 +711,32 @@ kbd {
 
 .topTab--settings { flex: 0 0 auto; }
 
+/* ═══ SAVE STATUS HUD ═══ */
+.saveStatusHud {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--tx3);
+  background: var(--surface);
+  border-bottom: 1px solid var(--brd0);
+}
+.saveStatusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--tx4);
+  transition: background 0.2s ease;
+}
+.saveStatusHud[data-status="saved"]   .saveStatusDot { background: #5AB89A; }
+.saveStatusHud[data-status="saving"]  .saveStatusDot { background: #C4A855; }
+.saveStatusHud[data-status="error"]   .saveStatusDot { background: #DB5A5A; }
+.saveStatusHud[data-status="saved"]   .saveStatusText { color: var(--tx3); }
+.saveStatusHud[data-status="saving"]  .saveStatusText { color: #C4A855; }
+.saveStatusHud[data-status="error"]   .saveStatusText { color: #DB5A5A; }
+
 /* ═══ SUBTABS ═══ */
 .subTabBar {
   display: flex;

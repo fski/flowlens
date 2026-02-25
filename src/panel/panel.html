@@ -242,6 +242,7 @@
                   <button class="emItem" id="exportSessionJunitMenu" type="button" role="menuitem" hidden><span class="l">Session JUnit XML</span><span class="dd">Last ended session</span></button>
                   <button class="emItem" id="exportSessionJsonMenu" type="button" role="menuitem" hidden><span class="l">Session JSON</span><span class="dd">Last ended session</span></button>
                   <button class="emItem" id="exportSessionMdMenu" type="button" role="menuitem" hidden><span class="l">Session Markdown</span><span class="dd">Last ended session</span></button>
+                  <button class="emItem" id="exportDiffReportMenu" type="button" role="menuitem" hidden><span class="l">Diff Report JSON</span><span class="dd">Machine-readable CI diff</span></button>
                   <span class="inlineHint sr-only" id="copyMdHint" aria-live="polite"></span>
                 </div>
               </div>
@@ -401,6 +402,25 @@
                 </select>
               </div>
               <div class="settingsGroup">
+                <span class="settingsLabel">Depth</span>
+                <label class="sr-only" for="depthMax">Audit depth level</label>
+                <select id="depthMax">
+                  <option value="1">Depth 1 (Fast)</option>
+                  <option value="2">Depth 2 (Balanced)</option>
+                  <option value="3" selected>Depth 3 (Full)</option>
+                </select>
+              </div>
+              <div class="settingsGroup">
+                <span class="settingsLabel">Recipe</span>
+                <label class="sr-only" for="recipeSelect">Capture recipe</label>
+                <select id="recipeSelect">
+                  <option value="auto" selected>Auto</option>
+                  <option value="chat_widget">Chat Widget</option>
+                  <option value="helpcenter">Help Center</option>
+                  <option value="hybrid">Hybrid</option>
+                </select>
+              </div>
+              <div class="settingsGroup">
                 <span class="settingsLabel">Profiles</span>
                 <div id="profileSelect" class="profilePills" role="group" aria-label="Active MFE profiles"></div>
               </div>
@@ -469,8 +489,18 @@
             <dd id="diagShadowCoverage">—</dd>
             <dt>Active profile</dt>
             <dd id="diagActiveProfile">—</dd>
+            <dt>Profile confidence</dt>
+            <dd id="diagProfileConfidence">—</dd>
             <dt>Profile signals</dt>
             <dd id="diagProfileSignals">—</dd>
+            <dt>Root selector</dt>
+            <dd id="diagRootSelector">—</dd>
+            <dt>Root selector match</dt>
+            <dd id="diagRootSelectorMatch">—</dd>
+            <dt>Depth filter</dt>
+            <dd id="diagDepthMax">—</dd>
+            <dt>Recipe</dt>
+            <dd id="diagRecipe">—</dd>
           </dl>
           <div class="aboutActions">
             <button class="btn sm" id="copyDiagnostics" type="button">Copy diagnostics</button>
