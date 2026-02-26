@@ -111,7 +111,13 @@ const els = {
   recipeSelect: document.getElementById("recipeSelect"),
   copyDiagnostics: document.getElementById("copyDiagnostics"),
   copyDiagnosticsMdBtn: document.getElementById("copyDiagnosticsMdBtn"),
+  copyCiJson: document.getElementById("copyCiJson"),
   copyDiagHint: document.getElementById("copyDiagHint"),
+  integrityOverview: document.getElementById("integrityOverview"),
+  pillAnnouncementsCount: document.getElementById("pillAnnouncementsCount"),
+  pillFocusCount: document.getElementById("pillFocusCount"),
+  pillSemanticsCount: document.getElementById("pillSemanticsCount"),
+  pillMultiframeCount: document.getElementById("pillMultiframeCount"),
   coverageLine: document.getElementById("coverageLine"),
   coverageMissingList: document.getElementById("coverageMissingList"),
 
@@ -148,6 +154,25 @@ const els = {
 
 const ORDER = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
 const SEV_LIST = ["critical", "high", "medium", "low", "info"];
+let activeGroupFilter = null;
+
+// ═══ PERF COUNTERS (safe in prod; display gated by localStorage flag) ═══
+var __flPerf = (window.__flPerf = window.__flPerf || {
+  rerenderFindingsCount: 0,
+  rerenderFindingsMsTotal: 0,
+  lastRerenderFindingsMs: 0,
+  lastRenderedRows: 0,
+  lastFilterReason: null,
+  scheduledRerenderCount: 0,
+});
+
+// ═══ RERENDER BATCHING ═══
+var _rerenderScheduled = false;
+var _rerenderReason = null;
+
+// ═══ TOAST DEDUP ═══
+var _lastToastKey = null;
+var _lastToastTime = 0;
 const SEV_COLORS = {
   critical: "#DB5A5A", high: "#D4864E", medium: "#C4A855",
   low: "#5AB89A", info: "#7A8EA6",
@@ -272,32 +297,49 @@ function debugSession(...args) {
   console.debug("[FlowLensSession]", ...args);
 }
 
-// --- MFE Profile Registry ---
-// Each profile defines detection heuristics for one microfrontend product.
-// Adding a new MFE = adding a new object here (or via custom profiles in storage).
+function deepFreeze(obj) {
+  if (obj == null || typeof obj !== "object") return obj;
+  Object.freeze(obj);
+  for (const v of Object.values(obj)) {
+    if (v != null && typeof v === "object" && !Object.isFrozen(v)) deepFreeze(v);
+  }
+  return obj;
+}
+
+// HostConfig: injected at build time via __HOST_CONFIG__ define.
+// MUST NOT affect: stable signatures, diff logic, FrameKey, highlights.
+// Only affects: targeting, profile defaults, UI labels, DOM scoping.
+const hostConfig = typeof __HOST_CONFIG__ !== "undefined" ? __HOST_CONFIG__ : {
+  id: "generic", defaultProfiles: [], rootSelector: null,
+  match: { domSelectorsAny: [], urlIncludesAny: [], urlExcludesAny: [] },
+  ui: {},
+};
+deepFreeze(hostConfig);
+
+// --- Profile Registry ---
+// Each profile defines detection heuristics for a UI composition type.
+// Host-specific selectors belong in HostConfig, not in profile definitions.
 const BUILTIN_PROFILES = {
   helpcenter: {
     label: "Help Center",
-    description: "Targets Help Center iframes — adds tree, article and bot-specific WCAG checks",
+    description: "Targets help center iframes — adds tree, article and bot-specific WCAG checks",
     frame: {
-      urlIncludes: ["helpcenter-webclient", "usehurrier.com", "helpcenter"],
+      urlIncludes: [],
       domSelectors: [
-        "#help-center-root",
-        "[data-testid='help-center-wrapper']",
-        "[data-testid='global-help-center-container']",
-        "[data-testid*='HELP']",
-        "[data-testid*='HC']",
+        "[role='navigation'][aria-label]",
+        "main article",
+        "[role='main'] article",
       ],
     },
     modeHints: {
       "helpcenter-bot": {
         roles: [],
-        testIds: ["[data-testid*='conversational']", "[data-testid*='BOT']"],
-        url: "new-conversation",
+        testIds: [],
+        url: null,
       },
       "helpcenter-tree": {
         roles: ["[role='tree']", "[role='treeitem']"],
-        testIds: ["[data-testid*='TREE']"],
+        testIds: [],
         url: null,
       },
     },
@@ -307,12 +349,12 @@ const BUILTIN_PROFILES = {
     description: "Targets chat widgets — adds role=log, message boundary and input label checks",
     frame: {
       urlIncludes: [],
-      domSelectors: ["[data-testid^='GST_CHAT__']", "#GST_CHAT__FEED", "[role='log']"],
+      domSelectors: ["[role='log']", "[role='feed']", "textarea"],
     },
     modeHints: {
       chat: {
         roles: ["[role='log']"],
-        testIds: ["[data-testid^='GST_CHAT__']", "#GST_CHAT__FEED"],
+        testIds: [],
         url: null,
       },
     },
@@ -320,7 +362,12 @@ const BUILTIN_PROFILES = {
 };
 
 // Active profile state: { profiles: { [id]: profileObj }, active: string[] }
-const profileState = { profiles: { ...BUILTIN_PROFILES }, active: ["helpcenter"] };
+const profileState = {
+  profiles: { ...BUILTIN_PROFILES },
+  active: Array.isArray(hostConfig.defaultProfiles) && hostConfig.defaultProfiles.length > 0
+    ? [...hostConfig.defaultProfiles]
+    : [],
+};
 
 // --- Recipes: pre-configured capture strategies ---
 const RECIPES = {
@@ -575,6 +622,12 @@ function pretty(x) {
 
 function toast(message, action) {
   if (!els.toast) return;
+  // Dedup identical toasts within 700ms
+  var toastKey = (action ? "action:" : "") + message;
+  var now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+  if (toastKey === _lastToastKey && (now - _lastToastTime) < 700) return;
+  _lastToastKey = toastKey;
+  _lastToastTime = now;
   els.toast.textContent = "";
   els.toast.appendChild(document.createTextNode(message));
   if (action?.label && typeof action.fn === "function") {
@@ -1208,6 +1261,7 @@ function renderRecord(rec) {
   els.allTableBody.innerHTML = "";
   state.currentFindings = [];
   if (mode !== "contrast") renderSevTabs();
+  if (els.integrityOverview) els.integrityOverview.hidden = true;
   if (els.shadowCoverageRow) els.shadowCoverageRow.hidden = true;
   showMode(mode);
 
@@ -1217,7 +1271,7 @@ function renderRecord(rec) {
     const findings = applyAllFindingFilters(allFindings);
     state.currentFindings = findings;
     state.findingsByMode.run = allFindings;
-    renderExplorer(findings);
+    rerenderFindings();
   } else if (mode === "contrast") {
     state.contrastFilter = "all";
     renderContrast(bestResult);
@@ -1229,11 +1283,10 @@ function renderRecord(rec) {
     const allFindings = Array.isArray(bestResult.findings) ? bestResult.findings : [];
     const oFindings = applyAllFindingFilters(allFindings);
     if (oFindings.length) {
-      renderSevTabs(oFindings);
       state.currentFindings = oFindings;
       state.findingsByMode.observe = allFindings;
       showMode("observe");
-      renderExplorer(oFindings);
+      rerenderFindings();
     } else {
       renderSevTabs();
     }
@@ -1946,6 +1999,7 @@ function normalizeLoadedSession(session) {
     if (!step.snapshots || typeof step.snapshots !== "object") step.snapshots = { run: null, active: null };
     if (step.snapshots.run && !step.snapshots.run.targeting) step.snapshots.run.targeting = null;
     if (step.snapshots.active && !step.snapshots.active.targeting) step.snapshots.active.targeting = null;
+    if (!step.transitionStates) step.transitionStates = null;
   }
   if (!out.frames || typeof out.frames !== "object") out.frames = { frameKeys: [], frameKeyToLastFrameId: {} };
   if (!Array.isArray(out.frames.frameKeys)) out.frames.frameKeys = [];
@@ -4281,7 +4335,9 @@ function cellHtml(value, maxLen = 60) {
 /** Shared row renderers — used by both VirtualTable and fallback paths. */
 function explorerRowHtml(f, idx) {
   const sev = f.severity || 'info';
-  return `<tr class="trow" data-i="${idx}" data-sev="${escapeHtml(sev)}"><td><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span></td><td>${escapeHtml(f.wcag ?? "")}</td><td>${cellHtml(f.name, 50)}</td><td>${cellHtml(f.type ?? "", 30)}</td></tr>`;
+  const isCrossFrame = !f.el && (typeof RULE_TO_WCAG !== "undefined") && RULE_TO_WCAG[f.type]?.group === "depth3/multiframe";
+  const crossBadge = isCrossFrame ? ' <span class="badge crossFrame">Cross-frame</span>' : '';
+  return `<tr class="trow" data-i="${idx}" data-sev="${escapeHtml(sev)}"${isCrossFrame ? ' data-crossframe="1"' : ''}><td><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span></td><td>${escapeHtml(f.wcag ?? "")}</td><td>${cellHtml(f.name, 50)}${crossBadge}</td><td>${cellHtml(f.type ?? "", 30)}</td></tr>`;
 }
 function contrastRowHtml(f, idx) {
   const pass = f.ratio >= f.required;
@@ -4673,6 +4729,97 @@ function applyAllFindingFilters(findings) {
   return result;
 }
 
+/**
+ * Filter findings by depth3 group. UI-only — not part of applyAllFindingFilters
+ * so CI JSON export and diagnostics are unaffected.
+ */
+function filterFindingsByGroup(findings, groupFilter) {
+  if (!groupFilter) return findings;
+  if (!Array.isArray(findings)) return [];
+  var ruleMap = (typeof RULE_TO_WCAG !== "undefined") ? RULE_TO_WCAG : {};
+  return findings.filter(function(f) {
+    var meta = ruleMap[f.type];
+    return meta && meta.group === groupFilter;
+  });
+}
+
+/**
+ * Update the integrity overview pills with aggregate status and counts.
+ */
+function updateIntegrityOverview(aggregates) {
+  if (!els.integrityOverview) return;
+  if (!aggregates) { els.integrityOverview.hidden = true; return; }
+  els.integrityOverview.hidden = false;
+
+  var groups = [
+    { group: "depth3/announcements", status: aggregates.announcementIntegrity, count: aggregates.counts ? aggregates.counts.announcements || 0 : 0, countEl: els.pillAnnouncementsCount },
+    { group: "depth3/focus", status: aggregates.focusStability, count: aggregates.counts ? aggregates.counts.focus || 0 : 0, countEl: els.pillFocusCount },
+    { group: "depth3/semantics", status: aggregates.chatSemantics, count: aggregates.counts ? aggregates.counts.semantics || 0 : 0, countEl: els.pillSemanticsCount },
+    { group: "depth3/multiframe", status: aggregates.multiFrameIntegrity, count: aggregates.counts ? aggregates.counts.multiframe || 0 : 0, countEl: els.pillMultiframeCount },
+  ];
+
+  for (var gi = 0; gi < groups.length; gi++) {
+    var g = groups[gi];
+    var btn = els.integrityOverview.querySelector('.integrityPill[data-group="' + g.group + '"]');
+    if (!btn) continue;
+    btn.classList.remove("ok", "degraded");
+    btn.classList.add(g.status);
+    if (g.countEl) g.countEl.textContent = "(" + g.count + ")";
+  }
+}
+
+/**
+ * Normalize finding fields at render boundary to prevent junk rendering.
+ */
+function normalizeFindingForRender(f) {
+  if (!f || typeof f !== "object") return { type: "UNKNOWN_RULE", severity: "info" };
+  var type = typeof f.type === "string" ? f.type : "UNKNOWN_RULE";
+  var sev = typeof f.severity === "string" ? f.severity.toLowerCase() : "info";
+  var safeSev = (sev === "critical" || sev === "high" || sev === "medium" || sev === "low" || sev === "info") ? sev : "info";
+  if (type === f.type && safeSev === f.severity) return f;
+  return Object.assign({}, f, { type: type, severity: safeSev });
+}
+
+/**
+ * Re-render findings list with current group filter applied.
+ * Aggregates are computed from base (pre-group-filter) so pills show true totals.
+ */
+function rerenderFindings(reason) {
+  var t0 = (typeof performance !== "undefined" && performance.now) ? performance.now() : 0;
+  var base = state.currentFindings || [];
+  var groupFiltered = filterFindingsByGroup(base, activeGroupFilter);
+  var normalized = groupFiltered.map(normalizeFindingForRender);
+  renderSevTabs(normalized);
+  renderExplorer(normalized);
+  var d3 = (typeof buildDepth3Aggregates === "function")
+    ? buildDepth3Aggregates(base, RULE_TO_WCAG) : null;
+  updateIntegrityOverview(d3);
+  // Perf tracking
+  var dt = t0 ? ((typeof performance !== "undefined" && performance.now) ? performance.now() : 0) - t0 : 0;
+  __flPerf.rerenderFindingsCount++;
+  __flPerf.rerenderFindingsMsTotal += dt;
+  __flPerf.lastRerenderFindingsMs = dt;
+  __flPerf.lastRenderedRows = state.explorer ? state.explorer.length : 0;
+  __flPerf.lastFilterReason = reason || null;
+}
+
+/**
+ * Schedule a batched rerender via queueMicrotask to eliminate micro-spam.
+ * Multiple calls in the same tick collapse into one rerender.
+ */
+function scheduleRerenderFindings(reason) {
+  __flPerf.scheduledRerenderCount++;
+  _rerenderReason = reason || _rerenderReason || "unspecified";
+  if (_rerenderScheduled) return;
+  _rerenderScheduled = true;
+  queueMicrotask(function() {
+    _rerenderScheduled = false;
+    var r = _rerenderReason;
+    _rerenderReason = null;
+    rerenderFindings(r);
+  });
+}
+
 function renderExplorer(findings) {
   const all = Array.isArray(findings) ? findings : [];
   const filtered = applySortState(applyExplorerFilters(findings), 'explorer');
@@ -4853,17 +5000,27 @@ function getTargetSpec() {
 
 function buildMatch() {
   const active = profileState.active;
-  if (!active.length) return null;
-  const urlIncludes = [];
-  const domSelectorsAny = [];
+  const urlIncludeSet = new Set();
+  const domSelectorSet = new Set();
+  const urlExcludeSet = new Set();
   for (const id of active) {
     const p = profileState.profiles[id];
     if (!p?.frame) continue;
-    if (p.frame.urlIncludes) urlIncludes.push(...p.frame.urlIncludes);
-    if (p.frame.domSelectors) domSelectorsAny.push(...p.frame.domSelectors);
+    if (p.frame.urlIncludes) for (const u of p.frame.urlIncludes) urlIncludeSet.add(u);
+    if (p.frame.domSelectors) for (const s of p.frame.domSelectors) domSelectorSet.add(s);
   }
-  if (!urlIncludes.length && !domSelectorsAny.length) return null;
-  return { urlIncludes, domSelectorsAny };
+  // Merge host config match selectors
+  if (hostConfig?.match) {
+    if (Array.isArray(hostConfig.match.domSelectorsAny)) for (const s of hostConfig.match.domSelectorsAny) domSelectorSet.add(s);
+    if (Array.isArray(hostConfig.match.urlIncludesAny)) for (const u of hostConfig.match.urlIncludesAny) urlIncludeSet.add(u);
+    if (Array.isArray(hostConfig.match.urlExcludesAny)) for (const u of hostConfig.match.urlExcludesAny) urlExcludeSet.add(u);
+  }
+  const MAX_SELECTORS = (typeof MAX_MATCH_ARRAY !== "undefined" ? MAX_MATCH_ARRAY : 80);
+  const urlIncludes = [...urlIncludeSet].slice(0, MAX_SELECTORS);
+  const domSelectorsAny = [...domSelectorSet].slice(0, MAX_SELECTORS);
+  const urlExcludesAny = [...urlExcludeSet].slice(0, MAX_SELECTORS);
+  if (!urlIncludes.length && !domSelectorsAny.length && !urlExcludesAny.length) return null;
+  return { urlIncludes, domSelectorsAny, urlExcludesAny };
 }
 
 function buildModeHints() {
@@ -4886,7 +5043,7 @@ function buildAppMarkers() {
 }
 
 /**
- * Build rootSelector from active profiles.
+ * Build rootSelector from active profiles or HostConfig fallback.
  * Returns the first non-empty rootSelector, or null.
  * Does NOT apply when manual override is active.
  */
@@ -4895,7 +5052,7 @@ function buildProfileRootSelector() {
     const p = profileState.profiles[id];
     if (p?.rootSelector && typeof p.rootSelector === "string") return p.rootSelector;
   }
-  return null;
+  return hostConfig?.rootSelector || null;
 }
 
 /**
@@ -5586,6 +5743,8 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     step.depthMax = getActiveDepthMax();
     step.recipeId = getActiveRecipeId();
     step.rulePack = getActiveRulePack() || null;
+    step.excludedFrameCount = r?.run?.excludedFrameCount || 0;
+    step.transitionStates = r?.active?.transitionStateSummaries || r?.run?.transitionStateSummaries || null;
     if (step.rootSelectorNotFound) {
       step.profileSuspect = true;
       if (!step.profileMatchSignals.includes("rootSelector_not_found")) {
@@ -5758,7 +5917,7 @@ function setVersionBadge() {
       ? __FLOWLENS_VERSION__
       : (__runtime && __runtime.getManifest) ? __runtime.getManifest().version : "dev";
     badge.dataset.version = v;
-    badge.textContent = v + " DH";
+    badge.textContent = hostConfig?.ui?.badgeText ? v + " " + hostConfig.ui.badgeText : v;
     const emptyVer = document.getElementById("emptyVersion");
     if (emptyVer) emptyVer.textContent = "v" + v;
   } catch {}
@@ -5832,6 +5991,16 @@ function gatherDiagnosticsOpts() {
     depthMax: getActiveDepthMax(),
     recipeId: getActiveRecipeId(),
     rulePack: getActiveRulePack(),
+    hostConfigId: hostConfig?.id || "generic",
+    frameGatingSelectorCount: hostConfig?.match?.domSelectorsAny?.length || 0,
+    excludedFrameCount: (() => {
+      const lastStep = (sessionState.current?.steps || []).slice(-1)[0];
+      return lastStep?.excludedFrameCount || 0;
+    })(),
+    findings: (() => {
+      const best = state.lastResult?.bestEntry || state.lastResult?.best || null;
+      return Array.isArray(best?.result?.findings) ? best.result.findings : [];
+    })(),
   };
 }
 
@@ -5849,6 +6018,14 @@ function renderDiagnostics() {
   if (els.diagFrameScope) els.diagFrameScope.textContent = payload.frameScope;
   if (els.diagBestFrameId) els.diagBestFrameId.textContent = payload.bestFrameId != null ? String(payload.bestFrameId) : "\u2014";
   if (els.diagBestFrameKey) els.diagBestFrameKey.textContent = payload.bestFrameKey || "\u2014";
+  if (els.diagFrameGating) {
+    els.diagFrameGating.textContent = payload.frameGatingSelectorCount > 0
+      ? `active (${payload.frameGatingSelectorCount} selectors)` : "\u2014";
+  }
+  if (els.diagExcludedFrames) {
+    els.diagExcludedFrames.textContent = payload.excludedFrameCount > 0
+      ? `${payload.excludedFrameCount} excluded by host match rules` : "\u2014";
+  }
   if (els.diagScope) {
     const s = payload.scope;
     els.diagScope.textContent = s.rootSelector ? `${s.type} (${s.rootSelector})` : s.type;
@@ -5889,6 +6066,13 @@ function renderDiagnostics() {
     const recipe = RECIPES[rid];
     els.diagRecipe.textContent = recipe ? `${recipe.label} (${rid})` : rid;
   }
+  // Depth 3 engine diagnostics
+  if (els.diagDepth3Engine) {
+    const d3 = payload.depth3Engine || {};
+    els.diagDepth3Engine.textContent = d3.enabled
+      ? `enabled (${d3.captureMode || "auto"})${d3.capped ? " — capped" : ""}`
+      : "disabled";
+  }
   // RootSelector diagnostics
   if (els.diagRootSelector) {
     const lastStep = (sessionState.current?.steps || []).slice(-1)[0];
@@ -5928,6 +6112,19 @@ function renderDiagnostics() {
     ).join("") + (ecs.criteriaMissing.length > MAX_SHOWN
       ? `<li class="coverageMore">+${ecs.criteriaMissing.length - MAX_SHOWN} more</li>`
       : "");
+  }
+  // Perf diagnostics (gated by localStorage flag)
+  var diagPerfLabel = document.getElementById("diagPerfLabel");
+  var diagPerfText = document.getElementById("diagPerfText");
+  if (diagPerfLabel && diagPerfText) {
+    var showPerf = localStorage.getItem("flowlens:debugPerf") === "1";
+    diagPerfLabel.style.display = showPerf ? "" : "none";
+    diagPerfText.style.display = showPerf ? "" : "none";
+    if (showPerf) {
+      diagPerfText.textContent = "Rerenders: " + __flPerf.rerenderFindingsCount
+        + " | Last: " + __flPerf.lastRerenderFindingsMs.toFixed(1) + " ms"
+        + " | Rows: " + __flPerf.lastRenderedRows;
+    }
   }
 }
 
@@ -6190,7 +6387,33 @@ function buildDiagnosticsPayload(opts) {
         }
       : null,
     dataVersionsLine: formatDataVersionsLine(dv),
+    hostConfigId: o.hostConfigId ? String(o.hostConfigId) : "generic",
+    frameGatingSelectorCount: Number(o.frameGatingSelectorCount) || 0,
+    excludedFrameCount: Number(o.excludedFrameCount) || 0,
+    depth3Engine: {
+      enabled: true,
+      captureMode: o.depth3CaptureMode || "auto",
+      capped: !!o.depth3Capped,
+    },
     buildInfo: { mv3: true },
+    depth3Aggregates: (() => {
+      if (typeof buildDepth3Aggregates !== "function") return null;
+      const visibleFindings = Array.isArray(o.findings) ? applyAllFindingFilters(o.findings) : [];
+      return buildDepth3Aggregates(visibleFindings, RULE_TO_WCAG);
+    })(),
+    depthSuggestion: (() => {
+      const pid = o.activeProfileId;
+      const profile = pid
+        ? (profileState?.profiles?.[pid] || (typeof GENERIC_PROFILES !== "undefined" ? GENERIC_PROFILES[pid] : null))
+        : null;
+      const rec = profile?.recommended;
+      if (!rec || rec.depthMax == null) return null;
+      const currentDepth = o.depthMax || 3;
+      if (rec.depthMax > currentDepth) {
+        return { suggestedDepth: rec.depthMax, profileId: pid, reason: "profile_recommendation" };
+      }
+      return null;
+    })(),
   };
 }
 
@@ -6210,6 +6433,7 @@ function buildDiagnosticsMarkdown(payload) {
     "",
     "## Environment",
     `- Version: ${d(p.version)}`,
+    `- Host: ${d(p.hostConfigId)}`,
     `- Data Versions: ${d(p.dataVersionsLine)}`,
     `- URL: ${d(p.url)}`,
     `- Environment Tag: ${d(p.env)}`,
@@ -6218,6 +6442,8 @@ function buildDiagnosticsMarkdown(payload) {
     `- Best Frame ID: ${d(p.bestFrameId)}`,
     `- Frame Key: ${d(p.bestFrameKey)}`,
     `- Frame Scope: ${d(p.frameScope)}`,
+    ...(p.frameGatingSelectorCount > 0 ? [`- Frame Gating: active (${p.frameGatingSelectorCount} selectors)`] : []),
+    ...(p.excludedFrameCount > 0 ? [`- Excluded Frames: ${p.excludedFrameCount} excluded by host match rules`] : []),
     "",
     "## Profiles",
     `- Active Profile: ${d(p.activeProfileLabel)}`,
@@ -6229,13 +6455,139 @@ function buildDiagnosticsMarkdown(payload) {
     ...(p.rootSelectorMatchedFrameIds?.length ? [`- Matched in Frame(s): ${p.rootSelectorMatchedFrameIds.join(", ")}`] : []),
     ...(p.reducedDiffConfidence ? ["- Diff Confidence: **reduced**"] : []),
     `- Depth Filter: ${p.depthMax || 3} (${p.depthMax === 1 ? "Fast" : p.depthMax === 2 ? "Balanced" : "Full"})`,
+    ...(p.depthSuggestion ? [`- **Depth suggestion: ${p.depthSuggestion.suggestedDepth}** (profile ${p.depthSuggestion.profileId})`] : []),
     `- Recipe: ${p.recipeId || "auto"}`,
     ...(p.rulePack ? [`- Rule Pack: enabled=${p.rulePack.enabledCount}, disabled=${p.rulePack.disabledCount}`] : []),
     "",
+    "## Depth 3 Engine",
+    `- Enabled: ${p.depth3Engine?.enabled ? "yes" : "no"}`,
+    `- Capture Mode: ${d(p.depth3Engine?.captureMode)}`,
+    `- Capped: ${p.depth3Engine?.capped ? "yes" : "no"}`,
+    "",
+    ...(p.depth3Aggregates ? [
+      "## Depth 3 Integrity (current run view)",
+      `- Announcement Integrity: ${p.depth3Aggregates.announcementIntegrity} (${p.depth3Aggregates.counts?.announcements || 0} findings)`,
+      `- Focus Stability: ${p.depth3Aggregates.focusStability} (${p.depth3Aggregates.counts?.focus || 0} findings)`,
+      `- Chat Semantics: ${p.depth3Aggregates.chatSemantics} (${p.depth3Aggregates.counts?.semantics || 0} findings)`,
+      `- Multi-Frame Integrity: ${p.depth3Aggregates.multiFrameIntegrity} (${p.depth3Aggregates.counts?.multiframe || 0} findings)`,
+      "",
+    ] : []),
     "## Shadow DOM",
     `- Shadow Coverage: ${shadowLine}`,
     "",
   ].join("\n");
+}
+
+/**
+ * Enrich a regression signature into a CI-safe entry with only scalar fields.
+ * Parses ruleId from signature format: mode|type|wcag|severity|hash.
+ * Looks up depthLevel/group from RULE_TO_WCAG — no finding object fields copied.
+ */
+function enrichRegressionEntry(sig) {
+  var entry = { signature: String(sig || "") };
+  // Parse signature: mode|type|wcag|severity|hash
+  var parts = entry.signature.split("|");
+  if (parts.length >= 4) {
+    var ruleId = parts[1] || "";
+    var severity = parts[3] || "info";
+    entry.ruleId = ruleId;
+    entry.severity = severity;
+    // Look up depthLevel and group from RULE_TO_WCAG
+    var ruleMeta = (typeof RULE_TO_WCAG !== "undefined" && RULE_TO_WCAG) ? RULE_TO_WCAG[ruleId] : null;
+    if (ruleMeta) {
+      if (ruleMeta.depthLevel != null) entry.depthLevel = Number(ruleMeta.depthLevel);
+      if (ruleMeta.group != null) entry.group = String(ruleMeta.group);
+    }
+  }
+  return entry;
+}
+
+/**
+ * Build a CI JSON report from current panel state.
+ * Gathers inputs from state, session, profile, and findings.
+ * Returns the output of buildCIReport — a contractVersion "1.0" object.
+ */
+function buildCIReportFromState() {
+  if (typeof buildCIReport !== "function") return null;
+
+  var version = (typeof __FLOWLENS_VERSION__ !== "undefined") ? __FLOWLENS_VERSION__ : "dev";
+  var bestEntry = state.lastResult?.bestEntry || state.lastResult?.best || null;
+  var rawFindings = Array.isArray(bestEntry?.result?.findings) ? bestEntry.result.findings : [];
+  var filteredFindings = applyAllFindingFilters(rawFindings);
+
+  // Severity counts from filtered findings
+  var bySeverity = { high: 0, medium: 0, low: 0, info: 0 };
+  for (var fi = 0; fi < filteredFindings.length; fi++) {
+    var sev = (filteredFindings[fi]?.severity || "info").toLowerCase();
+    if (sev in bySeverity) bySeverity[sev]++;
+  }
+
+  // Blocking count from stable signatures
+  var sigSet = computeStableSignatureSet(state.lastResult);
+  var blockingCount = sigSet.blockingSet?.length || 0;
+
+  // Regressions from session diff (if available)
+  var regressions = { blockingAdded: [], blockingFixed: [] };
+  var session = sessionState.current;
+  if (session?.steps?.length >= 2) {
+    var steps = session.steps;
+    var prevStep = steps[steps.length - 2];
+    var currStep = steps[steps.length - 1];
+    var prevBlocking = new Set(prevStep?.stableSignatures?.run?.blockingSet || []);
+    var currBlocking = new Set(currStep?.stableSignatures?.run?.blockingSet || []);
+
+    for (var sig of currBlocking) {
+      if (!prevBlocking.has(sig)) {
+        regressions.blockingAdded.push(enrichRegressionEntry(sig));
+      }
+    }
+    for (var sig2 of prevBlocking) {
+      if (!currBlocking.has(sig2)) {
+        regressions.blockingFixed.push({ signature: String(sig2) });
+      }
+    }
+  }
+
+  // Depth3 aggregates
+  var d3aggs = (typeof buildDepth3Aggregates === "function")
+    ? buildDepth3Aggregates(filteredFindings, RULE_TO_WCAG) : null;
+
+  // Profile info
+  var activeProfileId = profileState.active[0] || null;
+  var profileObj = activeProfileId
+    ? (profileState.profiles?.[activeProfileId] || (typeof GENERIC_PROFILES !== "undefined" ? GENERIC_PROFILES[activeProfileId] : null))
+    : null;
+
+  // Diff confidence
+  var reducedDiff = (session?.steps || []).some(function(s) {
+    return s.profileSuspect === true || s.stableSignatures?.run?.stepQuality?.degraded === true;
+  });
+
+  return buildCIReport({
+    tool: { name: "FlowLens", version: version, hostId: hostConfig?.id || "generic" },
+    scope: {
+      depthMax: getActiveDepthMax(),
+      profileId: activeProfileId,
+      profileConfidence: (() => {
+        var lastStep = (session?.steps || []).slice(-1)[0];
+        return lastStep?.profileConfidence || null;
+      })(),
+      rulePackHash: null,
+    },
+    quality: {
+      signatureQuality: sigSet.stableFindingSignatureSet?.length > 0 ? "available" : "none",
+      diffConfidence: reducedDiff ? "reduced" : "normal",
+    },
+    summary: {
+      blockingAdded: regressions.blockingAdded.length,
+      blockingFixed: regressions.blockingFixed.length,
+      blockingCurrent: blockingCount,
+      totalCount: filteredFindings.length,
+      bySeverity: bySeverity,
+    },
+    regressions: regressions,
+    depth3Aggregates: d3aggs,
+  });
 }
 
 // --- wire up ---
@@ -6618,6 +6970,10 @@ function buildDetailRow(finding, colCount) {
     ['Path', escapeHtml(finding.path ?? ''), true],
     ['Fix', escapeHtml(finding.fix ?? ''), true],
   ];
+  const isCrossFrame = !finding.el && (typeof RULE_TO_WCAG !== "undefined") && RULE_TO_WCAG[finding.type]?.group === "depth3/multiframe";
+  if (isCrossFrame) {
+    fields.push(['Scope', '<span class="badge crossFrame">Cross-frame</span> This finding spans multiple frames and cannot be highlighted individually']);
+  }
   const html = fields
     .filter(([, v]) => v)
     .map(([k, v, mono]) =>
@@ -6650,7 +7006,14 @@ if (els.allTableBody && !els.allTableBody.__bound) {
       if (!f || !VT.all) return;
 
       VT.all.toggleExpanded(idx);
-      if (VT.all.expandedIdx === idx) await highlightFinding(f, state._activeHighlightCtx);
+      if (VT.all.expandedIdx === idx) {
+        const isCrossFrame = !f.el && (typeof RULE_TO_WCAG !== "undefined") && RULE_TO_WCAG[f.type]?.group === "depth3/multiframe";
+        if (isCrossFrame) {
+          toast("Cross-frame finding — cannot highlight across frame boundaries");
+        } else {
+          await highlightFinding(f, state._activeHighlightCtx);
+        }
+      }
     } catch (err) {
       console.warn("Explorer table click failed", err);
       toast("Could not highlight element");
@@ -6750,8 +7113,7 @@ if (els.depthMax) {
     if (cached) {
       const filtered = applyAllFindingFilters(cached);
       state.currentFindings = filtered;
-      renderSevTabs(filtered);
-      renderExplorer(filtered);
+      scheduleRerenderFindings("depth_filter");
     }
     renderDiagnostics();
   });
@@ -6811,6 +7173,23 @@ if (els.copyDiagnosticsMdBtn) {
     const ok = await copyText(md);
     if (els.copyDiagHint) {
       els.copyDiagHint.textContent = ok ? "Copied!" : "Copy failed";
+      setTimeout(() => { els.copyDiagHint.textContent = ""; }, 2000);
+    }
+  });
+}
+if (els.copyCiJson) {
+  els.copyCiJson.addEventListener("click", async () => {
+    const report = buildCIReportFromState();
+    if (!report) {
+      if (els.copyDiagHint) {
+        els.copyDiagHint.textContent = "CI exporter not available";
+        setTimeout(() => { els.copyDiagHint.textContent = ""; }, 2000);
+      }
+      return;
+    }
+    const ok = await copyText(pretty(report));
+    if (els.copyDiagHint) {
+      els.copyDiagHint.textContent = ok ? "Copied CI JSON!" : "Copy failed";
       setTimeout(() => { els.copyDiagHint.textContent = ""; }, 2000);
     }
   });
@@ -6876,6 +7255,23 @@ if (els.sevTabs) {
     if (refocus) refocus.focus();
   });
 }
+
+// Integrity overview pill click — group filter toggle (attached exactly once)
+var _integrityPillsBound = false;
+function initIntegrityOverviewOnce() {
+  if (_integrityPillsBound) return;
+  _integrityPillsBound = true;
+  document.querySelectorAll(".integrityPill").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const group = btn.getAttribute("data-group");
+      activeGroupFilter = (activeGroupFilter === group) ? null : group;
+      document.querySelectorAll(".integrityPill").forEach(b => b.classList.remove("active"));
+      if (activeGroupFilter) btn.classList.add("active");
+      scheduleRerenderFindings("pill_filter");
+    });
+  });
+}
+initIntegrityOverviewOnce();
 
 // Contrast search
 if (els.contrastQ) {

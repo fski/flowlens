@@ -2464,3 +2464,38 @@ body.compact .brandLogo { width: 72px; height: auto; }
   background: var(--infoS);
   color: var(--cyan);
 }
+
+/* ── Integrity Overview ────────────────────────────────────── */
+.integrityOverview {
+  display: flex;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--brd);
+}
+.integrityPill {
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--brd);
+  font-size: 12px;
+  cursor: pointer;
+  background: var(--raised);
+  color: var(--tx2);
+}
+.integrityPill.ok { border-color: #2e7d32; color: #2e7d32; }
+.integrityPill.degraded { border-color: #c62828; color: #c62828; }
+.integrityPill.active { background: var(--surface); box-shadow: 0 0 0 1px var(--brd2); }
+.pillCount { font-weight: 700; }
+.badge.crossFrame {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--tx3);
+  background: rgba(138,138,138,0.15);
+  margin-left: 4px;
+}

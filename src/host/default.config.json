@@ -1,0 +1,15 @@
+{
+  "id": "generic",
+  "label": null,
+  "defaultProfiles": [],
+  "rootSelector": null,
+  "match": {
+    "domSelectorsAny": [],
+    "urlIncludesAny": [],
+    "urlExcludesAny": []
+  },
+  "ui": {
+    "badgeText": null,
+    "diagnosticsHint": null
+  }
+}

@@ -102,6 +102,110 @@ describe("filterFindingsByDepth", () => {
 });
 
 // ══════════════════════════════════════════════════════
+// C1/C2 Depth-3 rules — engine-backed rules at depthLevel 3
+// ══════════════════════════════════════════════════════
+
+describe("Depth-3 engine rules (C1/C2)", () => {
+  const ctx = createContext();
+
+  it("CHAT_NEW_MESSAGE_NOT_ANNOUNCED has depthLevel 3", () => {
+    assert.equal(ctx.__RULE_TO_WCAG.CHAT_NEW_MESSAGE_NOT_ANNOUNCED.depthLevel, 3);
+  });
+
+  it("CHAT_INPUT_LOSES_FOCUS_ON_UPDATE has depthLevel 3", () => {
+    assert.equal(ctx.__RULE_TO_WCAG.CHAT_INPUT_LOSES_FOCUS_ON_UPDATE.depthLevel, 3);
+  });
+
+  it("depthMax=2 excludes CHAT_NEW_MESSAGE_NOT_ANNOUNCED", () => {
+    const findings = [{ type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED", severity: "medium" }];
+    const result = ctx.filterFindingsByDepth(findings, 2);
+    assert.equal(result.length, 0);
+  });
+
+  it("depthMax=3 includes CHAT_NEW_MESSAGE_NOT_ANNOUNCED", () => {
+    const findings = [{ type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED", severity: "medium" }];
+    const result = ctx.filterFindingsByDepth(findings, 3);
+    assert.equal(result.length, 1);
+  });
+
+  it("depthMax=2 excludes CHAT_INPUT_LOSES_FOCUS_ON_UPDATE", () => {
+    const findings = [{ type: "CHAT_INPUT_LOSES_FOCUS_ON_UPDATE", severity: "medium" }];
+    const result = ctx.filterFindingsByDepth(findings, 2);
+    assert.equal(result.length, 0);
+  });
+
+  it("depthMax=3 includes CHAT_INPUT_LOSES_FOCUS_ON_UPDATE", () => {
+    const findings = [{ type: "CHAT_INPUT_LOSES_FOCUS_ON_UPDATE", severity: "medium" }];
+    const result = ctx.filterFindingsByDepth(findings, 3);
+    assert.equal(result.length, 1);
+  });
+});
+
+// ══════════════════════════════════════════════════════
+// C3/C4 Depth-3 rules — Phase B engine-backed rules at depthLevel 3
+// ══════════════════════════════════════════════════════
+
+describe("Depth-3 engine rules (C3/C4)", () => {
+  const ctx = createContext();
+
+  it("CHAT_FEED_MISSING_ROLE has depthLevel 3", () => {
+    assert.equal(ctx.__RULE_TO_WCAG.CHAT_FEED_MISSING_ROLE.depthLevel, 3);
+  });
+
+  it("CHAT_MESSAGE_NOT_ITEMIZED has depthLevel 3", () => {
+    assert.equal(ctx.__RULE_TO_WCAG.CHAT_MESSAGE_NOT_ITEMIZED.depthLevel, 3);
+  });
+
+  it("ANNOUNCEMENT_IN_DIFFERENT_FRAME has depthLevel 3", () => {
+    assert.equal(ctx.__RULE_TO_WCAG.ANNOUNCEMENT_IN_DIFFERENT_FRAME.depthLevel, 3);
+  });
+
+  it("COMPOSER_AND_FEED_SPLIT_WITHOUT_LINKAGE has depthLevel 3", () => {
+    assert.equal(ctx.__RULE_TO_WCAG.COMPOSER_AND_FEED_SPLIT_WITHOUT_LINKAGE.depthLevel, 3);
+  });
+
+  it("depthMax=2 excludes CHAT_FEED_MISSING_ROLE", () => {
+    const result = ctx.filterFindingsByDepth([{ type: "CHAT_FEED_MISSING_ROLE", severity: "medium" }], 2);
+    assert.equal(result.length, 0);
+  });
+
+  it("depthMax=3 includes CHAT_FEED_MISSING_ROLE", () => {
+    const result = ctx.filterFindingsByDepth([{ type: "CHAT_FEED_MISSING_ROLE", severity: "medium" }], 3);
+    assert.equal(result.length, 1);
+  });
+
+  it("depthMax=2 excludes CHAT_MESSAGE_NOT_ITEMIZED", () => {
+    const result = ctx.filterFindingsByDepth([{ type: "CHAT_MESSAGE_NOT_ITEMIZED", severity: "low" }], 2);
+    assert.equal(result.length, 0);
+  });
+
+  it("depthMax=3 includes CHAT_MESSAGE_NOT_ITEMIZED", () => {
+    const result = ctx.filterFindingsByDepth([{ type: "CHAT_MESSAGE_NOT_ITEMIZED", severity: "low" }], 3);
+    assert.equal(result.length, 1);
+  });
+
+  it("depthMax=2 excludes ANNOUNCEMENT_IN_DIFFERENT_FRAME", () => {
+    const result = ctx.filterFindingsByDepth([{ type: "ANNOUNCEMENT_IN_DIFFERENT_FRAME", severity: "medium" }], 2);
+    assert.equal(result.length, 0);
+  });
+
+  it("depthMax=3 includes ANNOUNCEMENT_IN_DIFFERENT_FRAME", () => {
+    const result = ctx.filterFindingsByDepth([{ type: "ANNOUNCEMENT_IN_DIFFERENT_FRAME", severity: "medium" }], 3);
+    assert.equal(result.length, 1);
+  });
+
+  it("depthMax=2 excludes COMPOSER_AND_FEED_SPLIT_WITHOUT_LINKAGE", () => {
+    const result = ctx.filterFindingsByDepth([{ type: "COMPOSER_AND_FEED_SPLIT_WITHOUT_LINKAGE", severity: "medium" }], 2);
+    assert.equal(result.length, 0);
+  });
+
+  it("depthMax=3 includes COMPOSER_AND_FEED_SPLIT_WITHOUT_LINKAGE", () => {
+    const result = ctx.filterFindingsByDepth([{ type: "COMPOSER_AND_FEED_SPLIT_WITHOUT_LINKAGE", severity: "medium" }], 3);
+    assert.equal(result.length, 1);
+  });
+});
+
+// ══════════════════════════════════════════════════════
 // getActiveDepthMax — reads depthMax element value
 // ══════════════════════════════════════════════════════
 

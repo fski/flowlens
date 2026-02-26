@@ -121,4 +121,87 @@ const GENERIC_PROFILES = {
     },
     frameScope: "primary",
   },
+
+  // ── v2 profiles (per-profile version: 2, no global version bump) ──
+
+  "chat_widget_v2": {
+    label: "Chat Widget (v2)",
+    description: "Conversational chat widget with message feed and input",
+    version: 2,
+    intent: "chat_widget",
+    recommended: { depthMax: 3, enableDepth3: true },
+    frame: {
+      urlIncludes: [],
+      domSelectors: [
+        "[role='log']",
+        "[role='feed']",
+        "textarea",
+        "input[type='text']",
+      ],
+    },
+    modeHints: {
+      chat: {
+        roles: ["[role='log']"],
+        testIds: [],
+        url: null,
+      },
+    },
+    frameScope: "embedded",
+  },
+
+  "helpcenter_bot_hybrid_v2": {
+    label: "Help Center + Bot (v2)",
+    description: "Help center with embedded chat or bot interface",
+    version: 2,
+    intent: "hybrid_portal",
+    recommended: { depthMax: 3, enableDepth3: true },
+    frame: {
+      urlIncludes: [],
+      domSelectors: [
+        "[role='main']",
+        "main article",
+        "article",
+        "[role='log']",
+        "[role='feed']",
+      ],
+    },
+    modeHints: {
+      "helpcenter-tree": {
+        roles: ["[role='tree']", "[role='treeitem']"],
+        testIds: [],
+        url: null,
+      },
+      chat: {
+        roles: ["[role='log']"],
+        testIds: [],
+        url: null,
+      },
+    },
+    frameScope: "primary",
+  },
+
+  "helpcenter_static_v2": {
+    label: "Help Center Static (v2)",
+    description: "Static help center with article navigation, no chat",
+    version: 2,
+    intent: "helpcenter_bot",
+    recommended: { depthMax: 2, enableDepth3: false },
+    frame: {
+      urlIncludes: [],
+      domSelectors: [
+        "[role='navigation'][aria-label]",
+        "main article",
+        "article",
+        "[role='main']",
+      ],
+    },
+    modeHints: {
+      "helpcenter-tree": {
+        roles: ["[role='tree']", "[role='treeitem']"],
+        testIds: [],
+        url: null,
+      },
+    },
+    frameScope: "primary",
+  },
 };

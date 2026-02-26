@@ -56,6 +56,7 @@ function validateIncomingMessage(msg, sender) {
     if (msg.rootSelector != null && typeof msg.rootSelector !== "string") return { ok: false, error: "BAD_ROOT_SELECTOR" };
     if (msg.match?.urlIncludes != null && !isStringArray(msg.match.urlIncludes, 80, 256)) return { ok: false, error: "BAD_MATCH_URLS" };
     if (msg.match?.domSelectorsAny != null && !isStringArray(msg.match.domSelectorsAny, 80, 256)) return { ok: false, error: "BAD_MATCH_SELECTORS" };
+    if (msg.match?.urlExcludesAny != null && !isStringArray(msg.match.urlExcludesAny, 80, 256)) return { ok: false, error: "BAD_MATCH_URL_EXCLUDES" };
   }
 
   if (msg.type === "CAPTURE_STEP") {
@@ -68,6 +69,7 @@ function validateIncomingMessage(msg, sender) {
     if (msg.rootSelector != null && typeof msg.rootSelector !== "string") return { ok: false, error: "BAD_ROOT_SELECTOR" };
     if (msg.match?.urlIncludes != null && !isStringArray(msg.match.urlIncludes, 80, 256)) return { ok: false, error: "BAD_MATCH_URLS" };
     if (msg.match?.domSelectorsAny != null && !isStringArray(msg.match.domSelectorsAny, 80, 256)) return { ok: false, error: "BAD_MATCH_SELECTORS" };
+    if (msg.match?.urlExcludesAny != null && !isStringArray(msg.match.urlExcludesAny, 80, 256)) return { ok: false, error: "BAD_MATCH_URL_EXCLUDES" };
   }
 
   return { ok: true };
@@ -120,6 +122,152 @@ function fnv1aHash8(input) {
     h = Math.imul(h, 0x01000193);
   }
   return (h >>> 0).toString(16).padStart(8, "0").slice(0, 8);
+}
+
+// ── Cross-frame integrity merge + C4 evaluators (inlined from engine) ────────
+
+function mergeFrameIntegrity(frameSummaries) {
+  const frames = Array.isArray(frameSummaries) ? frameSummaries : [];
+
+  let feedFrameId = null;
+  let feedLocatorHash = null;
+  let bestMessageCount = -1;
+  let composerFrameId = null;
+  let composerLocatorHash = null;
+  const liveFrameIds = [];
+  let hasLinkage = false;
+  let sharedRootMarker = false;
+  let totalMessageCount = 0;
+  let totalAnnounceEvents = 0;
+  let totalMessageCountDelta = 0;
+  let totalAnnounceEventsDelta = 0;
+
+  for (const f of frames) {
+    const sums = Array.isArray(f.summaries) ? f.summaries : [];
+    if (sums.length === 0) continue;
+
+    const last = sums[sums.length - 1];
+    const secondLast = sums.length >= 2 ? sums[sums.length - 2] : null;
+
+    // Per-frame deltas
+    const msgDelta = secondLast != null
+      ? (last.messageCount || 0) - (secondLast.messageCount || 0)
+      : 0;
+    const annDelta = secondLast != null
+      ? (last.observedAnnounceEvents || 0) - (secondLast.observedAnnounceEvents || 0)
+      : 0;
+
+    totalMessageCountDelta += msgDelta;
+    totalAnnounceEventsDelta += annDelta;
+
+    // Feed frame: highest messageCount with feedLocatorHash
+    if (last.feedLocatorHash && (last.messageCount || 0) > bestMessageCount) {
+      bestMessageCount = last.messageCount || 0;
+      feedFrameId = f.frameId;
+      feedLocatorHash = last.feedLocatorHash;
+    }
+
+    totalMessageCount += last.messageCount || 0;
+    totalAnnounceEvents += last.observedAnnounceEvents || 0;
+
+    // Composer frame
+    if (last.composerLocatorHash && composerFrameId == null) {
+      composerFrameId = f.frameId;
+      composerLocatorHash = last.composerLocatorHash;
+    }
+
+    // Live region frames
+    if ((last.liveRegionCount || 0) > 0) {
+      liveFrameIds.push(f.frameId);
+    }
+
+    // Linkage (OR across frames)
+    if (last.hasLinkage) hasLinkage = true;
+    if (last.sharedRootMarker) sharedRootMarker = true;
+  }
+
+  return {
+    feedFrameId,
+    composerFrameId,
+    liveFrameIds,
+    feedLocatorHash,
+    composerLocatorHash,
+    hasLinkage,
+    sharedRootMarker,
+    messageCount: totalMessageCount,
+    observedAnnounceEvents: totalAnnounceEvents,
+    messageCountDelta: totalMessageCountDelta,
+    announceEventsDelta: totalAnnounceEventsDelta,
+  };
+}
+
+function evaluateC4_1(integrity, opts) {
+  const o = opts || {};
+  const emittedSet = o.emittedSet || null;
+  const i = integrity || {};
+
+  // Transition gating
+  if ((i.messageCountDelta || 0) < 1 && (i.announceEventsDelta || 0) < 1) return null;
+
+  if (i.feedFrameId == null) return null;
+  if (!Array.isArray(i.liveFrameIds) || i.liveFrameIds.length === 0) return null;
+  if ((i.messageCount || 0) < 1) return null;
+
+  // Check split: no overlap between liveFrameIds and feedFrameId
+  const hasOverlap = i.liveFrameIds.some(id => id === i.feedFrameId);
+  if (hasOverlap) return null;
+
+  // Dedup
+  const sortedLive = [...i.liveFrameIds].sort();
+  const dedupKey = "C4.1:" + i.feedFrameId + ":" + sortedLive.join(",");
+
+  if (emittedSet) {
+    if (emittedSet.has(dedupKey)) return null;
+    let count = 0;
+    for (const k of emittedSet) { if (k.startsWith("C4.1:")) count++; }
+    if (count >= 3) return null;
+    emittedSet.add(dedupKey);
+  }
+
+  return {
+    type: "ANNOUNCEMENT_IN_DIFFERENT_FRAME",
+    severity: "medium",
+    wcag: "4.1.3",
+    confidence: "heuristic",
+    note: "Live region announcements detected in a different frame than the chat feed.",
+    el: null,
+  };
+}
+
+function evaluateC4_2(integrity, opts) {
+  const o = opts || {};
+  const emittedSet = o.emittedSet || null;
+  const i = integrity || {};
+
+  if (i.composerFrameId == null) return null;
+  if (i.feedFrameId == null) return null;
+  if (i.composerFrameId === i.feedFrameId) return null;
+  if (i.hasLinkage) return null;
+
+  // Dedup
+  const dedupKey = "C4.2:" + i.feedFrameId + ":" + i.composerFrameId;
+
+  if (emittedSet) {
+    if (emittedSet.has(dedupKey)) return null;
+    let count = 0;
+    for (const k of emittedSet) { if (k.startsWith("C4.2:")) count++; }
+    if (count >= 3) return null;
+    emittedSet.add(dedupKey);
+  }
+
+  return {
+    type: "COMPOSER_AND_FEED_SPLIT_WITHOUT_LINKAGE",
+    severity: "medium",
+    wcag: "1.3.1",
+    confidence: "heuristic",
+    note: "Composer and chat feed are in different frames without ARIA linkage (aria-controls, aria-describedby, aria-owns).",
+    el: null,
+  };
 }
 
 function debugSession(...args) {
@@ -313,6 +461,7 @@ function makeTargetResolution({
   error = null,
   compatibilityMode = false,
   compatibilityReason = null,
+  excludedFrameCount = 0,
 }) {
   return {
     ok: !!ok,
@@ -322,6 +471,7 @@ function makeTargetResolution({
     error,
     compatibilityMode,
     compatibilityReason,
+    excludedFrameCount,
   };
 }
 
@@ -369,6 +519,8 @@ function chooseBestEntry({ action, perFrame, target, probeByFrameId }) {
         const probe = probeByFrameId.get(entry.frameId) || {};
         let rank = 0;
         if (probe.hasChat) rank += 8;
+        const anyMarkerHit = Object.values(probe.markerHits || {}).some(v => v);
+        if (anyMarkerHit) rank += 6;
         if (probe.hasHelpRoot) rank += 4;
         if (probe.hasArticle) rank += 2;
         if (!probe.looksShell) rank += 1;
@@ -428,9 +580,9 @@ async function collectFrameProbeData({ tabId, frames, match }) {
           for (const sel of list) {
             try { out.markerHits[sel] = !!document.querySelector(sel); } catch { out.markerHits[sel] = false; }
           }
-          out.hasHelpRoot = !!document.querySelector("#help-center-root,[data-testid*='help-center'],[data-testid*='HELP'],[data-testid*='HC']");
+          out.hasHelpRoot = !!document.querySelector("[role='main'],main article,[role='navigation'][aria-label]");
           out.hasTree = !!document.querySelector("[role='tree'],[role='treeitem']");
-          out.hasChat = !!document.querySelector("[role='log'],[data-testid^='GST_CHAT__'],#GST_CHAT__FEED");
+          out.hasChat = !!document.querySelector("[role='log'],[role='feed']");
           out.hasArticle = !!document.querySelector("article,[role='article']");
           const focusables = document.querySelectorAll("button,a[href],input,select,textarea,[tabindex]:not([tabindex='-1'])").length;
           const landmarks = document.querySelectorAll("main,[role='main'],nav,[role='navigation'],header,[role='banner'],footer,[role='contentinfo']").length;
@@ -547,6 +699,7 @@ async function executeAuditAcrossFrames({
       frameKeyByFrameId: {},
       compatibilityMode: !!resolved?.compatibilityMode,
       compatibilityReason: resolved?.compatibilityReason || null,
+      excludedFrameCount: resolved?.excludedFrameCount || 0,
     };
   }
 
@@ -575,6 +728,23 @@ async function executeAuditAcrossFrames({
 
   const picked = chooseBestEntry({ action, perFrame: scoredFrames, target, probeByFrameId });
   const bestEntry = picked?.entry || null;
+
+  // ── C4 cross-frame evaluation ──────────────────────────────────────────
+  if (usedFrameIds.length > 1 && bestEntry?.ok && (action === "run" || action === "observe")) {
+    const frameSummaries = scoredFrames.map(f => ({
+      frameId: f.frameId,
+      summaries: f.result?.transitionStateSummaries || [],
+    }));
+    const integrity = mergeFrameIntegrity(frameSummaries);
+    const c4Set = new Set();
+    const c4_1 = evaluateC4_1(integrity, { emittedSet: c4Set });
+    const c4_2 = evaluateC4_2(integrity, { emittedSet: c4Set });
+    if (bestEntry.result?.findings) {
+      if (c4_1) bestEntry.result.findings.push(c4_1);
+      if (c4_2) bestEntry.result.findings.push(c4_2);
+    }
+  }
+
   const perFrame = scoredFrames.map(compactFramePayload);
   const frameKeyByFrameId = Object.fromEntries(scoredFrames.map(x => [String(x.frameId), x.frameKey]));
   const frameKeyStableByFrameId = Object.fromEntries(scoredFrames.map(x => [String(x.frameId), x.frameKeyStable]));
@@ -606,6 +776,7 @@ async function executeAuditAcrossFrames({
     frameSignalsHashByFrameId,
     compatibilityMode: !!resolved?.compatibilityMode,
     compatibilityReason: resolved?.compatibilityReason || null,
+    excludedFrameCount: resolved?.excludedFrameCount || 0,
   };
 }
 
@@ -971,12 +1142,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 async function computeFrameScores({ tabId, frames, match, legacyAutoFanout = false }) {
   const selectors = Array.isArray(match?.domSelectorsAny) ? match.domSelectorsAny : [];
   const urlIncludes = Array.isArray(match?.urlIncludes) ? match.urlIncludes : [];
+  const urlExcludes = Array.isArray(match?.urlExcludesAny) ? match.urlExcludesAny : [];
   const hasHeuristics = selectors.length > 0 || urlIncludes.length > 0;
 
   const urlScores = new Map();
+  const excludedFrameIds = new Set();
   for (const f of frames || []) {
     let s = 0;
     const u = (f.url || "").toLowerCase();
+    // URL exclude gate
+    let excluded = false;
+    for (const exc of urlExcludes) {
+      if (u.includes(String(exc).toLowerCase())) { excluded = true; break; }
+    }
+    if (excluded) {
+      excludedFrameIds.add(f.frameId);
+      urlScores.set(f.frameId, 0);
+      continue;
+    }
     for (const inc of urlIncludes) {
       if (u.includes(String(inc).toLowerCase())) s += 5;
     }
@@ -1017,14 +1200,21 @@ async function computeFrameScores({ tabId, frames, match, legacyAutoFanout = fal
 
   const maxArea = Math.max(1, ...([...frameSizes.values()]));
   const scored = sortByScoreThenFrameId((frames || []).map(f => {
+    // URL-excluded frames get hard score=0
+    if (excludedFrameIds.has(f.frameId)) return { frameId: f.frameId, score: 0 };
     let score = urlScores.get(f.frameId) || 0;
-    if (domMatches.get(f.frameId)) score += 10;
+    if (domMatches.get(f.frameId)) {
+      score += 10;
+    } else if (selectors.length > 0) {
+      // Hard gate: domSelectorsAny provided but no DOM match in this frame
+      score = 0;
+    }
     const area = frameSizes.get(f.frameId) || 0;
-    if (area > 0) score += Math.round((area / maxArea) * 3);
+    if (score > 0 && area > 0) score += Math.round((area / maxArea) * 3);
     return { frameId: f.frameId, score };
   }));
 
-  return { scored, hasHeuristics };
+  return { scored, hasHeuristics, excludedFrameCount: excludedFrameIds.size };
 }
 
 function pickBestFrameFromCandidates({ scored, candidateIds, fallbackToTop = false }) {
@@ -1051,11 +1241,13 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
     legacyAutoFanout: normalized.compatibilityMode && normalized.legacyMode === "auto",
   });
   const scored = scores.scored || [];
+  const _efc = scores.excludedFrameCount || 0;
+  const _resolve = (opts) => makeTargetResolution({ ...opts, excludedFrameCount: _efc });
 
   // Legacy payload compatibility (scope absent from old panel/runtime combinations).
   if (normalized.compatibilityMode) {
     if (normalized.legacyMode === "top") {
-      return makeTargetResolution({
+      return _resolve({
         ok: true,
         frameIds: [0],
         scope: FRAME_SCOPE.HOST,
@@ -1065,7 +1257,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
       });
     }
     if (normalized.legacyMode === "all") {
-      return makeTargetResolution({
+      return _resolve({
         ok: true,
         frameIds: allFrameIds,
         scope: FRAME_SCOPE.ALL,
@@ -1077,7 +1269,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
     if (normalized.legacyMode === "manual") {
       const ids = normalizeFrameIds(manualFrameIds);
       if (!ids.length) {
-        return makeTargetResolution({
+        return _resolve({
           ok: false,
           frameIds: [],
           scope: FRAME_SCOPE.PRIMARY,
@@ -1087,7 +1279,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
           compatibilityReason: normalized.reason,
         });
       }
-      return makeTargetResolution({
+      return _resolve({
         ok: true,
         frameIds: [ids[0]],
         scope: FRAME_SCOPE.PRIMARY,
@@ -1098,7 +1290,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
     }
     if (normalized.legacyMode === "auto") {
       if (!scores.hasHeuristics) {
-        return makeTargetResolution({
+        return _resolve({
           ok: true,
           frameIds: [0],
           scope: FRAME_SCOPE.PRIMARY,
@@ -1109,7 +1301,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
       }
       const topScore = scored[0]?.score ?? 0;
       if (topScore <= 0) {
-        return makeTargetResolution({
+        return _resolve({
           ok: true,
           frameIds: [0],
           scope: FRAME_SCOPE.PRIMARY,
@@ -1121,7 +1313,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
       const picked = scored
         .filter(x => x.score >= topScore - 3 && x.score > 0)
         .map(x => x.frameId);
-      return makeTargetResolution({
+      return _resolve({
         ok: true,
         frameIds: picked.length ? picked : [0],
         scope: FRAME_SCOPE.PRIMARY,
@@ -1133,7 +1325,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
   }
 
   if (!allFrameIds.length) {
-    return makeTargetResolution({
+    return _resolve({
       ok: false,
       frameIds: [],
       scope: normalized.scope,
@@ -1146,7 +1338,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
   const embeddedFrameIds = allFrameIds.filter(id => id !== 0);
 
   if (normalized.scope === FRAME_SCOPE.ALL) {
-    return makeTargetResolution({
+    return _resolve({
       ok: true,
       frameIds: allFrameIds,
       scope: FRAME_SCOPE.ALL,
@@ -1157,7 +1349,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
   if (normalized.scope === FRAME_SCOPE.HOST) {
     if (manualOverride) {
       if (manualFrameId !== 0) {
-        return makeTargetResolution({
+        return _resolve({
           ok: false,
           frameIds: [],
           scope: FRAME_SCOPE.HOST,
@@ -1165,7 +1357,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
           error: "MANUAL_FRAMES_MISSING",
         });
       }
-      return makeTargetResolution({
+      return _resolve({
         ok: true,
         frameIds: [0],
         scope: FRAME_SCOPE.HOST,
@@ -1173,7 +1365,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
       });
     }
     if (!hostFrameIds.length) {
-      return makeTargetResolution({
+      return _resolve({
         ok: false,
         frameIds: [],
         scope: FRAME_SCOPE.HOST,
@@ -1181,7 +1373,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
         error: "NO_SCOPE_MATCH",
       });
     }
-    return makeTargetResolution({
+    return _resolve({
       ok: true,
       frameIds: [0],
       scope: FRAME_SCOPE.HOST,
@@ -1192,7 +1384,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
   if (normalized.scope === FRAME_SCOPE.EMBEDDED) {
     if (manualOverride) {
       if (!embeddedFrameIds.includes(manualFrameId)) {
-        return makeTargetResolution({
+        return _resolve({
           ok: false,
           frameIds: [],
           scope: FRAME_SCOPE.EMBEDDED,
@@ -1200,7 +1392,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
           error: "MANUAL_FRAMES_MISSING",
         });
       }
-      return makeTargetResolution({
+      return _resolve({
         ok: true,
         frameIds: [manualFrameId],
         scope: FRAME_SCOPE.EMBEDDED,
@@ -1208,7 +1400,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
       });
     }
     if (!embeddedFrameIds.length) {
-      return makeTargetResolution({
+      return _resolve({
         ok: false,
         frameIds: [],
         scope: FRAME_SCOPE.EMBEDDED,
@@ -1218,7 +1410,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
     }
     const picked = pickBestFrameFromCandidates({ scored, candidateIds: embeddedFrameIds, fallbackToTop: false });
     if (!picked?.frameId && picked?.frameId !== 0) {
-      return makeTargetResolution({
+      return _resolve({
         ok: false,
         frameIds: [],
         scope: FRAME_SCOPE.EMBEDDED,
@@ -1226,7 +1418,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
         error: "NO_SCOPE_MATCH",
       });
     }
-    return makeTargetResolution({
+    return _resolve({
       ok: true,
       frameIds: [picked.frameId],
       scope: FRAME_SCOPE.EMBEDDED,
@@ -1237,7 +1429,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
   // PRIMARY scope (default): exactly one frame, auto-selected from all candidates.
   if (manualOverride) {
     if (!allFrameIds.includes(manualFrameId)) {
-      return makeTargetResolution({
+      return _resolve({
         ok: false,
         frameIds: [],
         scope: FRAME_SCOPE.PRIMARY,
@@ -1245,7 +1437,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
         error: "MANUAL_FRAMES_MISSING",
       });
     }
-    return makeTargetResolution({
+    return _resolve({
       ok: true,
       frameIds: [manualFrameId],
       scope: FRAME_SCOPE.PRIMARY,
@@ -1255,7 +1447,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
 
   const primary = pickBestFrameFromCandidates({ scored, candidateIds: allFrameIds, fallbackToTop: true });
   if (!primary?.frameId && primary?.frameId !== 0) {
-    return makeTargetResolution({
+    return _resolve({
       ok: false,
       frameIds: [],
       scope: FRAME_SCOPE.PRIMARY,
@@ -1263,7 +1455,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
       error: "NO_SCOPE_MATCH",
     });
   }
-  return makeTargetResolution({
+  return _resolve({
     ok: true,
     frameIds: [primary.frameId],
     scope: FRAME_SCOPE.PRIMARY,
