@@ -246,6 +246,383 @@
 
   // FIX_SUGGESTIONS moved to panel.js to reduce injected snippet size
 
+  // ──────── State Transition Engine (Depth 3) ────────────────────────────────
+  // Inline copy of src/engine/stateTransitionEngine.js pure functions.
+  // Parity enforced by test/snippet-engine-parity.test.mjs.
+  //
+  // Deterministic definitions:
+  //   liveRegionPresent — within root scope, exists ≥1 element with
+  //     aria-live != "off" OR role="status"/"alert". Do NOT treat role="log"/
+  //     "feed" as live region automatically unless aria-live is present.
+  //   announceEventCount — number of observed mutation events affecting live
+  //     region candidate elements. Counters only (no timestamps, no samples).
+
+  const STE_MAX_LIVE_REGIONS = 5;
+  const STE_MAX_CANDIDATES = 3;
+  const STE_MAX_FALLBACK_QS = 3;
+
+  const CHAT_CONTAINER_SELECTOR =
+    "[role='log'],[role='feed'],[aria-live]:not([aria-live='off'])," +
+    "[aria-label*='chat' i],[aria-label*='message' i]";
+  const LIVE_REGION_SELECTOR =
+    "[aria-live]:not([aria-live='off']),[role='status'],[role='alert']";
+
+  function steFnv1aHash8(input) {
+    const s = String(input ?? "");
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+    return (h >>> 0).toString(16).padStart(8, "0").slice(0, 8);
+  }
+
+  function steBuildLocator(el) {
+    if (!isEl(el)) return null;
+    return {
+      tag: el.tagName?.toLowerCase() || null,
+      role: el.getAttribute?.("role") || null,
+      testId: testId(el),
+      cssPath: cssPath(el),
+    };
+  }
+
+  function steHashLocator(loc) {
+    if (!loc) return "00000000";
+    return steFnv1aHash8([loc.tag, loc.role, loc.testId, loc.cssPath].join("|"));
+  }
+
+  // Normalize a plain artifact object to a locator (matches engine buildLocator).
+  // Distinct from steBuildLocator which operates on DOM elements.
+  function steNormalizeLocator(artifact) {
+    if (!artifact) return null;
+    return {
+      tag: artifact.tag ? String(artifact.tag).toLowerCase() : null,
+      role: artifact.role ? String(artifact.role) : null,
+      testId: artifact.testId ? String(artifact.testId) : null,
+      cssPath: artifact.cssPath ? String(artifact.cssPath) : "",
+    };
+  }
+
+  function steClassifyPoliteness(region) {
+    const al = region.ariaLive ? String(region.ariaLive).toLowerCase() : "";
+    if (al === "polite") return "polite";
+    if (al === "assertive") return "assertive";
+    if (al === "off") return "off";
+    const role = region.role ? String(region.role).toLowerCase() : "";
+    if (role === "status") return "polite";
+    if (role === "alert") return "assertive";
+    return "unknown";
+  }
+
+  function steBuildTransitionState({ frameId, frameKeyStable, rootSelector, captureArtifacts }) {
+    const ca = captureArtifacts || {};
+    const candidates = Array.isArray(ca.chatCandidates) ? ca.chatCandidates.slice(0, STE_MAX_CANDIDATES) : [];
+    const liveRegions = Array.isArray(ca.liveRegions) ? ca.liveRegions.slice(0, STE_MAX_LIVE_REGIONS) : [];
+    const capped =
+      (Array.isArray(ca.chatCandidates) && ca.chatCandidates.length > STE_MAX_CANDIDATES) ||
+      (Array.isArray(ca.liveRegions) && ca.liveRegions.length > STE_MAX_LIVE_REGIONS);
+
+    let feedCandidate = null;
+    for (const c of candidates) {
+      const r = c.role ? String(c.role).toLowerCase() : "";
+      if (r === "log" || r === "feed") { feedCandidate = c; break; }
+    }
+    if (!feedCandidate && candidates.length > 0) feedCandidate = candidates[0];
+
+    const feedLocator = feedCandidate ? steNormalizeLocator(feedCandidate.locator || feedCandidate) : null;
+    const feedRole = feedCandidate
+      ? (function () { const r = (feedCandidate.role || "").toLowerCase(); return r === "log" ? "log" : r === "feed" ? "feed" : "none"; })()
+      : "unknown";
+    const messageCount = feedCandidate ? (typeof feedCandidate.childCount === "number" ? feedCandidate.childCount : 0) : 0;
+    const lastChild = feedCandidate && feedCandidate.lastChildLocator ? steNormalizeLocator(feedCandidate.lastChildLocator) : null;
+    const activeLocator = ca.activeLocator ? steNormalizeLocator(ca.activeLocator) : null;
+
+    const rawItem = (feedCandidate && feedCandidate.itemization) || {};
+    const itemization = {
+      sampleCount: typeof rawItem.sampleCount === "number" ? rawItem.sampleCount : 0,
+      hasItemRoles: !!rawItem.hasItemRoles, looksListLike: !!rawItem.looksListLike,
+      distinctItemLocators: typeof rawItem.distinctItemLocators === "number" ? rawItem.distinctItemLocators : 0,
+      score01: typeof rawItem.score01 === "number" ? rawItem.score01 : 0,
+    };
+    const rawLink = (feedCandidate && feedCandidate.linkage) || {};
+    const linkage = {
+      ariaControlsLink: !!rawLink.ariaControlsLink, ariaDescribedByLink: !!rawLink.ariaDescribedByLink,
+      ariaOwnsLink: !!rawLink.ariaOwnsLink, sharedRootMarker: !!rawLink.sharedRootMarker,
+    };
+
+    return {
+      frameId: frameId ?? 0, frameKeyStable: frameKeyStable || "", rootSelector: rootSelector || null,
+      focus: { activeLocator, isInComposer: !!ca.isInComposer },
+      chat: { feedLocator, feedRole, messageCount, lastMessageItemLocator: lastChild, itemization, linkage },
+      live: {
+        regions: liveRegions.map(r => ({ locator: steNormalizeLocator(r.locator || r), politeness: steClassifyPoliteness(r), atomic: "unknown" })),
+        observedAnnounceEvents: typeof ca.announceEventCount === "number" ? ca.announceEventCount : 0,
+        observedLiveMutations: typeof ca.liveMutationCount === "number" ? ca.liveMutationCount : 0,
+      },
+      quality: { captureMode: ca.captureMode || "observe", capped },
+    };
+  }
+
+  function steBuildStateDelta(prevState, nextState) {
+    const prev = prevState || {}; const next = nextState || {};
+    const pf = prev.focus || {}; const nf = next.focus || {};
+    const pc = prev.chat || {}; const nc = next.chat || {};
+    const pl = prev.live || {}; const nl = next.live || {};
+
+    const focusChanged = steHashLocator(pf.activeLocator) !== steHashLocator(nf.activeLocator);
+    const composerLostFocus = !!pf.isInComposer && !nf.isInComposer && focusChanged;
+    const messageCountDelta = typeof nc.messageCount === "number" && typeof pc.messageCount === "number"
+      ? nc.messageCount - pc.messageCount : 0;
+    const announceEventCountDelta = (nl.observedAnnounceEvents || 0) - (pl.observedAnnounceEvents || 0);
+    const liveMutationCountDelta = (nl.observedLiveMutations || 0) - (pl.observedLiveMutations || 0);
+    const liveRegionPresent = (nl.regions || []).some(r => { const p = r.politeness || "unknown"; return p === "polite" || p === "assertive"; });
+    const announcementsLikelyMissing = messageCountDelta >= 1 && announceEventCountDelta === 0 && !liveRegionPresent;
+
+    const feedLocator = nc.feedLocator || pc.feedLocator || null;
+    const composerLocator = composerLostFocus ? (pf.activeLocator || null) : null;
+    const liveRegionLocator = (nl.regions || []).length > 0 ? (nl.regions[0].locator || null) : null;
+
+    const feedRoleChanged = (pc.feedRole || "unknown") !== (nc.feedRole || "unknown");
+    const prevItem = (pc.itemization || {}); const nextItem = (nc.itemization || {});
+    const itemizationScoreDelta = typeof nextItem.score01 === "number" && typeof prevItem.score01 === "number"
+      ? nextItem.score01 - prevItem.score01 : null;
+
+    return {
+      focusChanged, composerLostFocus, messageCountDelta,
+      feedRole: nc.feedRole || null,
+      announcementsLikelyMissing, liveRegionPresent, liveMutationCountDelta, announceEventCountDelta,
+      feedRoleChanged, itemizationScoreDelta, frameSplitChanged: false,
+      evidence: { feedLocator, composerLocator, liveRegionLocator },
+    };
+  }
+
+  function steEvaluateC1(delta, prevState, nextState, opts) {
+    const o = opts || {}; const emittedSet = o.emittedSet || null;
+    const quality = (nextState || {}).quality || {};
+    if (delta.messageCountDelta < 1) return null;
+    if (delta.liveRegionPresent && delta.announceEventCountDelta > 0) return null;
+    const hasFeedContext = delta.feedRole === "log" || delta.feedRole === "feed" || delta.evidence.feedLocator != null;
+    if (!hasFeedContext) return null;
+
+    const evidenceHash = delta.evidence.feedLocator ? steHashLocator(delta.evidence.feedLocator) : "global";
+    const dedupKey = "C1:" + ((nextState || {}).frameKeyStable || "") + ":" + evidenceHash;
+    if (emittedSet) {
+      if (emittedSet.has(dedupKey)) return null;
+      let c1Count = 0; for (const k of emittedSet) { if (k.startsWith("C1:")) c1Count++; }
+      if (c1Count >= 3) return null;
+      emittedSet.add(dedupKey);
+    }
+
+    let severity = "medium"; let noteSuffix = "";
+    if (quality.capped && !delta.evidence.feedLocator) { severity = "low"; noteSuffix = " (reduced confidence: capture capped, evidence locator missing)"; }
+
+    return { type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED", severity, wcag: "4.1.3", confidence: "heuristic",
+      note: "Chat container received new messages but lacks announcement semantics (role=log, role=feed, or aria-live)." + noteSuffix,
+      evidenceLocatorHash: evidenceHash,
+      evidenceCssPath: delta.evidence.feedLocator ? delta.evidence.feedLocator.cssPath : null };
+  }
+
+  function steEvaluateC2(delta, prevState, nextState, opts) {
+    const o = opts || {}; const emittedSet = o.emittedSet || null;
+    const quality = (nextState || {}).quality || {};
+    if (!delta.composerLostFocus) return null;
+    const hasFeedContext = delta.feedRole === "log" || delta.feedRole === "feed" || delta.evidence.feedLocator != null;
+    const hasUpdateSignal = delta.messageCountDelta >= 1 || delta.announceEventCountDelta >= 1 ||
+      (delta.liveMutationCountDelta >= 1 && hasFeedContext);
+    if (!hasUpdateSignal) return null;
+
+    const evidenceHash = delta.evidence.composerLocator ? steHashLocator(delta.evidence.composerLocator) : "global";
+    const dedupKey = "C2:" + ((nextState || {}).frameKeyStable || "") + ":" + evidenceHash;
+    if (emittedSet) {
+      if (emittedSet.has(dedupKey)) return null;
+      let c2Count = 0; for (const k of emittedSet) { if (k.startsWith("C2:")) c2Count++; }
+      if (c2Count >= 3) return null;
+      emittedSet.add(dedupKey);
+    }
+
+    let severity = "medium"; let noteSuffix = "";
+    if (quality.capped && !delta.evidence.composerLocator) { severity = "low"; noteSuffix = " (reduced confidence: capture capped, evidence locator missing)"; }
+
+    return { type: "CHAT_INPUT_LOSES_FOCUS_ON_UPDATE", severity, wcag: "2.4.3", confidence: "heuristic",
+      note: "Chat input lost focus after a content update; may disrupt typing." + noteSuffix,
+      evidenceLocatorHash: evidenceHash,
+      evidenceCssPath: delta.evidence.composerLocator ? delta.evidence.composerLocator.cssPath : null };
+  }
+
+  function steEvaluateC3_1(delta, prevState, nextState, opts) {
+    const o = opts || {}; const emittedSet = o.emittedSet || null;
+    const next = nextState || {}; const quality = next.quality || {};
+    const chat = next.chat || {};
+    if (!chat.feedLocator) return null;
+    if (chat.feedRole !== "none" && chat.feedRole !== "unknown") return null;
+
+    const evidenceHash = steHashLocator(chat.feedLocator);
+    const dedupKey = "C3.1:" + (next.frameKeyStable || "") + ":" + evidenceHash;
+    if (emittedSet) {
+      if (emittedSet.has(dedupKey)) return null;
+      let count = 0; for (const k of emittedSet) { if (k.startsWith("C3.1:")) count++; }
+      if (count >= 3) return null;
+      emittedSet.add(dedupKey);
+    }
+
+    let severity = "medium"; let noteSuffix = "";
+    if (quality.capped && !chat.feedLocator) { severity = "low"; noteSuffix = " (reduced confidence: capture capped, evidence locator missing)"; }
+
+    return { type: "CHAT_FEED_MISSING_ROLE", severity, wcag: "1.3.1", confidence: "heuristic",
+      note: "Chat feed container detected but lacks role=\"log\" or role=\"feed\" for assistive technology." + noteSuffix,
+      evidenceLocatorHash: evidenceHash,
+      evidenceCssPath: chat.feedLocator ? chat.feedLocator.cssPath : null };
+  }
+
+  function steEvaluateC3_2(delta, prevState, nextState, opts) {
+    const o = opts || {}; const emittedSet = o.emittedSet || null;
+    const next = nextState || {}; const quality = next.quality || {};
+    const chat = next.chat || {}; const item = chat.itemization || {};
+    if (!chat.feedLocator) return null;
+    if (chat.messageCount < 2) return null;
+    if (typeof item.score01 === "number" && item.score01 >= 0.5) return null;
+
+    const evidenceHash = steHashLocator(chat.feedLocator);
+    const dedupKey = "C3.2:" + (next.frameKeyStable || "") + ":" + evidenceHash;
+    if (emittedSet) {
+      if (emittedSet.has(dedupKey)) return null;
+      let count = 0; for (const k of emittedSet) { if (k.startsWith("C3.2:")) count++; }
+      if (count >= 3) return null;
+      emittedSet.add(dedupKey);
+    }
+
+    let severity = "low"; let noteSuffix = "";
+    if (quality.capped && !chat.feedLocator) { severity = "low"; noteSuffix = " (reduced confidence: capture capped, evidence locator missing)"; }
+
+    return { type: "CHAT_MESSAGE_NOT_ITEMIZED", severity, wcag: "1.3.1", confidence: "heuristic",
+      note: "Chat messages are not represented with semantic item roles (article, listitem)." + noteSuffix,
+      evidenceLocatorHash: evidenceHash,
+      evidenceCssPath: chat.feedLocator ? chat.feedLocator.cssPath : null };
+  }
+
+  function steBuildTransitionStateSummary(state) {
+    if (!state) return null;
+    const chatLink = (state.chat && state.chat.linkage) || {};
+    const chatItem = (state.chat && state.chat.itemization) || {};
+    return {
+      frameId: state.frameId, frameKeyStable: state.frameKeyStable,
+      feedLocatorHash: state.chat.feedLocator ? steHashLocator(state.chat.feedLocator) : null,
+      feedRole: state.chat.feedRole || null, messageCount: state.chat.messageCount || 0,
+      composerLocatorHash: state.focus.isInComposer && state.focus.activeLocator ? steHashLocator(state.focus.activeLocator) : null,
+      liveRegionCount: (state.live.regions || []).length,
+      observedAnnounceEvents: state.live.observedAnnounceEvents || 0,
+      observedLiveMutations: state.live.observedLiveMutations || 0,
+      captureMode: state.quality.captureMode, capped: state.quality.capped,
+      itemizationScore01: typeof chatItem.score01 === "number" ? chatItem.score01 : 0,
+      hasLinkage: !!(chatLink.ariaControlsLink || chatLink.ariaDescribedByLink || chatLink.ariaOwnsLink),
+      sharedRootMarker: !!chatLink.sharedRootMarker,
+    };
+  }
+
+  function steIsComposerElement(el) {
+    if (!isEl(el)) return false;
+    const tag = (el.tagName || "").toLowerCase();
+    const isInput = tag === "textarea" || (tag === "input" && (el.type || "text") === "text");
+    if (!isInput) return false;
+    return !!el.closest(CHAT_CONTAINER_SELECTOR);
+  }
+
+  function steBuildCaptureArtifacts(captureMode, announceCount, mutationCount) {
+    const chatContainers = doc.querySelectorAll(CHAT_CONTAINER_SELECTOR);
+    const chatCandidates = [];
+    for (let ci = 0; ci < Math.min(chatContainers.length, STE_MAX_CANDIDATES); ci++) {
+      const c = chatContainers[ci];
+      const loc = steBuildLocator(c);
+      const cRole = (c.getAttribute("role") || "").toLowerCase();
+
+      // Itemization sampling: up to STE_MAX_CANDIDATES children
+      const kids = c.children;
+      const sampleCount = Math.min(kids.length, STE_MAX_CANDIDATES);
+      let hasItemRoles = false;
+      const locHashes = new Set();
+      for (let si = 0; si < sampleCount; si++) {
+        const kid = kids[si];
+        const kr = (kid.getAttribute("role") || "").toLowerCase();
+        if (kr === "article" || kr === "listitem") hasItemRoles = true;
+        locHashes.add(steHashLocator(steBuildLocator(kid)));
+      }
+      const feedTag = (c.tagName || "").toLowerCase();
+      const looksListLike = feedTag === "ul" || feedTag === "ol" || cRole === "log" || cRole === "feed" || cRole === "list";
+      const distinctItemLocators = locHashes.size;
+      let score01 = 0;
+      if (hasItemRoles) score01 += 0.4;
+      if (looksListLike) score01 += 0.3;
+      if (distinctItemLocators >= 2) score01 += 0.3;
+
+      // Linkage detection: check feed + composer sides (up to 3 ancestors each)
+      let ariaControlsLink = false, ariaDescribedByLink = false, ariaOwnsLink = false;
+      const checkLinkageAttrs = (el) => {
+        let cur = el;
+        for (let ai = 0; ai <= 3 && cur && cur !== doc.body; ai++) {
+          if (cur.hasAttribute && cur.hasAttribute("aria-controls")) ariaControlsLink = true;
+          if (cur.hasAttribute && cur.hasAttribute("aria-describedby")) ariaDescribedByLink = true;
+          if (cur.hasAttribute && cur.hasAttribute("aria-owns")) ariaOwnsLink = true;
+          cur = cur.parentElement;
+        }
+      };
+      checkLinkageAttrs(c); // feed side
+
+      chatCandidates.push({ locator: loc, role: c.getAttribute("role") || null,
+        ariaLive: c.getAttribute("aria-live") || null,
+        childCount: c.children.length,
+        lastChildLocator: c.lastElementChild ? steBuildLocator(c.lastElementChild) : null,
+        itemization: { sampleCount, hasItemRoles, looksListLike, distinctItemLocators, score01 },
+        linkage: { ariaControlsLink, ariaDescribedByLink, ariaOwnsLink, sharedRootMarker: false },
+        _el: c });
+    }
+
+    const lrEls = doc.querySelectorAll(LIVE_REGION_SELECTOR);
+    const liveRegions = [];
+    for (let li = 0; li < Math.min(lrEls.length, STE_MAX_LIVE_REGIONS); li++) {
+      const r = lrEls[li];
+      liveRegions.push({ locator: steBuildLocator(r), ariaLive: r.getAttribute("aria-live") || null,
+        role: r.getAttribute("role") || null, _el: r });
+    }
+
+    const ae = doc.activeElement;
+    const activeEl = ae && ae !== doc.body ? ae : null;
+    const activeLocator = activeEl ? steBuildLocator(activeEl) : null;
+
+    return {
+      activeLocator, isInComposer: activeEl ? steIsComposerElement(activeEl) : false,
+      chatCandidates, liveRegions,
+      announceEventCount: announceCount || 0, liveMutationCount: mutationCount || 0,
+      captureMode: captureMode || "observe",
+      _activeEl: activeEl,
+    };
+  }
+
+  function steResolveElement(finding, artifacts) {
+    if (!finding) return null;
+    const hash = finding.evidenceLocatorHash;
+    // Build elementMapByHash from artifacts
+    const map = new Map();
+    for (const c of (artifacts.chatCandidates || [])) {
+      if (c._el && c.locator) map.set(steHashLocator(c.locator), c._el);
+    }
+    for (const r of (artifacts.liveRegions || [])) {
+      if (r._el && r.locator) map.set(steHashLocator(r.locator), r._el);
+    }
+    if (artifacts._activeEl && artifacts.activeLocator) {
+      map.set(steHashLocator(artifacts.activeLocator), artifacts._activeEl);
+    }
+
+    let el = map.get(hash) || null;
+    // Fallback: querySelector with cap
+    if (!el && finding.evidenceCssPath && typeof steResolveElement._fallbackCount === "undefined") {
+      steResolveElement._fallbackCount = 0;
+    }
+    if (!el && finding.evidenceCssPath && (steResolveElement._fallbackCount || 0) < STE_MAX_FALLBACK_QS) {
+      try { el = doc.querySelector(finding.evidenceCssPath); steResolveElement._fallbackCount = (steResolveElement._fallbackCount || 0) + 1; } catch {}
+    }
+    return el;
+  }
+
+  // ──────── End State Transition Engine ──────────────────────────────────────
+
   const RULE_REGISTRY = {
     FOCUS_VISIBLE_SUPPRESSED: {
       id: "FOCUS_VISIBLE_SUPPRESSED",
@@ -498,7 +875,7 @@
   const hasAnnouncementHook = () =>
     !!doc.querySelector("[aria-live='polite'],[aria-live='assertive'],[role='status'],[role='alert']");
 
-  const DEFAULT_APP_MARKERS = "[data-testid^='GST_CHAT__'], #GST_CHAT__FEED, [data-testid*='HELP'], [data-testid*='HC']";
+  const DEFAULT_APP_MARKERS = "[role='log'], [role='feed'], [role='navigation'][aria-label], [role='main'] article";
 
   const sanity = (appMarkersSel) => {
     const q = (sel) => { try { return doc.querySelectorAll(sel).length; } catch { return 0; } };
@@ -526,17 +903,17 @@
   const defaultModeHints = {
     chat: {
       roles: ["[role='log']"],
-      testIds: ["[data-testid^='GST_CHAT__']", "#GST_CHAT__FEED"],
+      testIds: [],
       url: null,
     },
     "helpcenter-bot": {
       roles: [],
-      testIds: ["[data-testid*='conversational']", "[data-testid*='BOT']"],
-      url: /new-conversation/i,
+      testIds: [],
+      url: null,
     },
     "helpcenter-tree": {
       roles: ["[role='tree']", "[role='treeitem']"],
-      testIds: ["[data-testid*='TREE']"],
+      testIds: [],
       url: null,
     },
   };
@@ -3034,7 +3411,7 @@
         if (timer) clearInterval(timer);
         if (timeout) clearTimeout(timeout);
         const unique = uniqBy(merged, x => `${x.type}|${x.severity}|${x.product||""}|${x.path||""}|${JSON.stringify(x.extra||{})}`);
-        const result = { timestamp: nowIso(), seconds, intervalMs, snapshots, findings: unique, href: w.location.href };
+        const result = { timestamp: nowIso(), seconds, intervalMs, snapshots, findings: unique, href: w.location.href, transitionStateSummaries: transitionSummaries.length ? transitionSummaries : null };
         api.lastObserved = result;
         observeInFlight = null;
 
@@ -3046,9 +3423,11 @@
         resolve(result);
       };
 
-      // State-based rule: CHAT_NEW_MESSAGE_NOT_ANNOUNCED
-      let chatMsgCandidates = null; // Map<element, childCount> from previous tick
-      let chatNewMsgEmitted = false;
+      // State Transition Engine — observe mode
+      let prevTransitionState = null;
+      const observeEmittedSet = new Set();
+      const transitionSummaries = [];
+      steResolveElement._fallbackCount = 0;
 
       const totalTicks = Math.max(1, Math.ceil((seconds * 1000) / intervalMs));
       const tick = () => {
@@ -3072,50 +3451,32 @@
         });
         merged.push(...r.findings);
 
-        // CHAT_NEW_MESSAGE_NOT_ANNOUNCED — state-based (observe mode)
-        // Compare chat container child counts across ticks. If children increase
-        // but container lacks role=log/feed/aria-live, emit a heuristic finding.
-        if (!chatNewMsgEmitted) {
-          try {
-            const chatContainers = doc.querySelectorAll(
-              "[role='log'],[role='feed'],[aria-live]:not([aria-live='off'])," +
-              "[aria-label*='chat' i],[aria-label*='message' i]"
-            );
-            const candidates = [];
-            for (let ci = 0; ci < Math.min(chatContainers.length, 3); ci++) {
-              candidates.push(chatContainers[ci]);
+        // State Transition Engine — observe mode C1/C3 evaluation
+        try {
+          const artifacts = steBuildCaptureArtifacts("observe", 0, 0);
+          const nextState = steBuildTransitionState({ frameId: 0, frameKeyStable: "", rootSelector: null, captureArtifacts: artifacts });
+          transitionSummaries.push(steBuildTransitionStateSummary(nextState));
+          if (prevTransitionState) {
+            const delta = steBuildStateDelta(prevTransitionState, nextState);
+            const c1 = steEvaluateC1(delta, prevTransitionState, nextState, { emittedSet: observeEmittedSet });
+            if (c1) {
+              const el = steResolveElement(c1, artifacts);
+              add(merged, { type: c1.type, el, severity: c1.severity, wcag: c1.wcag, confidence: c1.confidence, note: c1.note });
             }
-            if (chatMsgCandidates === null) {
-              // First tick — snapshot child counts
-              chatMsgCandidates = new Map();
-              for (const c of candidates) chatMsgCandidates.set(c, c.children.length);
-            } else {
-              // Subsequent ticks — check for new children without announcement semantics
-              for (const c of candidates) {
-                const prev = chatMsgCandidates.get(c) || 0;
-                const curr = c.children.length;
-                if (curr > prev) {
-                  const hasAnnounce = c.matches("[role='log'],[role='feed']") ||
-                    c.hasAttribute("aria-live") ||
-                    !!c.closest("[role='log'],[role='feed'],[aria-live]:not([aria-live='off'])");
-                  if (!hasAnnounce) {
-                    chatNewMsgEmitted = true;
-                    add(merged, {
-                      type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED",
-                      el: c,
-                      severity: "medium",
-                      wcag: "4.1.3",
-                      confidence: "heuristic",
-                      note: "Chat container received new messages but lacks announcement semantics (role=log, role=feed, or aria-live).",
-                    });
-                    break;
-                  }
-                }
-                chatMsgCandidates.set(c, curr);
-              }
-            }
-          } catch {}
-        }
+          }
+          // C3 rules: structural checks on nextState (no delta guard needed)
+          const c3_1 = steEvaluateC3_1(null, prevTransitionState, nextState, { emittedSet: observeEmittedSet });
+          if (c3_1) {
+            const el = steResolveElement(c3_1, artifacts);
+            add(merged, { type: c3_1.type, el, severity: c3_1.severity, wcag: c3_1.wcag, confidence: c3_1.confidence, note: c3_1.note });
+          }
+          const c3_2 = steEvaluateC3_2(null, prevTransitionState, nextState, { emittedSet: observeEmittedSet });
+          if (c3_2) {
+            const el = steResolveElement(c3_2, artifacts);
+            add(merged, { type: c3_2.type, el, severity: c3_2.severity, wcag: c3_2.wcag, confidence: c3_2.confidence, note: c3_2.note });
+          }
+          prevTransitionState = nextState;
+        } catch {}
       };
 
       tick();
@@ -3165,10 +3526,10 @@
       const MAX_LOADER_CANDIDATES = 280;
       let settled = false;
 
-      // State-based rule tracking
-      let chatMsgCandidatesW = null; // Map<element, childCount>
-      let chatNewMsgEmittedW = false;
-      let chatInputFocusLostEmitted = false;
+      // State Transition Engine — watch mode
+      let prevWatchTransitionState = null;
+      const watchEmittedSet = new Set();
+      const watchTransitionSummaries = [];
       let loaderNow = false;
       let announcementHookNow = hasAnnouncementHook();
       let pendingLoaderRecalc = null;
@@ -3342,6 +3703,7 @@
           timestamp: nowIso(), seconds, bursts, totalLoadingMs, silentMs, focusLossCount: focusLoss, focusJumps, budget: B, verdicts, events, findings, href: w.location.href,
           announcements, announcementCount, emptyAnnouncementCount, firstAnnouncementAt,
           announcementLatency: (firstAnnouncementAt != null && totalLoadingMs > 0) ? firstAnnouncementAt : null,
+          transitionStateSummaries: watchTransitionSummaries.length ? watchTransitionSummaries : null,
         };
         api.lastWatch = result;
 
@@ -3390,34 +3752,6 @@
           focusChangeTimestamps.push(performance.now());
         }
 
-        // CHAT_INPUT_LOSES_FOCUS_ON_UPDATE — watch only, heuristic
-        // If prevActiveElement was a chat input candidate and focus moved away
-        // after a mutation tick, and the input is still in DOM + enabled => emit.
-        if (!chatInputFocusLostEmitted && prevActiveElement && curActive &&
-            curActive !== prevActiveElement && prevActiveElement !== doc.body) {
-          try {
-            const prev = prevActiveElement;
-            const tag = (prev.tagName || "").toLowerCase();
-            const isChatInput = (tag === "textarea" || (tag === "input" && (prev.type || "text") === "text")) &&
-              !!prev.closest("[role='log'],[role='feed'],[aria-label*='chat' i],[aria-label*='message' i]");
-            if (isChatInput && prev.isConnected && !prev.disabled &&
-                curActive !== prev && !(curActive.compareDocumentPosition?.(prev) & 16)) {
-              // Only emit if there was recent mutation activity (loader/content update)
-              if (loaderNow || events.length > 0) {
-                chatInputFocusLostEmitted = true;
-                add(findings, {
-                  type: "CHAT_INPUT_LOSES_FOCUS_ON_UPDATE",
-                  el: prev,
-                  severity: "medium",
-                  wcag: "2.4.3",
-                  confidence: "heuristic",
-                  note: "Chat input lost focus after a content update; may disrupt typing.",
-                });
-              }
-            }
-          } catch {}
-        }
-
         prevActiveElement = curActive;
 
         // Focus thrashing detection: rapid focus changes from loader mount/unmount
@@ -3428,48 +3762,38 @@
           focusChangeTimestamps = [];
         }
 
-        // CHAT_NEW_MESSAGE_NOT_ANNOUNCED — watch mode state-based detection
-        // Track chat container child counts across ticks. If children increase
-        // but container lacks role=log/feed/aria-live, emit a heuristic finding.
-        if (!chatNewMsgEmittedW) {
-          try {
-            const chatContainers = doc.querySelectorAll(
-              "[role='log'],[role='feed'],[aria-live]:not([aria-live='off'])," +
-              "[aria-label*='chat' i],[aria-label*='message' i]"
-            );
-            const candidates = [];
-            for (let ci = 0; ci < Math.min(chatContainers.length, 3); ci++) {
-              candidates.push(chatContainers[ci]);
+        // State Transition Engine — watch mode C1 + C2 + C3 evaluation
+        try {
+          steResolveElement._fallbackCount = 0;
+          const watchArtifacts = steBuildCaptureArtifacts("watch", announcementCount, announcementCount + emptyAnnouncementCount);
+          const nextWState = steBuildTransitionState({ frameId: 0, frameKeyStable: "", rootSelector: null, captureArtifacts: watchArtifacts });
+          watchTransitionSummaries.push(steBuildTransitionStateSummary(nextWState));
+          if (prevWatchTransitionState) {
+            const wDelta = steBuildStateDelta(prevWatchTransitionState, nextWState);
+            const c1 = steEvaluateC1(wDelta, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
+            if (c1) {
+              const el = steResolveElement(c1, watchArtifacts);
+              add(findings, { type: c1.type, el, severity: c1.severity, wcag: c1.wcag, confidence: c1.confidence, note: c1.note });
             }
-            if (chatMsgCandidatesW === null) {
-              chatMsgCandidatesW = new Map();
-              for (const c of candidates) chatMsgCandidatesW.set(c, c.children.length);
-            } else {
-              for (const c of candidates) {
-                const prevCount = chatMsgCandidatesW.get(c) || 0;
-                const currCount = c.children.length;
-                if (currCount > prevCount) {
-                  const hasAnnounce = c.matches("[role='log'],[role='feed']") ||
-                    c.hasAttribute("aria-live") ||
-                    !!c.closest("[role='log'],[role='feed'],[aria-live]:not([aria-live='off'])");
-                  if (!hasAnnounce) {
-                    chatNewMsgEmittedW = true;
-                    add(findings, {
-                      type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED",
-                      el: c,
-                      severity: "medium",
-                      wcag: "4.1.3",
-                      confidence: "heuristic",
-                      note: "Chat container received new messages but lacks announcement semantics (role=log, role=feed, or aria-live).",
-                    });
-                    break;
-                  }
-                }
-                chatMsgCandidatesW.set(c, currCount);
-              }
+            const c2 = steEvaluateC2(wDelta, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
+            if (c2) {
+              const el = steResolveElement(c2, watchArtifacts);
+              add(findings, { type: c2.type, el, severity: c2.severity, wcag: c2.wcag, confidence: c2.confidence, note: c2.note });
             }
-          } catch {}
-        }
+          }
+          // C3 rules: structural checks on nextWState (no delta guard needed)
+          const wc3_1 = steEvaluateC3_1(null, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
+          if (wc3_1) {
+            const el = steResolveElement(wc3_1, watchArtifacts);
+            add(findings, { type: wc3_1.type, el, severity: wc3_1.severity, wcag: wc3_1.wcag, confidence: wc3_1.confidence, note: wc3_1.note });
+          }
+          const wc3_2 = steEvaluateC3_2(null, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
+          if (wc3_2) {
+            const el = steResolveElement(wc3_2, watchArtifacts);
+            add(findings, { type: wc3_2.type, el, severity: wc3_2.severity, wcag: wc3_2.wcag, confidence: wc3_2.confidence, note: wc3_2.note });
+          }
+          prevWatchTransitionState = nextWState;
+        } catch {}
 
         if (t >= seconds * 1000) {
           finalize();

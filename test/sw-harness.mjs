@@ -68,6 +68,12 @@ export function createSwContext(opts = {}) {
     this.__makeTargetResolution = makeTargetResolution;
     this.__FRAME_KEY_VERSION = FRAME_KEY_VERSION;
     this.__FRAME_SCOPE = FRAME_SCOPE;
+    this.__computeFrameScores = computeFrameScores;
+    this.__validateIncomingMessage = validateIncomingMessage;
+    this.__collectFrameProbeData = collectFrameProbeData;
+    this.__mergeFrameIntegrity = mergeFrameIntegrity;
+    this.__evaluateC4_1 = evaluateC4_1;
+    this.__evaluateC4_2 = evaluateC4_2;
   `, { filename: 'sw-expose.js' });
   expose.runInContext(ctx);
 

@@ -102,6 +102,22 @@
           <!-- Shadow coverage receipt (populated by JS) -->
           <div class="shadowCoverageRow" id="shadowCoverageRow" hidden></div>
 
+          <!-- Integrity overview bar -->
+          <div class="integrityOverview" id="integrityOverview" hidden>
+            <button class="integrityPill" data-group="depth3/announcements" type="button">
+              Announcements <span class="pillCount" id="pillAnnouncementsCount"></span>
+            </button>
+            <button class="integrityPill" data-group="depth3/focus" type="button">
+              Focus <span class="pillCount" id="pillFocusCount"></span>
+            </button>
+            <button class="integrityPill" data-group="depth3/semantics" type="button">
+              Semantics <span class="pillCount" id="pillSemanticsCount"></span>
+            </button>
+            <button class="integrityPill" data-group="depth3/multiframe" type="button">
+              Multi-frame <span class="pillCount" id="pillMultiframeCount"></span>
+            </button>
+          </div>
+
           <!-- All findings explorer -->
           <section class="findingsCard" id="explorerSection">
             <div class="searchToolbar" id="searchToolbar">
@@ -483,6 +499,10 @@
             <dd id="diagBestFrameId" class="mono">—</dd>
             <dt>Best frame key</dt>
             <dd id="diagBestFrameKey" class="mono">—</dd>
+            <dt>Frame gating</dt>
+            <dd id="diagFrameGating">—</dd>
+            <dt>Excluded frames</dt>
+            <dd id="diagExcludedFrames">—</dd>
             <dt>Scope</dt>
             <dd id="diagScope">—</dd>
             <dt>Shadow coverage</dt>
@@ -501,10 +521,13 @@
             <dd id="diagDepthMax">—</dd>
             <dt>Recipe</dt>
             <dd id="diagRecipe">—</dd>
+            <dt id="diagPerfLabel" style="display:none">Perf</dt>
+            <dd id="diagPerfText" style="display:none">—</dd>
           </dl>
           <div class="aboutActions">
             <button class="btn sm" id="copyDiagnostics" type="button">Copy diagnostics</button>
             <button class="btn sm" id="copyDiagnosticsMdBtn" type="button">Copy diagnostics (Markdown)</button>
+            <button class="btn sm" id="copyCiJson" type="button">Copy CI JSON</button>
             <span class="inlineHint" id="copyDiagHint" aria-live="polite"></span>
           </div>
         </section>
@@ -529,8 +552,11 @@
       <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
     </main>
 
+    <script src="limits.js"></script>
     <script src="flow-profiles.js"></script>
     <script src="wcag-coverage.js"></script>
+    <script src="depth3Aggregates.js"></script>
+    <script src="ciExporter.js"></script>
     <script src="panel.js"></script>
   </body>
 </html>

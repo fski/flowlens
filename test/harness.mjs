@@ -14,8 +14,11 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const LIMITS_JS = join(__dirname, '..', 'src', 'shared', 'limits.js');
 const FLOW_PROFILES_JS = join(__dirname, '..', 'src', 'shared', 'flow-profiles.js');
 const WCAG_COVERAGE_JS = join(__dirname, '..', 'src', 'shared', 'wcag-coverage.js');
+const D3AGG_JS = join(__dirname, '..', 'src', 'engine', 'depth3Aggregates.js');
+const CI_EXPORTER_JS = join(__dirname, '..', 'src', 'engine', 'ciExporter.js');
 const PANEL_JS = join(__dirname, '..', 'src', 'panel', 'panel.js');
 
 // Cut source before the "wire up" section where imperative DOM binding code begins.
@@ -185,6 +188,7 @@ export function createContext(opts = {}) {
     clearInterval: () => {},
     requestAnimationFrame: (fn) => { fn(); return 1; },
     cancelAnimationFrame: () => {},
+    queueMicrotask: (fn) => { fn(); },
     TextEncoder,
     URL,
     Uint8Array,
@@ -217,11 +221,22 @@ export function createContext(opts = {}) {
     __storageLocal: mockChrome.storage.local,
     __runtime: mockChrome.runtime,
 
+    // HostConfig: injected at build time, overridable via opts.hostConfig
+    __HOST_CONFIG__: opts.hostConfig || {
+      id: "test", defaultProfiles: [], rootSelector: null,
+      match: { domSelectorsAny: [], urlIncludesAny: [], urlExcludesAny: [] },
+      ui: {},
+    },
+
     // Expose internal mock for test access
     __mockChrome: mockChrome,
   });
 
   // Load shared modules before panel.js (mirrors script tag order in panel.html)
+  const limitsSource = readFileSync(LIMITS_JS, 'utf8');
+  const limitsScript = new Script(limitsSource, { filename: 'limits.js' });
+  limitsScript.runInContext(ctx);
+
   const flowProfilesSource = readFileSync(FLOW_PROFILES_JS, 'utf8');
   const flowProfilesScript = new Script(flowProfilesSource, { filename: 'flow-profiles.js' });
   flowProfilesScript.runInContext(ctx);
@@ -229,6 +244,14 @@ export function createContext(opts = {}) {
   const wcagCoverageSource = readFileSync(WCAG_COVERAGE_JS, 'utf8');
   const wcagScript = new Script(wcagCoverageSource, { filename: 'wcag-coverage.js' });
   wcagScript.runInContext(ctx);
+
+  const d3aggSource = readFileSync(D3AGG_JS, 'utf8');
+  const d3aggScript = new Script(d3aggSource, { filename: 'depth3Aggregates.js' });
+  d3aggScript.runInContext(ctx);
+
+  const ciExpSource = readFileSync(CI_EXPORTER_JS, 'utf8');
+  const ciExpScript = new Script(ciExpSource, { filename: 'ciExporter.js' });
+  ciExpScript.runInContext(ctx);
 
   const script = new Script(safeSource, { filename: 'panel.js' });
   script.runInContext(ctx);
@@ -249,6 +272,13 @@ export function createContext(opts = {}) {
     this.__RECIPES = typeof RECIPES !== 'undefined' ? RECIPES : {};
     this.__activeRecipeId = typeof activeRecipeId !== 'undefined' ? activeRecipeId : 'auto';
     this.__els = typeof els !== 'undefined' ? els : {};
+    this.__hostConfig = typeof hostConfig !== 'undefined' ? hostConfig : {};
+    this.__profileState = typeof profileState !== 'undefined' ? profileState : {};
+    this.__BUILTIN_PROFILES = typeof BUILTIN_PROFILES !== 'undefined' ? BUILTIN_PROFILES : {};
+    this.__buildDepth3Aggregates = typeof buildDepth3Aggregates !== 'undefined' ? buildDepth3Aggregates : null;
+    this.__buildCIReport = typeof buildCIReport !== 'undefined' ? buildCIReport : null;
+    this.__validateCIReport = typeof validateCIReport !== 'undefined' ? validateCIReport : null;
+    this.__activeGroupFilter = typeof activeGroupFilter !== 'undefined' ? activeGroupFilter : null;
   `, { filename: 'expose.js' });
   expose.runInContext(ctx);
 
@@ -258,6 +288,9 @@ export function createContext(opts = {}) {
   ctx.RECIPES = ctx.__RECIPES;
   ctx.state = ctx.__state;
   ctx.els = ctx.__els;
+  ctx.hostConfig = ctx.__hostConfig;
+  ctx.profileState = ctx.__profileState;
+  ctx.BUILTIN_PROFILES = ctx.__BUILTIN_PROFILES;
 
   // Pre-set inspected URL so getCurrentScopeInfo() returns a valid origin.
   // The real `els` is a const built from document.getElementById() inside panel.js,

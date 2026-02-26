@@ -6,12 +6,16 @@
  * Usage:
  *   node scripts/build.mjs            — production build (minified, no sourcemaps)
  *   node scripts/build.mjs --dev      — dev build (unminified, external sourcemaps)
+ *
+ * Environment:
+ *   HOST_CONFIG=./path/to/config.json  — custom host config (JSON by default)
+ *   HOST_CONFIG_ALLOW_JS=1             — allow JS config files (requires explicit opt-in)
  */
 import {
   mkdirSync, rmSync, readFileSync, writeFileSync,
-  readdirSync, statSync, cpSync,
+  readdirSync, statSync, cpSync, existsSync,
 } from "node:fs";
-import { join, extname } from "node:path";
+import { join, extname, resolve } from "node:path";
 
 const ROOT = join(import.meta.dirname, "..");
 const SRC = join(ROOT, "src");
@@ -32,6 +36,185 @@ function readVersion() {
   return match[1];
 }
 
+// ── Shared limits extraction ────────────────────────────────────────────────
+
+function readLimits() {
+  const limitsFile = join(SRC, "shared", "limits.js");
+  const content = readFileSync(limitsFile, "utf8");
+  const arrMatch = content.match(/MAX_MATCH_ARRAY\s*=\s*(\d+)/);
+  const strMatch = content.match(/MAX_MATCH_STRING\s*=\s*(\d+)/);
+  if (!arrMatch || !strMatch) {
+    console.error("ERROR: Could not extract limits from src/shared/limits.js");
+    process.exit(1);
+  }
+  return { maxArray: Number(arrMatch[1]), maxString: Number(strMatch[1]) };
+}
+
+// ── HostConfig loading + validation ─────────────────────────────────────────
+// HostConfig MUST NOT affect: stable signature generation, diff logic,
+// FrameKey derivation, or highlight logic. It only influences:
+// targeting (frame selection), profile defaults, UI labels, and DOM scoping.
+
+const HOSTCONFIG_ALLOWED_TOP = new Set(["id", "label", "defaultProfiles", "rootSelector", "match", "ui"]);
+const HOSTCONFIG_ALLOWED_MATCH = new Set(["domSelectorsAny", "urlIncludesAny", "urlExcludesAny"]);
+const HOSTCONFIG_ALLOWED_UI = new Set(["badgeText", "diagnosticsHint"]);
+const { maxArray: HOSTCONFIG_MAX_ARRAY, maxString: HOSTCONFIG_MAX_STRING } = readLimits();
+
+function validateHostConfig(config, configPath) {
+  const errors = [];
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    errors.push("HostConfig must be a plain object");
+    return errors;
+  }
+
+  // Required keys
+  if (typeof config.id !== "string" || !config.id) {
+    errors.push("'id' is required and must be a non-empty string");
+  }
+
+  // Reject unexpected top-level keys
+  for (const key of Object.keys(config)) {
+    if (!HOSTCONFIG_ALLOWED_TOP.has(key)) {
+      errors.push(`Unexpected top-level key: '${key}'`);
+    }
+  }
+
+  // Validate match
+  if (config.match != null) {
+    if (typeof config.match !== "object" || Array.isArray(config.match)) {
+      errors.push("'match' must be a plain object");
+    } else {
+      for (const key of Object.keys(config.match)) {
+        if (!HOSTCONFIG_ALLOWED_MATCH.has(key)) {
+          errors.push(`Unexpected match key: '${key}'`);
+        }
+      }
+      for (const field of ["domSelectorsAny", "urlIncludesAny", "urlExcludesAny"]) {
+        const arr = config.match[field];
+        if (arr != null) {
+          if (!Array.isArray(arr)) {
+            errors.push(`match.${field} must be an array`);
+          } else {
+            if (arr.length > HOSTCONFIG_MAX_ARRAY) {
+              errors.push(`match.${field} exceeds max ${HOSTCONFIG_MAX_ARRAY} items (got ${arr.length})`);
+            }
+            for (let i = 0; i < arr.length; i++) {
+              if (typeof arr[i] !== "string") {
+                errors.push(`match.${field}[${i}] must be a string`);
+              } else if (arr[i].length > HOSTCONFIG_MAX_STRING) {
+                errors.push(`match.${field}[${i}] exceeds max ${HOSTCONFIG_MAX_STRING} chars`);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Validate ui
+  if (config.ui != null) {
+    if (typeof config.ui !== "object" || Array.isArray(config.ui)) {
+      errors.push("'ui' must be a plain object");
+    } else {
+      for (const key of Object.keys(config.ui)) {
+        if (!HOSTCONFIG_ALLOWED_UI.has(key)) {
+          errors.push(`Unexpected ui key: '${key}'`);
+        }
+      }
+      if (config.ui.badgeText != null && typeof config.ui.badgeText !== "string") {
+        errors.push("ui.badgeText must be a string or null");
+      }
+      if (config.ui.diagnosticsHint != null && typeof config.ui.diagnosticsHint !== "string") {
+        errors.push("ui.diagnosticsHint must be a string or null");
+      }
+    }
+  }
+
+  // Validate defaultProfiles
+  if (config.defaultProfiles != null) {
+    if (!Array.isArray(config.defaultProfiles)) {
+      errors.push("'defaultProfiles' must be an array");
+    } else {
+      if (config.defaultProfiles.length > HOSTCONFIG_MAX_ARRAY) {
+        errors.push(`defaultProfiles exceeds max ${HOSTCONFIG_MAX_ARRAY} items`);
+      }
+      for (let i = 0; i < config.defaultProfiles.length; i++) {
+        if (typeof config.defaultProfiles[i] !== "string") {
+          errors.push(`defaultProfiles[${i}] must be a string`);
+        }
+      }
+    }
+  }
+
+  // Validate rootSelector
+  if (config.rootSelector != null && typeof config.rootSelector !== "string") {
+    errors.push("'rootSelector' must be a string or null");
+  }
+
+  // Validate label
+  if (config.label != null && typeof config.label !== "string") {
+    errors.push("'label' must be a string or null");
+  }
+
+  return errors;
+}
+
+function normalizeHostConfig(config) {
+  const out = {
+    id: config.id,
+    label: config.label ?? null,
+    defaultProfiles: [...new Set(config.defaultProfiles || [])],
+    rootSelector: config.rootSelector ?? null,
+    match: {
+      domSelectorsAny: [...new Set(config.match?.domSelectorsAny || [])],
+      urlIncludesAny: [...new Set(config.match?.urlIncludesAny || [])],
+      urlExcludesAny: [...new Set(config.match?.urlExcludesAny || [])],
+    },
+    ui: {
+      badgeText: config.ui?.badgeText ?? null,
+      diagnosticsHint: config.ui?.diagnosticsHint ?? null,
+    },
+  };
+  return out;
+}
+
+async function readHostConfig() {
+  const envPath = process.env.HOST_CONFIG;
+  const allowJS = process.env.HOST_CONFIG_ALLOW_JS === "1";
+
+  if (!envPath) {
+    // Default config
+    const defaultPath = join(SRC, "host", "default.config.json");
+    const raw = readFileSync(defaultPath, "utf8");
+    return { config: JSON.parse(raw), path: defaultPath };
+  }
+
+  const configPath = resolve(envPath);
+  if (!existsSync(configPath)) {
+    console.error(`ERROR: HOST_CONFIG path does not exist: ${configPath}`);
+    process.exit(1);
+  }
+
+  const ext = extname(configPath).toLowerCase();
+  if (ext === ".json") {
+    const raw = readFileSync(configPath, "utf8");
+    return { config: JSON.parse(raw), path: configPath };
+  }
+
+  if ((ext === ".js" || ext === ".mjs") && allowJS) {
+    const mod = await import(`file://${configPath}`);
+    return { config: mod.default, path: configPath };
+  }
+
+  if (ext === ".js" || ext === ".mjs") {
+    console.error(`ERROR: JS config files require HOST_CONFIG_ALLOW_JS=1 (got: ${configPath})`);
+    process.exit(1);
+  }
+
+  console.error(`ERROR: Unsupported config file extension: ${ext} (use .json or .js)`);
+  process.exit(1);
+}
+
 // ── File map: source path → dist path ───────────────────────────────────────
 
 function buildFileMap() {
@@ -44,6 +227,10 @@ function buildFileMap() {
     { src: "shared/en301549-map.js",       dist: "en301549-map.js",        type: "js" },
     { src: "shared/flow-profiles.js",      dist: "flow-profiles.js",       type: "js" },
     { src: "shared/wcag-coverage.js",      dist: "wcag-coverage.js",       type: "js" },
+    { src: "shared/limits.js",             dist: "limits.js",              type: "js" },
+    { src: "engine/stateTransitionEngine.js", dist: "stateTransitionEngine.js", type: "js" },
+    { src: "engine/depth3Aggregates.js", dist: "depth3Aggregates.js", type: "js" },
+    { src: "engine/ciExporter.js", dist: "ciExporter.js", type: "js" },
 
     // HTML
     { src: "panel/panel.html",    dist: "panel.html",    type: "html" },
@@ -136,6 +323,20 @@ async function main() {
   const version = readVersion();
   console.log(`  FlowLens v${version}  (${isDev ? "dev" : "prod"} build)\n`);
 
+  // ── Load and validate HostConfig ──
+  const { config: rawHostConfig, path: configPath } = await readHostConfig();
+  const configErrors = validateHostConfig(rawHostConfig, configPath);
+  if (configErrors.length) {
+    console.error(`  HostConfig validation FAILED (${configPath}):`);
+    for (const e of configErrors) console.error(`    - ${e}`);
+    process.exit(1);
+  }
+  const hostConfig = normalizeHostConfig(rawHostConfig);
+  console.log(`  Host: ${hostConfig.id}`);
+  console.log(`  HostConfig validated: OK\n`);
+
+  const hostConfigJSON = JSON.stringify(hostConfig);
+
   // Clean and create dist
   rmSync(DIST, { recursive: true, force: true });
   mkdirSync(DIST, { recursive: true });
@@ -158,7 +359,14 @@ async function main() {
     if (entry.type === "js") {
       const jsOpts = {};
       if (entry.dist === "panel.js") {
-        jsOpts.define = { "__FLOWLENS_VERSION__": JSON.stringify(version) };
+        jsOpts.define = {
+          "__FLOWLENS_VERSION__": JSON.stringify(version),
+          "__HOST_CONFIG__": hostConfigJSON,
+        };
+      } else if (entry.dist === "sw.js") {
+        jsOpts.define = {
+          "__HOST_CONFIG__": hostConfigJSON,
+        };
       }
       output = await processJS(raw, jsOpts);
     } else if (entry.type === "css") {
