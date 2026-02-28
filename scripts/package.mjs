@@ -29,6 +29,16 @@ if (!version) {
   process.exit(1);
 }
 
+// ── Verify dist version matches source of truth ────────────────────────────
+
+const versionSrc = readFileSync(join(ROOT, "src", "shared", "version.js"), "utf8");
+const srcMatch = versionSrc.match(/FLOWLENS_VERSION\s*=\s*"([^"]+)"/);
+if (srcMatch && srcMatch[1] !== version) {
+  console.error(`ERROR: dist/manifest.json version (${version}) does not match src/shared/version.js (${srcMatch[1]}).`);
+  console.error("Run `npm run build` first.");
+  process.exit(1);
+}
+
 // ── Create artifacts/ and zip ───────────────────────────────────────────────
 
 mkdirSync(ARTIFACTS, { recursive: true });
