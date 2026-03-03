@@ -34,11 +34,11 @@ flowlens/
 ├── manifest.json              # MV3 extension config (runtime, at root for dev loading)
 ├── devtools.html / devtools.js # DevTools panel registration
 ├── panel.html                 # Panel UI structure
-├── panel.js                   # Panel logic (~200K, the largest file)
+├── panel.js                   # Panel logic (~200K, ~5,200 lines, the largest file)
 ├── panel.css                  # Styles (Ayu Dark / Light themes)
 ├── sw.js                      # Service worker — message routing, frame resolution
 ├── a11y-audit-snippet.js      # Audit engine injected into inspected pages
-├── build.mjs                  # Legacy/simple build script (root-level)
+├── build.mjs                  # Simplified build script (root-level, predates src/ structure)
 ├── package.json               # npm scripts, version 5.0.0, esbuild devDependency
 │
 ├── src/                       # Canonical source (build reads from here)
@@ -77,7 +77,7 @@ flowlens/
 │   └── ...                    # Additional docs (QA, recipes, WCAG coverage, etc.)
 │
 ├── fixtures/                  # Test fixtures (a11y-rule-fixtures.html)
-├── artifacts/                 # Built extension zip (flowlens-3.0.1.zip)
+├── artifacts/                 # Built extension zip (stale: flowlens-3.0.1.zip; source is at 5.0.0)
 ├── icons/                     # Extension icons (runtime, copied to dist/)
 └── .github/workflows/ci.yml   # GitHub Actions CI pipeline
 ```
@@ -147,7 +147,7 @@ The panel UI structure. Contains:
 - Export menu, past runs drawer, raw JSON toggle
 - Preset buttons (Quick, Release, Focus)
 
-### `panel.js` (~200K, ~4,300 lines)
+### `panel.js` (~200K, ~5,200 lines at root; ~7,700 lines in src/)
 The largest file. Contains all UI logic:
 - **State management** — A `state` object tracks current findings, records, active mode, severity filters, session data, pinned frames, etc.
 - **Virtual table rendering** — Findings tables use a virtual scrolling approach for performance with large result sets.
@@ -157,13 +157,13 @@ The largest file. Contains all UI logic:
 - **Profile system** — Loads and applies conversational profiles that tune frame targeting and audit behavior.
 - **Persistence** — Reads/writes to `chrome.storage.local` (with `localStorage` fallback), progressive compaction on quota exceeded.
 - **Export** — JSON, Markdown, CI-ready JSON, and session exports.
-- **Keyboard shortcuts** — `r` Run, `o` Observe, `w` Watch, `t` TabWalk, `c` Contrast.
+- **Keyboard shortcuts** — `1`/`2`/`3`/`4` switch tabs (Snap/Flow/Settings/About), `r` start recording (Flow tab), `s` mark step, `e` end session.
 - **Accessibility** — The panel itself is built with ARIA attributes and keyboard navigation.
 
 ### `panel.css` (~61K)
 Styles using the Ayu Dark color scheme (with a light theme toggle). Includes severity color coding, compact/normal density modes, virtual table styles, responsive layout, and animation for progress indicators.
 
-### `sw.js` (~45K, ~1,100 lines)
+### `sw.js` (~45K, ~1,460 lines in src/)
 The service worker handles:
 - **Message validation** — Strict schema validation of all incoming messages.
 - **Frame scope resolution** — Implements the `PRIMARY`/`HOST`/`EMBEDDED`/`ALL` scope model.
@@ -173,7 +173,7 @@ The service worker handles:
 - **Result normalization** — `normalizeAuditResult()` creates a unified result shape with mode-specific scoring weights.
 - **Highlight support** — Injects a CSS overlay to highlight specific elements on the inspected page.
 
-### `a11y-audit-snippet.js` (~128K, ~2,200 lines)
+### `a11y-audit-snippet.js` (~128K, ~4,060 lines in src/)
 The audit engine injected into inspected pages. Runs in the page's `MAIN` world context for full DOM access. Implements:
 - **~50 rule types** covering ARIA, labels, headings, landmarks, tab indexes, roles, etc.
 - **Five audit modes**: `run()`, `observe()`, `watch()`, `tabWalk()`, `contrastScan()`
@@ -205,7 +205,7 @@ Pure, side-effect-free logic modules with no DOM access and no imports:
   - C2: Focus stability (composer focus after bot responses)
   - C3: Feed semantics (feed/log role, item structure)
   - C4: Multi-frame linkage (structural connection across iframes)
-  - Uses `buildTransitionState()` to extract normalized state from capture artifacts, then `evaluateC1`–`evaluateC4` functions to produce deterministic verdicts.
+  - Uses `buildTransitionState()` to extract normalized state from capture artifacts, then six evaluation functions to produce deterministic verdicts: `evaluateC1`, `evaluateC2`, `evaluateC3_1`, `evaluateC3_2`, `evaluateC4_1`, `evaluateC4_2` (C3 and C4 are each split into two sub-rules).
   - Hashes locators with FNV-1a for stable identification.
 
 - **`depth3Aggregates.js`** — Aggregates Depth 3 findings into four integrity axes (`announcementIntegrity`, `focusStability`, `chatSemantics`, `multiFrameIntegrity`). Each axis is either `"ok"` or `"degraded"` with associated counts.
@@ -255,9 +255,9 @@ The build script:
 7. Minifies JS/CSS/HTML with esbuild
 8. Copies icons to `dist/icons/`
 
-### Legacy build (`build.mjs` at root)
+### Simplified build (`build.mjs` at root)
 
-A simpler build script that copies root-level runtime files to `dist/` with minification. Used before the `src/` structure was introduced.
+A simpler build script (163 lines) that copies root-level runtime files to `dist/` with minification. Predates the `src/` structure — no version injection, no HostConfig support, no `--dev` mode. Not referenced by any `npm run` script; `npm run build` uses `scripts/build.mjs`.
 
 ### Packaging (`scripts/package.mjs`)
 
@@ -365,7 +365,7 @@ Depth 1 — Static WCAG
 | Feed semantics | C3 | Is the message feed properly structured with `role="log"/"feed"` and discrete items? |
 | Multi-frame linkage | C4 | When chat components span iframes, are they structurally connected? |
 
-The state transition engine (`src/engine/stateTransitionEngine.js`) evaluates C1–C4 from capture artifacts. It is **pure** — no DOM access, same input always produces identical output.
+The state transition engine (`src/engine/stateTransitionEngine.js`) evaluates C1–C4 from capture artifacts (with C3 and C4 each split into two sub-rules: C3.1/C3.2 and C4.1/C4.2, for a total of six evaluation functions). It is **pure** — no DOM access, same input always produces identical output.
 
 ---
 
@@ -379,15 +379,7 @@ The state transition engine (`src/engine/stateTransitionEngine.js`) evaluates C1
 | **TabWalk** | `tabWalk()` | Variable | Tabs through up to 80 focusable elements to detect focus traps and order issues |
 | **Contrast** | `contrastScan()` | Variable | Scans up to 250 text nodes for approximate color contrast ratios (AA/AAA) |
 
-### Presets
-
-Presets chain modes sequentially:
-
-| Preset | Modes | Use case |
-|--------|-------|----------|
-| **Quick** | Run + Contrast | Fast baseline check |
-| **Release** | Watch + Observe + Run | Pre-release quality gate |
-| **Focus** | TabWalk + Run | Keyboard accessibility audit |
+The panel includes infrastructure for chaining modes sequentially via `_lockedPreset()`, though named presets are not currently wired into the UI.
 
 ---
 
@@ -421,15 +413,18 @@ Users can pin a frame per origin. A pinned frame acts as a manual override that 
 
 ### Frame key derivation
 
-Frame keys provide stable identifiers for diffing across navigations:
+Frame keys provide stable identifiers for diffing across navigations. There are two variants:
 
 ```
-fk::v1::<origin>::<pathHint>::<markerHash8>
+frameKeyStable = fk::v1::<origin>::<pathHint>           (primary, used for identity/diffing)
+frameKey       = fk::v1::<origin>::<pathHint>::<markerHash8>  (legacy, includes marker hash)
 ```
 
 - `origin` — Frame URL origin
 - `pathHint` — Normalized URL path segments (volatile IDs replaced with `_id`)
-- `markerHash8` — FNV-1a hash over stable selector/marker booleans
+- `markerHash8` — FNV-1a hash over stable selector/marker booleans (legacy key only)
+
+The `frameKeyStable` variant is the primary identifier used for diffing — it stays the same when only marker hits toggle between audit steps. The full `frameKey` with `markerHash8` is retained for backward compatibility.
 
 ---
 
@@ -470,15 +465,20 @@ All data is stored in `chrome.storage.local` (with `localStorage` fallback). No 
 | `activeProfiles` | Global | Array of active profile IDs |
 | `customProfiles` | Global | User-defined profile objects |
 | `colPrefs` | Global | Column visibility per table |
-| `history` | Per origin | Snapshots for diff calculation |
+| `history` | Global (internally keyed by origin+env+frameUrl) | Snapshots for diff calculation |
 
 ### Env isolation
 
-Environment is auto-derived from URL heuristics (localhost, staging, dev, preview, canary, production, prod). Records and sessions are isolated per `{origin}::{env}`, so staging and production data never mix.
+Environment is auto-derived from URL heuristics by `detectEnv()`:
+- `"local"` — matches `localhost` or `127.0.0.1`
+- `"staging"` — matches `staging`, `stage`, `preprod`, `preview`, `dev`, `test`, `qa`
+- `"prod"` — everything else
+
+Records and sessions are isolated per `{origin}::{env}`, so staging and production data never mix.
 
 ### Progressive compaction
 
-When storage quota is exceeded, `persistRecords()` applies three-tier compaction: 50 → 25 → 10 records. Sessions also compact their `rawAppendix` (cap at 200 entries) and soft-compact older steps.
+When storage quota is exceeded, `persistRecords()` applies five-tier progressive compaction: 20 → 15 → 10 → 8 → 5 records (with corresponding per-record findings caps: 200 → 150 → 100 → 70 → 40). Sessions also compact their `rawAppendix` (cap at 200 entries) and soft-compact older steps.
 
 ---
 
@@ -491,7 +491,7 @@ When storage quota is exceeded, `persistRecords()` applies three-tier compaction
 | Copy JSON | Clipboard | Full result object |
 | Download JSON | `.json` file | Full result with filename `a11yflowaudit-{timestamp}.json` |
 | Copy Markdown | Clipboard | Top 10 findings + metadata |
-| Download Markdown | Clipboard | Same as Copy Markdown |
+| Download Markdown | `.md` file | Same content as Copy Markdown, saved as `a11yflowaudit-{timestamp}.md` |
 
 ### Session exports
 
@@ -523,7 +523,7 @@ FlowLens is designed for reproducible results:
 - **Bounded capture windows** — Observe (12s), Watch (40s), TabWalk (80 steps), Contrast (250 nodes) all have fixed upper bounds.
 - **Frame key stability** — `deriveFrameKey()` normalizes volatile URL segments so the same logical frame produces the same key across navigations.
 - **No raw text in CI** — The CI contract exports only structural metadata, never page content.
-- **Version metadata** — Sessions include `determinismMeta` with `schemaVersion`, `signatureVersion`, and `frameKeyVersion` for forward compatibility.
+- **Version metadata** — Sessions include `determinismMeta` with `schemaVersion` (4), `signatureVersion` (2), `frameKeyVersion` (1), and `enMappingVersion` (1) for forward compatibility.
 
 ---
 
