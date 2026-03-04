@@ -1035,6 +1035,29 @@ function updateResultsVisibility(forceValue = null) {
     els.resultsZone.classList.toggle("visible", !!hasResults);
   }
   if (els.exportAnchor) els.exportAnchor.hidden = !(hasResults || hasSessionExport);
+  // Reset error state when showing results
+  if (hasResults && els.emptyState) {
+    els.emptyState.classList.remove("emptyState--error");
+    const retryBtn = document.getElementById("emptyRetry");
+    if (retryBtn) retryBtn.hidden = true;
+    const txt = document.getElementById("emptyText");
+    const hint = document.getElementById("emptyHint");
+    if (txt) txt.textContent = "Run an audit to see results";
+    if (hint) hint.textContent = "Choose a mode above and click the button to start scanning";
+  }
+}
+
+function showErrorEmptyState(message) {
+  if (!els.emptyState) return;
+  els.emptyState.hidden = false;
+  els.emptyState.classList.add("emptyState--error");
+  if (els.resultsZone) { els.resultsZone.hidden = true; els.resultsZone.classList.remove("visible"); }
+  const txt = document.getElementById("emptyText");
+  const hint = document.getElementById("emptyHint");
+  const retryBtn = document.getElementById("emptyRetry");
+  if (txt) txt.textContent = message || "Audit failed";
+  if (hint) hint.textContent = "Check the console for details, or try again";
+  if (retryBtn) retryBtn.hidden = false;
 }
 
 function buildCombinedGradient(colors) {
@@ -1058,7 +1081,7 @@ function renderSevTabs(findings = null) {
   const isAll = sel.size === 0;
 
   const renderTab = (sev, label, count, active) =>
-    `<button class="sevTab" role="tab" data-sev="${sev}" aria-selected="${active}" tabindex="${active ? 0 : -1}" type="button">
+    `<button class="sevTab" role="tab" data-sev="${sev}" aria-selected="${active}" tabindex="${active ? 0 : -1}" type="button" title="${sev ? "Shift+click to combine" : "Show all severities"}">
       <span class="sevLabel">${escapeHtml(label)}</span>
       <span class="sevCount">${count != null ? count : "&ndash;"}</span>
     </button>`;
@@ -5360,6 +5383,7 @@ async function runAction(action, opts = {}) {
     setPersistentStatus("FAILED", "TRANSPORT", "Run transport failure");
     console.error("RUN_AUDIT transport failure", err);
     toast(`${action} failed`);
+    if (!state.records.length) showErrorEmptyState(`${action} failed — connection error`);
     return false;
   }
 
@@ -5387,6 +5411,7 @@ async function runAction(action, opts = {}) {
     setPersistentStatus("FAILED", noScope ? "NO_SCOPE_MATCH" : "BACKEND", noScope ? "No frame matches selected scope" : "Run failed");
     console.error("RUN_AUDIT backend failure", r);
     toast(noScope ? "No frame matches selected scope" : `${action} failed`);
+    if (!state.records.length) showErrorEmptyState(noScope ? "No frame matches selected scope" : `${action} failed`);
     return false;
   }
 
@@ -6644,6 +6669,12 @@ if (els.runCurrentMode) {
   els.runCurrentMode.addEventListener("click", () => _lockedPreset([state.activeMode || "run"]));
 }
 
+// Retry button in error empty state: re-trigger run
+const emptyRetryBtn = document.getElementById("emptyRetry");
+if (emptyRetryBtn) {
+  emptyRetryBtn.addEventListener("click", () => _lockedPreset([state.activeMode || "run"]));
+}
+
 if (els.exportToggle && els.exportMenu) {
   els.exportToggle.addEventListener("click", () => {
     setExportMenuOpen(els.exportMenu.hidden);
@@ -7273,6 +7304,16 @@ function initIntegrityOverviewOnce() {
 }
 initIntegrityOverviewOnce();
 
+// Contrast search clear button
+const contrastClearBtn = document.getElementById("contrastSearchClear");
+if (contrastClearBtn && els.contrastQ) {
+  contrastClearBtn.addEventListener("click", () => {
+    els.contrastQ.value = "";
+    els.contrastQ.focus();
+    updateContrastView();
+  });
+}
+
 // Contrast search
 if (els.contrastQ) {
   let __contrastT = null;
@@ -7567,6 +7608,32 @@ function initScrollShadows() {
   }
 }
 initScrollShadows();
+
+// Bottom sheets offset for toast positioning
+(function initBottomSheetsOffset() {
+  const sheets = document.getElementById("bottomSheets");
+  if (!sheets) return;
+  const update = () => {
+    document.documentElement.style.setProperty("--bottomSheetsOffset", sheets.offsetHeight + "px");
+  };
+  new ResizeObserver(update).observe(sheets);
+  update();
+})();
+
+// Sub-tab bar overflow fade indicators
+(function initSubTabOverflow() {
+  const wrap = document.getElementById("subTabBarWrap");
+  const nav = document.getElementById("snapSubTabBar");
+  if (!wrap || !nav) return;
+  const update = () => {
+    const hasOverflow = nav.scrollWidth > nav.clientWidth;
+    wrap.classList.toggle("canScrollRight", hasOverflow && nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 1);
+    wrap.classList.toggle("canScrollLeft", hasOverflow && nav.scrollLeft > 1);
+  };
+  nav.addEventListener("scroll", update, { passive: true });
+  new ResizeObserver(update).observe(nav);
+  update();
+})();
 
 // auto refresh on navigation
 chrome.devtools.network.onNavigated.addListener(async () => {
