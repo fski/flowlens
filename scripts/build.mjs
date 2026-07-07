@@ -221,6 +221,8 @@ function buildFileMap() {
   return [
     // JS entrypoints
     { src: "panel/panel.js",               dist: "panel.js",               type: "js" },
+    { src: "panel/signature-engine.js",    dist: "signature-engine.js",    type: "js" },
+    { src: "panel/exporters.js",           dist: "exporters.js",           type: "js" },
     { src: "sw/sw.js",                     dist: "sw.js",                  type: "js" },
     { src: "snippet/a11y-audit-snippet.js", dist: "a11y-audit-snippet.js", type: "js" },
     { src: "devtools/devtools.js",         dist: "devtools.js",            type: "js" },

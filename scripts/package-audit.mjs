@@ -60,6 +60,8 @@ const REQUIRED = [
   "panel.html",
   "panel.css",
   "panel.js",
+  "signature-engine.js",
+  "exporters.js",
   "sw.js",
   "a11y-audit-snippet.js",
   "devtools.html",

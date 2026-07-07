@@ -19,6 +19,8 @@ const FLOW_PROFILES_JS = join(__dirname, '..', 'src', 'shared', 'flow-profiles.j
 const WCAG_COVERAGE_JS = join(__dirname, '..', 'src', 'shared', 'wcag-coverage.js');
 const D3AGG_JS = join(__dirname, '..', 'src', 'engine', 'depth3Aggregates.js');
 const CI_EXPORTER_JS = join(__dirname, '..', 'src', 'engine', 'ciExporter.js');
+const SIGNATURE_ENGINE_JS = join(__dirname, '..', 'src', 'panel', 'signature-engine.js');
+const EXPORTERS_JS = join(__dirname, '..', 'src', 'panel', 'exporters.js');
 const PANEL_JS = join(__dirname, '..', 'src', 'panel', 'panel.js');
 
 // Cut source before the "wire up" section where imperative DOM binding code begins.
@@ -252,6 +254,16 @@ export function createContext(opts = {}) {
   const ciExpSource = readFileSync(CI_EXPORTER_JS, 'utf8');
   const ciExpScript = new Script(ciExpSource, { filename: 'ciExporter.js' });
   ciExpScript.runInContext(ctx);
+
+  // Pure modules extracted from panel.js — loaded in full (no truncation),
+  // before panel.js, mirroring script tag order in panel.html.
+  const sigEngineSource = readFileSync(SIGNATURE_ENGINE_JS, 'utf8');
+  const sigEngineScript = new Script(sigEngineSource, { filename: 'signature-engine.js' });
+  sigEngineScript.runInContext(ctx);
+
+  const exportersSource = readFileSync(EXPORTERS_JS, 'utf8');
+  const exportersScript = new Script(exportersSource, { filename: 'exporters.js' });
+  exportersScript.runInContext(ctx);
 
   const script = new Script(safeSource, { filename: 'panel.js' });
   script.runInContext(ctx);
