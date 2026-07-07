@@ -11,7 +11,6 @@ const els = {
   refreshFrames: document.getElementById("refreshFrames"),
   frameSelect: document.getElementById("frameSelect"),
   frameSelectWrap: document.getElementById("frameSelectWrap"),
-  copyFrameUrl: document.getElementById("copyFrameUrl"),
   profileSelect: document.getElementById("profileSelect"),
   alsoConsole: document.getElementById("alsoConsole"),
   pinFrame: document.getElementById("pinFrame"),
@@ -31,7 +30,6 @@ const els = {
   loadBaselineMenu: document.getElementById("loadBaselineMenu"),
   baselineFileInput: document.getElementById("baselineFileInput"),
   baselineBanner: document.getElementById("baselineBanner"),
-  copyMd: document.getElementById("copyMd"),
   sessionExportMenuLabel: document.getElementById("sessionExportMenuLabel"),
   exportSessionJsonMenu: document.getElementById("exportSessionJsonMenu"),
   exportSessionMdMenu: document.getElementById("exportSessionMdMenu"),
@@ -41,7 +39,6 @@ const els = {
   ciFailOnBlocking: document.getElementById("ciFailOnBlocking"),
   ciTreatNeedsReview: document.getElementById("ciTreatNeedsReview"),
   ciMaxFailures: document.getElementById("ciMaxFailures"),
-  copyMdHint: document.getElementById("copyMdHint"),
   sessionStart: document.getElementById("sessionStart"),
   sessionMark: document.getElementById("sessionMark"),
   sessionEnd: document.getElementById("sessionEnd"),
@@ -91,9 +88,8 @@ const els = {
   structureHeadingsList: document.getElementById("structureHeadingsList"),
   structureLandmarksList: document.getElementById("structureLandmarksList"),
   structureShowHeadings: document.getElementById("structureShowHeadings"),
-  structureClearHeadings: document.getElementById("structureClearHeadings"),
   structureShowLandmarks: document.getElementById("structureShowLandmarks"),
-  structureClearLandmarks: document.getElementById("structureClearLandmarks"),
+  structureClearBtn: document.getElementById("structureClearBtn"),
   guidedSection: document.getElementById("guidedSection"),
   guidedStartImages: document.getElementById("guidedStartImages"),
   guidedStartControls: document.getElementById("guidedStartControls"),
@@ -114,10 +110,9 @@ const els = {
   deleteAllRuns: document.getElementById("deleteAllRuns"),
   rawJsonToggle: document.getElementById("rawJsonToggle"),
   rawJsonBody: document.getElementById("rawJsonBody"),
-  sheetCopyRaw: document.getElementById("sheetCopyRaw"),
 
-  // about / diagnostics
-  aboutContent: document.getElementById("aboutContent"),
+  // diagnostics (Settings → Advanced → Diagnostics)
+  diagnosticsSection: document.getElementById("diagnosticsSection"),
   diagVersion: document.getElementById("diagVersion"),
   diagSchema: document.getElementById("diagSchema"),
   diagSignature: document.getElementById("diagSignature"),
@@ -164,6 +159,7 @@ const els = {
   flowContent: document.getElementById("flowContent"),
   settingsContent: document.getElementById("settingsContent"),
   snapHelper: document.getElementById("snapHelper"),
+  monitorSegment: document.getElementById("monitorSegment"),
   flowRecordingBanner: document.getElementById("flowRecordingBanner"),
   flowRecordActions: document.getElementById("flowRecordActions"),
   flowSessionInfoBody: document.getElementById("flowSessionInfoBody"),
@@ -234,6 +230,8 @@ const state = {
   contrastFilter: "all",
   hasRunMode: new Set(),
   topTab: "snap",
+  // Last chosen Monitor duration segment: "observe" (Quick) or "watch" (Deep)
+  monitorMode: "observe",
   pinnedFrameId: null,
   lastDiffSummary: "—",
   lastUsedFramesSummary: "—",
@@ -260,13 +258,20 @@ const A11Y_OUTLINE_KEEP_RECENT = 10;
 const MAX_A11Y_OUTLINE_DIFF_SHOWN = 25;
 const CAPTURE_SLOW_MS = 4000;
 
+// "observe" and "watch" stay separate engine actions; the UI presents them as
+// one "Monitor" sub-tab with a Quick (observe) / Deep (watch) duration segment.
 const MODE_LABELS = {
   run: "Audit",
   contrast: "Contrast",
   tabWalk: "Tab\u00A0Walk",
-  watch: "Watch",
-  observe: "Observe",
+  watch: "Monitor (Deep)",
+  observe: "Monitor (Quick)",
 };
+
+/** Sub-tab id for a given engine mode ("observe"/"watch" share the Monitor tab). */
+function subTabForMode(mode) {
+  return (mode === "observe" || mode === "watch") ? "monitor" : mode;
+}
 
 
 const SCOPE_LABELS = {
@@ -692,7 +697,7 @@ const PROGRESS_LABELS = {
   contrast: "Checking contrast…",
   tabWalk: "Walking focusables…",
   watch: "Monitoring…",
-  observe: "Observing…",
+  observe: "Monitoring…",
 };
 
 function setProgressA11y(bar, percent, valueText) {
@@ -817,7 +822,7 @@ function setRunButtonBusy(busy) {
   }
   if (busy) {
     if (els.runLabel) {
-      const busyLabels = { run: "Running\u2026", contrast: "Checking\u2026", tabWalk: "Walking\u2026", observe: "Observing\u2026", watch: "Watching\u2026" };
+      const busyLabels = { run: "Running\u2026", contrast: "Checking\u2026", tabWalk: "Walking\u2026", observe: "Monitoring\u2026", watch: "Monitoring\u2026" };
       els.runLabel.textContent = busyLabels[state.activeMode] || "Running\u2026";
     }
   } else {
@@ -938,30 +943,47 @@ function recordLabel(rec) {
 
 function setPressed(action) {
   if (action) state.activeMode = action;
+  const mode = state.activeMode || "run";
+  const activeSubTab = subTabForMode(mode);
+  if (activeSubTab === "monitor") state.monitorMode = mode;
   // Update snap subtab buttons aria-selected (new tab semantics)
   document.querySelectorAll("#snapSubTabBar button[data-action]").forEach(btn => {
-    const selected = btn.dataset.action === (state.activeMode || "run");
+    const selected = btn.dataset.action === activeSubTab;
     btn.setAttribute("aria-selected", String(selected));
     btn.setAttribute("tabindex", selected ? "0" : "-1");
     btn.classList.toggle("active", selected);
   });
+  updateMonitorSegment();
   // Update CTA button label + color
-  updateSnapCta(state.activeMode || "run");
+  updateSnapCta(mode);
+}
+
+/** Show the Quick/Deep duration segment only on the Monitor sub-tab. */
+function updateMonitorSegment() {
+  if (!els.monitorSegment) return;
+  const onMonitor = subTabForMode(state.activeMode || "run") === "monitor";
+  els.monitorSegment.hidden = !onMonitor;
+  const current = state.monitorMode || "observe";
+  els.monitorSegment.querySelectorAll("button[data-monitor]").forEach(btn => {
+    const checked = btn.dataset.monitor === current;
+    btn.setAttribute("aria-checked", String(checked));
+    btn.classList.toggle("active", checked);
+  });
 }
 
 const SNAP_CTA = {
   run:      { label: "Run Audit",      cls: "ctaBtn--amber", helper: "One-shot WCAG audit of the current page" },
   contrast: { label: "Check Contrast", cls: "ctaBtn--cyan",  helper: "Check color contrast of up to 250 text nodes" },
   tabWalk:  { label: "Run Tab\u00A0Walk",   cls: "ctaBtn--lime",  helper: "Simulate Tab-key navigation through up to 80 elements" },
-  observe:  { label: "Start Observe",  cls: "ctaBtn--teal",  helper: "Re-run the audit every ~1s for 12s to catch unstable UI" },
-  watch:    { label: "Start Watch",    cls: "ctaBtn--mint",   helper: "Monitor live updates, loaders and focus loss for 40s" },
+  observe:  { label: "Start Monitor",  cls: "ctaBtn--teal",  helper: "Quick: re-run the audit every ~1s for 12s to catch unstable UI" },
+  watch:    { label: "Start Monitor",  cls: "ctaBtn--mint",   helper: "Deep: monitor live updates, loaders and focus loss for 40s" },
 };
 
 // Teaching copy for the main empty state, per snap mode.
 const MODE_EMPTY_COPY = {
   run:      { text: "Run an audit to see results", hint: "Audit checks the page against WCAG success criteria and lists issues with fix suggestions" },
-  observe:  { text: "Start Observe to see results", hint: "Observe re-runs the audit every second for 12 seconds \u2014 use it on pages that change as you interact" },
-  watch:    { text: "Start Watch to see results", hint: "Watch monitors the page for 40 seconds and reports loading spinners, silent updates and focus loss" },
+  observe:  { text: "Start Monitor to see results", hint: "Quick monitor re-runs the audit every second for 12 seconds \u2014 use it on pages that change as you interact" },
+  watch:    { text: "Start Monitor to see results", hint: "Deep monitor watches the page for 40 seconds and reports loading spinners, silent updates and focus loss" },
   tabWalk:  { text: "Run a Tab Walk to see results", hint: "Tab Walk presses Tab for you and records focus order, keyboard traps and skipped elements" },
   contrast: { text: "Run a Contrast check to see results", hint: "Contrast scans visible text and checks its color contrast against WCAG thresholds" },
 };
@@ -980,8 +1002,8 @@ const SNAP_CTA_RERUN = {
   run:      "Re-run Audit",
   contrast: "Re-check Contrast",
   tabWalk:  "Re-run Tab\u00A0Walk",
-  observe:  "Re-start Observe",
-  watch:    "Re-start Watch",
+  observe:  "Re-start Monitor",
+  watch:    "Re-start Monitor",
 };
 
 function updateSnapCta(mode) {
@@ -1016,7 +1038,10 @@ function showMode(mode) {
     renderSevTabs(filtered);
     renderExplorer(filtered);
   } else if (runLike) {
-    renderSevTabs();
+    // No cached findings for this mode — the explorer still shows the current
+    // findings (run/observe share it), so keep tab counts consistent with the
+    // visible rows instead of rendering dash placeholders.
+    renderSevTabs(state.currentFindings.length ? state.currentFindings : null);
   }
 
   // Render contrast-specific tabs when switching to contrast
@@ -1031,7 +1056,7 @@ function showMode(mode) {
 function showView(tab, sub) {
   // Update top-level tab
   if (tab) state.topTab = tab;
-  const panels = { snap: els.snapContent, flow: els.flowContent, settings: els.settingsContent, about: els.aboutContent };
+  const panels = { snap: els.snapContent, flow: els.flowContent, settings: els.settingsContent };
   document.querySelectorAll("#topTabBar [role='tab']").forEach(btn => {
     const isActive = btn.dataset.tab === state.topTab;
     btn.setAttribute("aria-selected", String(isActive));
@@ -1045,22 +1070,21 @@ function showView(tab, sub) {
     else panel.setAttribute("inert", "");
   }
 
-  // Handle Snap subtab
+  // Handle Snap subtab — "monitor" resolves to the current Quick/Deep segment
   if (state.topTab === "snap" && sub) {
-    setPressed(sub);
-    showMode(sub);
+    const mode = sub === "monitor" ? (state.monitorMode || "observe") : sub;
+    setPressed(mode);
+    showMode(mode);
   }
 
-  // Auto-render about/diagnostics when switching to About
-  if (state.topTab === "about") {
-    renderDiagnostics();
-  }
-
-  // Auto-render flow tab content when switching to Flow
+  // Auto-render flow tab content when switching to Flow. Raw JSON is only
+  // refreshed while its accordion is open — it also re-renders on open.
   if (state.topTab === "flow") {
     renderFlowSessionInfo();
     renderFlowTimeline();
     renderFlowCounters();
+    const rawBody = document.getElementById("flowRecordJsonBody");
+    if (rawBody && !rawBody.hidden) renderFlowRawJson();
   }
 
   updateSessionButtons();
@@ -1069,11 +1093,12 @@ function showView(tab, sub) {
 // Severity filter tabs stay hidden until the first result exists — showing
 // ALL/CRIT./HIGH/… placeholders with "–" counts before any run is noise.
 function updateSevTabsVisibility(mode = state.activeMode || "run") {
-  if (!els.sevTabs) return;
   const runLike = mode === "run" || mode === "observe";
   const modeHasSevTabs = runLike || mode === "contrast";
   const hasAnyResults = state.records.length > 0 || state.hasRunMode.size > 0;
-  els.sevTabs.hidden = !modeHasSevTabs || !hasAnyResults;
+  if (els.sevTabs) els.sevTabs.hidden = !modeHasSevTabs || !hasAnyResults;
+  // The "manual checks" bar follows the same rule — pure noise before a run.
+  if (els.manualChecksSection) els.manualChecksSection.hidden = !hasAnyResults;
 }
 
 function updateResultsVisibility(forceValue = null) {
@@ -1824,16 +1849,6 @@ function updateTargetingSummary(selectionReason = null) {
   els.targetingSummary.textContent = bits.join(" • ");
 }
 
-function flashInlineHint(el, text = "Copied \u2713", ms = 1500) {
-  if (!el) return;
-  el.textContent = text;
-  el.classList.add("show");
-  window.setTimeout(() => {
-    el.classList.remove("show");
-    el.textContent = "";
-  }, ms);
-}
-
 function getActiveModeForSessionCapture() {
   const candidates = ["run", "contrast", "tabWalk", "watch", "observe"];
   if (candidates.includes(state.activeMode)) return state.activeMode;
@@ -2255,6 +2270,25 @@ function renderFlowCounters() {
     ${sparkline}
   `;
   el.hidden = false;
+}
+
+// Flow "Raw JSON" accordion — refreshed whenever the Flow tab renders so the
+// "(no session data yet)" placeholder never survives an actual session.
+function renderFlowRawJson() {
+  const body = document.getElementById("flowRecordJsonBody");
+  const pre = body ? body.querySelector(".rawJsonPre") : null;
+  if (!pre) return;
+  const sess = sessionState.current || sessionState.lastEndedSession;
+  if (!sess) {
+    pre.textContent = "(no session data yet)";
+    return;
+  }
+  try {
+    pre.textContent = pretty(compactSessionForExport(normalizeLoadedSession(sess)));
+  } catch (e) {
+    console.warn("Flow raw JSON render failed", e);
+    pre.textContent = "(session data unavailable)";
+  }
 }
 
 let _verdictHash = "";
@@ -3711,9 +3745,10 @@ function renderTabWalk(res) {
 
 function renderWatch(res) {
   if (!res) return;
-  const watchEvents = Array.isArray(res.events) ? res.events : [];
-  const hasContent = watchEvents.length > 0 || res.bursts != null || res.silentMs != null;
-  if (els.watchEmpty) els.watchEmpty.hidden = hasContent;
+  // A result object means a watch run completed — the summary/verdict blocks
+  // below always render for it, so the "Run Watch…" empty text must go away
+  // even when the run recorded zero events/metrics.
+  if (els.watchEmpty) els.watchEmpty.hidden = true;
   // Summary metrics
   if (els.watchSummary) {
     const metrics = [
@@ -3944,7 +3979,11 @@ function filterFindingsByGroup(findings, groupFilter) {
 function updateIntegrityOverview(aggregates) {
   if (!els.integrityOverview) return;
   if (!aggregates) { els.integrityOverview.hidden = true; return; }
-  els.integrityOverview.hidden = false;
+  var _c = aggregates.counts || {};
+  var _total = (_c.announcements || 0) + (_c.focus || 0) + (_c.semantics || 0) + (_c.multiframe || 0);
+  // All-zero pills are noise and overlap the severity tabs — only show the
+  // integrity row when there is at least one depth-3 finding to filter.
+  els.integrityOverview.hidden = _total === 0;
 
   var groups = [
     { group: "depth3/announcements", status: aggregates.announcementIntegrity, count: aggregates.counts ? aggregates.counts.announcements || 0 : 0, countEl: els.pillAnnouncementsCount },
@@ -5159,26 +5198,6 @@ async function exportSessionMarkdown() {
   }
 }
 
-// --- Presets ---
-
-// --- Export ---
-async function copyMarkdown() {
-  const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
-  const envTag = `${originFrom(url) || "—"} • ${detectEnv(url)}`;
-  const _best = state.lastResult?.bestEntry || state.lastResult?.best;
-  const md = buildMarkdown({
-    inspectedUrl: url,
-    best: _best,
-    perFrame: state.lastResult?.perFrame,
-    usedFrameIds: state.lastResult?.usedFrameIds,
-    envTag,
-    shadowCoverage: _best?.result?.shadowCoverage || _best?.shadowCoverage || null,
-  });
-  const ok = await copyText(md);
-  if (ok) flashInlineHint(els.copyMdHint);
-}
-
-
 function applyDensity(isCompact) {
   document.body.classList.toggle("compact", !!isCompact);
 }
@@ -5868,6 +5887,17 @@ document.getElementById("snapSubTabBar").addEventListener("keydown", (e) => {
 });
 
 
+// Monitor duration segment (Quick = observe / Deep = watch). UI-level only —
+// it just picks which engine action the Monitor sub-tab runs.
+if (els.monitorSegment) {
+  els.monitorSegment.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-monitor]");
+    if (!btn || state.running) return;
+    state.monitorMode = btn.dataset.monitor === "watch" ? "watch" : "observe";
+    showView("snap", "monitor");
+  });
+}
+
 // Run button: execute currently selected mode
 if (els.runCurrentMode) {
   els.runCurrentMode.addEventListener("click", () => _lockedPreset([state.activeMode || "run"]));
@@ -5943,16 +5973,6 @@ if (els.frameSelect) {
 }
 
 
-
-if (els.copyFrameUrl) {
-  els.copyFrameUrl.addEventListener("click", async () => {
-    const selected = els.frameSelect.selectedOptions[0];
-    const url = selected?.dataset?.fullUrl || selected?.title || "";
-    if (!url || url === "(no url)") { toast("No URL to copy"); return; }
-    const ok = await copyText(url);
-    if (ok) toast("Copied frame URL");
-  });
-}
 
 els.copyJson.addEventListener("click", async () => {
   await copyText(pretty(enrichRunJsonExport(state.lastResult)));
@@ -6094,10 +6114,6 @@ if (els.loadBaselineMenu && els.baselineFileInput) {
   });
 }
 
-els.copyMd.addEventListener("click", async () => {
-  await copyMarkdown();
-  setExportMenuOpen(false);
-});
 if (els.exportSessionJsonMenu) {
   els.exportSessionJsonMenu.addEventListener("click", async () => {
     await exportSessionJson();
@@ -6271,14 +6287,6 @@ if (els.flowLabelField) {
       });
     });
   }
-}
-
-if (els.sheetCopyRaw) {
-  els.sheetCopyRaw.addEventListener("click", async () => {
-    await copyText(els.json.textContent || "");
-    setExportMenuOpen(false);
-    toast("Copied raw JSON");
-  });
 }
 
 // --- Cell copy (capture phase to intercept before table row handlers) ---
@@ -6786,11 +6794,9 @@ if (els.structureShowHeadings) {
 if (els.structureShowLandmarks) {
   els.structureShowLandmarks.addEventListener("click", () => sendShowStructure("landmarks"));
 }
-if (els.structureClearHeadings) {
-  els.structureClearHeadings.addEventListener("click", () => sendShowStructure("clear"));
-}
-if (els.structureClearLandmarks) {
-  els.structureClearLandmarks.addEventListener("click", () => sendShowStructure("clear"));
+// One shared Clear — the overlay is a single container regardless of kind.
+if (els.structureClearBtn) {
+  els.structureClearBtn.addEventListener("click", () => sendShowStructure("clear"));
 }
 
 // Guided checks — wizard-style semi-automated tests. Starter buttons fetch
@@ -6840,7 +6846,15 @@ window.addEventListener("keydown", (e) => {
   if (key === "1") { showView("snap"); return; }
   if (key === "2") { showView("flow"); return; }
   if (key === "3") { showView("settings"); return; }
-  if (key === "4") { showView("about"); return; }
+
+  // o/w — jump to the Monitor sub-tab with the matching duration segment
+  if (key === "o" || key === "w") {
+    state.monitorMode = key === "w" ? "watch" : "observe";
+    showView("snap", "monitor");
+    const monitorTab = document.querySelector('#snapSubTabBar [data-action="monitor"]');
+    if (monitorTab) monitorTab.focus();
+    return;
+  }
 
   if (state.topTab === "flow") {
     // s = mark step (if session active), e = end session
@@ -7208,6 +7222,13 @@ if (els.rawJsonToggle) {
   });
 }
 
+// Diagnostics (Settings → Advanced) — render lazily when the section opens
+if (els.diagnosticsSection) {
+  els.diagnosticsSection.addEventListener("toggle", () => {
+    if (els.diagnosticsSection.open) renderDiagnostics();
+  });
+}
+
 if (els.deleteAllRuns) {
   els.deleteAllRuns.addEventListener("click", deleteAllRunsAction);
 }
@@ -7217,10 +7238,14 @@ document.querySelectorAll('.accordionToggle').forEach(btn => {
   btn.addEventListener('click', () => {
     const expanded = btn.getAttribute('aria-expanded') === 'true';
     btn.setAttribute('aria-expanded', String(!expanded));
-    const body = btn.closest('.accordion')?.querySelector('.accordionBody');
+    const accordion = btn.closest('.accordion');
+    const body = accordion?.querySelector('.accordionBody');
     if (body) body.hidden = expanded;
     const chevron = btn.querySelector('.chevron');
     if (chevron) chevron.textContent = expanded ? '\u2228' : '\u2227';
+    // Flow raw JSON renders lazily \u2014 refresh whenever its accordion opens so
+    // the "(no session data yet)" placeholder never outlives a real session.
+    if (!expanded && accordion?.id === 'flowRecordJson') renderFlowRawJson();
   });
 });
 

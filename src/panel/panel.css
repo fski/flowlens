@@ -753,9 +753,8 @@ kbd {
 .topTab .tabLabel { font-size: 15px; }
 
 .topTab--settings { flex: 0 0 auto; }
-.topTab--about { flex: 0 0 auto; }
 
-/* ═══ ABOUT / DIAGNOSTICS ═══ */
+/* ═══ DIAGNOSTICS (Settings → Advanced) ═══ */
 .aboutSection {
   max-width: 520px;
   padding: 20px 16px;
@@ -879,10 +878,8 @@ kbd {
 .subTab--contrast.active { color: #54B8A6; }
 .subTab--tabWalk[aria-selected="true"],
 .subTab--tabWalk.active { color: #7BB85E; }
-.subTab--observe[aria-selected="true"],
-.subTab--observe.active { color: #5AADDB; }
-.subTab--watch[aria-selected="true"],
-.subTab--watch.active { color: #8B8EDB; }
+.subTab--monitor[aria-selected="true"],
+.subTab--monitor.active { color: #5AADDB; }
 
 .subTab[aria-selected="true"] .tabSvg,
 .subTab.active .tabSvg {
@@ -908,8 +905,7 @@ kbd {
 .subTab--run[aria-selected="true"]     { --tab-grad: linear-gradient(180deg, #DB9F3E, var(--brd)); }
 .subTab--contrast[aria-selected="true"]{ --tab-grad: linear-gradient(180deg, #54B8A6, var(--brd)); }
 .subTab--tabWalk[aria-selected="true"] { --tab-grad: linear-gradient(180deg, #7BB85E, var(--brd)); }
-.subTab--observe[aria-selected="true"] { --tab-grad: linear-gradient(180deg, #5AADDB, var(--brd)); }
-.subTab--watch[aria-selected="true"]   { --tab-grad: linear-gradient(180deg, #8B8EDB, var(--brd)); }
+.subTab--monitor[aria-selected="true"] { --tab-grad: linear-gradient(180deg, #5AADDB, var(--brd)); }
 
 .subTab .tabLabel { font-size: 15px; }
 
@@ -1033,6 +1029,46 @@ kbd {
   font-weight: 600;
 }
 
+
+/* ═══ MONITOR DURATION SEGMENT (Quick = observe / Deep = watch) ═══ */
+.monitorSegment {
+  display: flex;
+  gap: 0;
+  margin: 8px auto 0;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid var(--brd);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.segBtn {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--tx2);
+  font: 600 12px/1.2 var(--font-mono);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.segBtn + .segBtn { border-left: 1px solid var(--brd); }
+.segBtn:hover { background: var(--raised); color: var(--tx); }
+.segBtn:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+.segBtn[aria-checked="true"] {
+  background: var(--brd);
+  color: var(--tx);
+}
+.segBtn .segHint {
+  font-weight: 400;
+  font-size: 10px;
+  color: var(--tx3);
+}
+.segBtn[aria-checked="true"] .segHint { color: var(--tx2); }
 
 /* ═══ HELPER TEXT ═══ */
 .helperText {
@@ -1839,6 +1875,34 @@ kbd {
 }
 
 .settingsAdvanced[open] > summary { color: var(--tx); margin-bottom: 16px; }
+
+/* Diagnostics details nested inside Settings → Advanced (former About tab) */
+.settingsDiagnostics {
+  margin-top: 20px;
+  border-top: 1px solid var(--brd0);
+  padding-top: 12px;
+}
+.settingsDiagnostics > summary {
+  display: inline-block;
+  padding: 4px 8px;
+  border: 1px solid var(--brd);
+  border-radius: var(--radius-sm);
+  color: var(--tx2);
+  font: 600 12px/1 var(--font-mono);
+  cursor: pointer;
+  user-select: none;
+  transition: color .15s, background-color .15s, border-color .15s;
+}
+.settingsDiagnostics > summary:hover {
+  background: var(--overlay);
+  border-color: var(--brd2);
+  color: var(--tx);
+}
+.settingsDiagnostics > summary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--bg), 0 0 0 4px var(--infoB);
+}
+.settingsDiagnostics[open] > summary { color: var(--tx); margin-bottom: 12px; }
 
 .lastStatusLine {
   padding: 7px 10px;

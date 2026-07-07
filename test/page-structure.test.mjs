@@ -288,21 +288,23 @@ describe('GET_PAGE_STRUCTURE / SHOW_STRUCTURE message validation', () => {
 // ══════════════════════════════════════════════════════
 
 describe('Panel page structure section', () => {
-  it('panel.html has the Page structure collapsible with scan + per-list controls', () => {
+  it('panel.html has the Page structure collapsible with scan + show controls and one shared clear', () => {
     assert.match(panelHtml, /<details class="assistBar structureBar" id="structureSection">/);
     assert.match(panelHtml, /<summary class="assistSummary">Page structure<\/summary>/);
     for (const id of [
-      'structureScanBtn', 'structureSummary',
+      'structureScanBtn', 'structureClearBtn', 'structureSummary',
       'structureHeadingsList', 'structureLandmarksList',
-      'structureShowHeadings', 'structureClearHeadings',
-      'structureShowLandmarks', 'structureClearLandmarks',
+      'structureShowHeadings', 'structureShowLandmarks',
     ]) {
       assert.ok(panelHtml.includes(`id="${id}"`), `element #${id} present`);
     }
+    // The overlay is one container regardless of kind — a single Clear suffices.
+    assert.ok(!panelHtml.includes('structureClearHeadings'), 'per-list clear buttons removed');
+    assert.ok(!panelHtml.includes('structureClearLandmarks'), 'per-list clear buttons removed');
   });
 
   it('all structure buttons are real <button type="button"> elements (keyboard-accessible)', () => {
-    const ids = ['structureScanBtn', 'structureShowHeadings', 'structureClearHeadings', 'structureShowLandmarks', 'structureClearLandmarks'];
+    const ids = ['structureScanBtn', 'structureClearBtn', 'structureShowHeadings', 'structureShowLandmarks'];
     for (const id of ids) {
       const m = panelHtml.match(new RegExp(`<button[^>]*id="${id}"[^>]*>`));
       assert.ok(m, `#${id} is a <button>`);

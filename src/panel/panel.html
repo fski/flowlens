@@ -30,10 +30,6 @@
           <span class="tabLabel">Settings</span>
           <kbd class="keycap" aria-hidden="true">3</kbd>
         </button>
-        <button class="topTab topTab--about" id="topTabAbout" role="tab" data-tab="about" aria-controls="aboutContent" aria-selected="false" tabindex="-1" type="button">
-          <span class="tabLabel">About</span>
-          <kbd class="keycap" aria-hidden="true">4</kbd>
-        </button>
       </nav>
 
 
@@ -55,13 +51,9 @@
             <img class="tabSvg" src="icons/Tab Walk Icon.svg" alt="" width="16" height="16" aria-hidden="true" />
             <span class="tabLabel">Tab&nbsp;Walk</span>
           </button>
-          <button class="subTab subTab--observe" role="tab" data-action="observe" aria-selected="false" tabindex="-1" type="button">
+          <button class="subTab subTab--monitor" role="tab" data-action="monitor" aria-selected="false" tabindex="-1" type="button">
             <img class="tabSvg" src="icons/Observe Icon.svg" alt="" width="16" height="16" aria-hidden="true" />
-            <span class="tabLabel">Observe</span>
-          </button>
-          <button class="subTab subTab--watch" role="tab" data-action="watch" aria-selected="false" tabindex="-1" type="button">
-            <img class="tabSvg" src="icons/Watch Icon.svg" alt="" width="16" height="16" aria-hidden="true" />
-            <span class="tabLabel">Watch</span>
+            <span class="tabLabel">Monitor</span>
           </button>
         </nav>
         </div>
@@ -72,6 +64,10 @@
             <img id="runIcon" class="tabSvg" src="icons/Run Icon.svg" alt="" width="16" height="16" aria-hidden="true" /> <span id="runLabel">Run Audit</span>
             <span id="runTimer" class="runTimer" hidden></span>
           </button>
+          <div class="monitorSegment" id="monitorSegment" role="radiogroup" aria-label="Monitor duration" hidden>
+            <button class="segBtn" id="segMonitorQuick" type="button" role="radio" aria-checked="true" data-monitor="observe" title="Re-run the audit every ~1s for 12 seconds to catch unstable UI">Quick <span class="segHint">12s re-audits</span></button>
+            <button class="segBtn" id="segMonitorDeep" type="button" role="radio" aria-checked="false" data-monitor="watch" title="Monitor live updates, loaders and focus loss for 40 seconds">Deep <span class="segHint">40s live watch</span></button>
+          </div>
           <p class="helperText" id="snapHelper">Perform a strict WCAG Audit</p>
         </div>
 
@@ -98,13 +94,13 @@
           <div class="structureBody">
             <div class="structureActions">
               <button class="btn xs" id="structureScanBtn" type="button" title="Scan headings and landmarks of the inspected page (traverses open shadow roots)">Scan structure</button>
+              <button class="btn xs" id="structureClearBtn" type="button" title="Remove the structure overlay from the inspected page">Clear overlay</button>
               <span class="structureSummary mono" id="structureSummary" role="status" aria-live="polite" aria-atomic="true"></span>
             </div>
             <section class="structureList" aria-label="Headings outline">
               <div class="structureListHead">
                 <span class="structureListTitle">Headings</span>
                 <button class="btn xs" id="structureShowHeadings" type="button" title="Outline headings with level badges on the inspected page">Show on page</button>
-                <button class="btn xs" id="structureClearHeadings" type="button" title="Remove the structure overlay from the inspected page">Clear</button>
               </div>
               <ul class="structureItems" id="structureHeadingsList"></ul>
             </section>
@@ -112,7 +108,6 @@
               <div class="structureListHead">
                 <span class="structureListTitle">Landmarks</span>
                 <button class="btn xs" id="structureShowLandmarks" type="button" title="Outline landmark regions with role badges on the inspected page">Show on page</button>
-                <button class="btn xs" id="structureClearLandmarks" type="button" title="Remove the structure overlay from the inspected page">Clear</button>
               </div>
               <ul class="structureItems" id="structureLandmarksList"></ul>
             </section>
@@ -288,8 +283,9 @@
 
         </div><!-- /resultsZone -->
 
-        <!-- Manual checks: WCAG areas automation cannot decide (informational only) -->
-        <details class="assistBar manualChecks" id="manualChecksSection">
+        <!-- Manual checks: WCAG areas automation cannot decide (informational only).
+             Hidden until the first result exists — same rule as severity tabs. -->
+        <details class="assistBar manualChecks" id="manualChecksSection" hidden>
           <summary class="assistSummary">Automation covers only part of WCAG &mdash; manual checks</summary>
           <ul class="manualChecksList" id="manualChecksList"></ul>
         </details>
@@ -329,8 +325,6 @@
                   <button class="emItem" id="saveBaselineMenu" type="button" role="menuitem"><span class="l">Save baseline (JSON)</span></button>
                   <button class="emItem" id="loadBaselineMenu" type="button" role="menuitem"><span class="l">Load baseline&hellip;</span></button>
                   <button class="emItem" id="copyJson" type="button" role="menuitem"><span class="l">Copy JSON</span></button>
-                  <button class="emItem" id="copyMd" type="button" role="menuitem" hidden><span class="l">Copy Markdown</span></button>
-                  <button class="emItem" id="sheetCopyRaw" type="button" role="menuitem" hidden><span class="l">Copy Raw</span></button>
                   <button class="emItem" id="downloadJunitXml" type="button" role="menuitem"><span class="l">Download JUnit XML</span></button>
                   <div class="emLabel">JUnit CI Options</div>
                   <label class="emCiOption"><input type="checkbox" id="ciFailOnBlocking" checked /><span>Fail CI on must-fix issues</span></label>
@@ -341,7 +335,6 @@
                   <button class="emItem" id="exportSessionJsonMenu" type="button" role="menuitem" hidden><span class="l">Session JSON</span><span class="dd">Last ended session</span></button>
                   <button class="emItem" id="exportSessionMdMenu" type="button" role="menuitem" hidden><span class="l">Session Markdown</span><span class="dd">Last ended session</span></button>
                   <button class="emItem" id="exportDiffReportMenu" type="button" role="menuitem" hidden><span class="l">Diff Report JSON</span><span class="dd">Machine-readable CI diff</span></button>
-                  <span class="inlineHint sr-only" id="copyMdHint" aria-live="polite"></span>
                 </div>
                 <input type="file" id="baselineFileInput" accept="application/json,.json" aria-label="Load baseline JSON file" hidden />
               </div>
@@ -559,7 +552,6 @@
                 <span class="frameActions">
                   <label class="switch switchSm"><input id="pinFrame" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Pin</span></label>
                   <button class="btn xs" id="refreshFrames" type="button">&#8635; Refresh</button>
-                  <button class="btn xs" id="copyFrameUrl" type="button" aria-label="Copy selected frame URL">Copy URL</button>
                 </span>
               </div>
               <div class="targetingSummary mono" id="targetingSummary" role="status" aria-live="polite" aria-atomic="true">
@@ -570,16 +562,13 @@
                 <label class="switch"><input id="alsoConsole" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Log to console</span></label>
               </div>
             </div>
-          </details>
-        </section>
 
-      </div><!-- /settingsContent -->
-
-      <!-- ═══════════════════════ ABOUT / DIAGNOSTICS ═══════════════════════ -->
-      <div id="aboutContent" role="tabpanel" aria-labelledby="topTabAbout" hidden inert>
-        <section class="aboutSection">
-          <h2 class="aboutHeading">FlowLens Diagnostics</h2>
-          <dl class="aboutDl">
+            <!-- Diagnostics (former About tab) — rendered lazily on open -->
+            <details class="settingsDiagnostics" id="diagnosticsSection">
+              <summary class="settingsAdvancedSummary">Diagnostics</summary>
+              <section class="aboutSection">
+                <h2 class="aboutHeading">FlowLens Diagnostics</h2>
+                <dl class="aboutDl">
             <dt>Version</dt>
             <dd id="diagVersion">—</dd>
             <dt>Schema</dt>
@@ -624,25 +613,29 @@
             <dd id="diagDepthMax">—</dd>
             <dt>Recipe</dt>
             <dd id="diagRecipe">—</dd>
-            <dt id="diagPerfLabel" style="display:none">Perf</dt>
-            <dd id="diagPerfText" style="display:none">—</dd>
-          </dl>
-          <div class="aboutActions">
-            <button class="btn sm" id="copyDiagnostics" type="button">Copy diagnostics</button>
-            <button class="btn sm" id="copyDiagnosticsMdBtn" type="button">Copy diagnostics (Markdown)</button>
-            <button class="btn sm" id="copyCiJson" type="button">Copy CI JSON</button>
-            <span class="inlineHint" id="copyDiagHint" aria-live="polite"></span>
-          </div>
-        </section>
-        <section class="aboutSection">
-          <h2 class="aboutHeading">WCAG Coverage</h2>
-          <p class="coverageLine" id="coverageLine">—</p>
-          <details class="coverageDetails" id="coverageDetails">
-            <summary class="coverageSummary">Missing criteria</summary>
-            <ul class="coverageList" id="coverageMissingList"></ul>
+                  <dt id="diagPerfLabel" style="display:none">Perf</dt>
+                  <dd id="diagPerfText" style="display:none">—</dd>
+                </dl>
+                <div class="aboutActions">
+                  <button class="btn sm" id="copyDiagnostics" type="button">Copy diagnostics</button>
+                  <button class="btn sm" id="copyDiagnosticsMdBtn" type="button">Copy diagnostics (Markdown)</button>
+                  <button class="btn sm" id="copyCiJson" type="button">Copy CI JSON</button>
+                  <span class="inlineHint" id="copyDiagHint" aria-live="polite"></span>
+                </div>
+              </section>
+              <section class="aboutSection">
+                <h2 class="aboutHeading">WCAG Coverage</h2>
+                <p class="coverageLine" id="coverageLine">—</p>
+                <details class="coverageDetails" id="coverageDetails">
+                  <summary class="coverageSummary">Missing criteria</summary>
+                  <ul class="coverageList" id="coverageMissingList"></ul>
+                </details>
+              </section>
+            </details>
           </details>
         </section>
-      </div><!-- /aboutContent -->
+
+      </div><!-- /settingsContent -->
 
       <!-- Hidden runtime metadata (used by JS) -->
       <div class="runtimeMeta" hidden aria-hidden="true">
