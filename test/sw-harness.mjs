@@ -39,12 +39,15 @@ export function createSwContext(opts = {}) {
       runtime: {
         id: 'test-extension-id',
         onMessage: { addListener: () => {} },
+        sendMessage: () => Promise.resolve(),
       },
       scripting: {
         executeScript: opts.executeScript || (() => Promise.resolve([])),
       },
       webNavigation: {
         getAllFrames: opts.getAllFrames || (() => Promise.resolve([])),
+        onHistoryStateUpdated: { addListener: () => {} },
+        onReferenceFragmentUpdated: { addListener: () => {} },
       },
     },
   });

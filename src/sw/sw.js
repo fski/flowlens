@@ -1172,6 +1172,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
+// SPA route changes: DevTools pages have no webNavigation access, so the SW
+// broadcasts History-API navigations and the panel filters by its inspected
+// tab. Real (full) navigations are handled by devtools.network.onNavigated
+// in the panel itself.
+const broadcastSpaNav = (details) => {
+  if (!details || details.frameId !== 0) return;
+  try {
+    chrome.runtime.sendMessage({ type: "SPA_NAV_EVENT", tabId: details.tabId, url: String(details.url || "") })
+      .catch(() => { /* no listener (panel closed) — expected */ });
+  } catch { /* context shutting down */ }
+};
+chrome.webNavigation.onHistoryStateUpdated?.addListener(broadcastSpaNav);
+chrome.webNavigation.onReferenceFragmentUpdated?.addListener(broadcastSpaNav);
+
 async function computeFrameScores({ tabId, frames, match, legacyAutoFanout = false }) {
   const selectors = Array.isArray(match?.domSelectorsAny) ? match.domSelectorsAny : [];
   const urlIncludes = Array.isArray(match?.urlIncludes) ? match.urlIncludes : [];

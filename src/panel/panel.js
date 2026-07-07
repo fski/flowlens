@@ -7772,37 +7772,62 @@ initScrollShadows();
   update();
 })();
 
-// auto refresh on navigation
-chrome.devtools.network.onNavigated.addListener(async () => {
-  state.findingsByMode = {};
-  state.hasRunMode = new Set();
-  state.contrastFilter = "all";
-  await refreshInspectedUrl();
-  await refreshFrames();
-  toast("Navigated — refreshed frames");
-
-  // Auto-capture if enabled (R4: guarded against timer stacking and inFlight races)
-  if (sessionState.current && els.autoCaptureNav?.checked) {
-    const { url } = getCurrentScopeInfo();
-    if (url && url !== sessionState.lastAutoNavUrl) {
-      if (sessionState.autoCapturePending) clearTimeout(sessionState.autoCapturePending);
-      const debounceMs = Number(els.autoCaptureDelay?.value) || 500;
-      sessionState.autoCapturePending = setTimeout(async () => {
-        sessionState.autoCapturePending = null;
-        // Skip if session ended, or capture already in flight (will be queued by captureStepOptionC)
-        if (!sessionState.current) return;
-        sessionState.lastAutoNavUrl = url;
-        try {
-          const autoLabel = await deriveAutoLabel(url);
-          await captureStepOptionC(autoLabel, { isAutoCapture: true });
-        } catch (e) {
-          console.error("Auto-capture failed:", e);
-          toast("Auto-capture failed");
-        }
-      }, debounceMs);
+// Auto-capture if enabled (R4: guarded against timer stacking and inFlight races)
+function scheduleAutoCaptureAfterNav() {
+  if (!(sessionState.current && els.autoCaptureNav?.checked)) return;
+  const { url } = getCurrentScopeInfo();
+  if (!url || url === sessionState.lastAutoNavUrl) return;
+  if (sessionState.autoCapturePending) clearTimeout(sessionState.autoCapturePending);
+  const debounceMs = Number(els.autoCaptureDelay?.value) || 500;
+  sessionState.autoCapturePending = setTimeout(async () => {
+    sessionState.autoCapturePending = null;
+    // Skip if session ended, or capture already in flight (will be queued by captureStepOptionC)
+    if (!sessionState.current) return;
+    sessionState.lastAutoNavUrl = url;
+    try {
+      const autoLabel = await deriveAutoLabel(url);
+      await captureStepOptionC(autoLabel, { isAutoCapture: true });
+    } catch (e) {
+      console.error("Auto-capture failed:", e);
+      toast("Auto-capture failed");
     }
+  }, debounceMs);
+}
+
+async function handleNavigationEvent({ spa = false } = {}) {
+  if (!spa) {
+    state.findingsByMode = {};
+    state.hasRunMode = new Set();
+    state.contrastFilter = "all";
   }
-});
+  try {
+    await refreshInspectedUrl();
+    if (!spa) {
+      await refreshFrames();
+      toast("Navigated — refreshed frames");
+    }
+  } catch (e) {
+    console.warn("Navigation refresh failed", e);
+  }
+  scheduleAutoCaptureAfterNav();
+}
+
+// auto refresh on full navigation
+chrome.devtools.network.onNavigated.addListener(() => { handleNavigationEvent({ spa: false }); });
+
+// SPA route changes (History API / hash) — broadcast by the service worker,
+// the only extension context with webNavigation access. Without this,
+// auto-capture never fires on single-page apps.
+if (__runtime?.onMessage?.addListener) {
+  __runtime.onMessage.addListener((msg, sender) => {
+    if (!msg || msg.type !== "SPA_NAV_EVENT") return;
+    if (sender?.id && sender.id !== chrome.runtime.id) return;
+    let tabId = null;
+    try { tabId = chrome.devtools?.inspectedWindow?.tabId; } catch { /* devtools gone */ }
+    if (tabId == null || Number(msg.tabId) !== Number(tabId)) return;
+    handleNavigationEvent({ spa: true });
+  });
+}
 
 // Bottom sheet toggles
 if (els.pastRunsToggle) {
