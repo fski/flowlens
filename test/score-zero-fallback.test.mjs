@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { createSwContext } from './sw-harness.mjs';
 
 describe('Score==0 fallback heuristics', () => {
-  it('selects frame with hasChat when all scores are zero', () => {
+  it('selects a signal-bearing frame when all scores are zero (ties break toward host)', () => {
     const ctx = createSwContext();
     const perFrame = [
       { frameId: 0, ok: true, normalized: { summaryScore: 0, blockingCount: 0 } },
@@ -19,8 +19,22 @@ describe('Score==0 fallback heuristics', () => {
       [2, { frameId: 2, hasChat: false, hasHelpRoot: false, hasArticle: true, looksShell: false }],
     ]);
     const result = ctx.__chooseBestEntry({ action: 'run', perFrame, target: {}, probeByFrameId });
-    assert.equal(result.entry.frameId, 1, 'should select chat iframe');
+    assert.equal(result.entry.frameId, 1, 'equal-rank frames resolve to the lower frameId');
     assert.equal(result.reason, 'score_zero_probe_heuristic');
+  });
+
+  it('profile marker hit dominates content signals', () => {
+    const ctx = createSwContext();
+    const perFrame = [
+      { frameId: 1, ok: true, normalized: { summaryScore: 0, blockingCount: 0 } },
+      { frameId: 2, ok: true, normalized: { summaryScore: 0, blockingCount: 0 } },
+    ];
+    const probeByFrameId = new Map([
+      [1, { frameId: 1, hasChat: true, hasHelpRoot: true, hasArticle: true, looksShell: false, markerHits: {} }],
+      [2, { frameId: 2, hasChat: false, hasHelpRoot: false, hasArticle: false, looksShell: false, markerHits: { "[data-x]": true } }],
+    ]);
+    const result = ctx.__chooseBestEntry({ action: 'run', perFrame, target: {}, probeByFrameId });
+    assert.equal(result.entry.frameId, 2, 'active-profile marker hit must outrank generic signals');
   });
 
   it('selects frame with hasHelpRoot when no chat frame', () => {
@@ -38,7 +52,9 @@ describe('Score==0 fallback heuristics', () => {
     assert.equal(result.reason, 'score_zero_probe_heuristic');
   });
 
-  it('prefers hasChat over hasHelpRoot', () => {
+  it('prefers content landmarks over a lone chat signal', () => {
+    // A chat-looking iframe (consent manager, support bubble) must not steal
+    // the audit from a frame with real content landmarks.
     const ctx = createSwContext();
     const perFrame = [
       { frameId: 1, ok: true, normalized: { summaryScore: 0, blockingCount: 0 } },
@@ -49,7 +65,7 @@ describe('Score==0 fallback heuristics', () => {
       [2, { frameId: 2, hasChat: true, hasHelpRoot: false, hasArticle: false, looksShell: false }],
     ]);
     const result = ctx.__chooseBestEntry({ action: 'run', perFrame, target: {}, probeByFrameId });
-    assert.equal(result.entry.frameId, 2, 'chat should rank higher than help root');
+    assert.equal(result.entry.frameId, 1, 'content landmarks should rank higher than a chat signal');
   });
 
   it('falls back to top frame when no probe signals', () => {

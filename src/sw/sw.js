@@ -513,21 +513,28 @@ function chooseBestEntry({ action, perFrame, target, probeByFrameId }) {
   }
 
   // Score==0 fallback: use probe heuristics if available.
+  // Ranking is intentionally generic: an explicit active-profile marker hit is
+  // the strongest signal; otherwise rank by content richness (landmarks,
+  // articles, live widgets, non-shell). A chat-looking frame must NOT
+  // dominate — on ordinary pages a third-party widget iframe (consent
+  // manager, support bubble) would otherwise steal the audit from the
+  // user's actual content. Ties break toward the host page (lower frameId).
   if (probeByFrameId instanceof Map && probeByFrameId.size > 0) {
     const probeRanked = okFrames
       .map(entry => {
         const probe = probeByFrameId.get(entry.frameId) || {};
         let rank = 0;
-        if (probe.hasChat) rank += 8;
         const anyMarkerHit = Object.values(probe.markerHits || {}).some(v => v);
-        if (anyMarkerHit) rank += 6;
+        if (anyMarkerHit) rank += 10;
         if (probe.hasHelpRoot) rank += 4;
         if (probe.hasArticle) rank += 2;
+        if (probe.hasChat) rank += 2;
+        if (probe.hasTree) rank += 1;
         if (!probe.looksShell) rank += 1;
         return { entry, rank };
       })
       .filter(x => x.rank > 0)
-      .sort((a, b) => b.rank - a.rank);
+      .sort((a, b) => (b.rank - a.rank) || (a.entry.frameId - b.entry.frameId));
     if (probeRanked.length) {
       return { entry: probeRanked[0].entry, reason: "score_zero_probe_heuristic" };
     }
@@ -1189,7 +1196,6 @@ async function computeFrameScores({ tabId, frames, match, legacyAutoFanout = fal
     for (const inc of urlIncludes) {
       if (u.includes(String(inc).toLowerCase())) s += 5;
     }
-    if (hasHeuristics && f.frameId !== 0) s += 1;
     urlScores.set(f.frameId, s);
   }
 
