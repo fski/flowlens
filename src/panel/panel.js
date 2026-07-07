@@ -4371,22 +4371,27 @@ function selectBestProfileMatch(probeData, frameUrl, isManualOverride) {
 }
 
 async function setPinnedFrameIfNeeded() {
-  // stores selected frame for this origin
+  // stores selected frame for this origin — best-effort: a storage failure
+  // must not abort the run that awaits this (runAction awaits it un-guarded).
   const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
   const origin = originFrom(url);
   if (!origin) return;
 
-  const { pinnedFrames = {} } = await storageGet(["pinnedFrames"]);
-  if (els.pinFrame.checked) {
-    const selected = els.frameSelect.value === "" ? NaN : Number(els.frameSelect.value);
-    if (!Number.isFinite(selected)) return;
-    pinnedFrames[origin] = { frameId: selected };
-    state.pinnedFrameId = Number.isFinite(selected) ? selected : null;
-  } else {
-    delete pinnedFrames[origin];
-    state.pinnedFrameId = null;
+  try {
+    const { pinnedFrames = {} } = await storageGet(["pinnedFrames"]);
+    if (els.pinFrame.checked) {
+      const selected = els.frameSelect.value === "" ? NaN : Number(els.frameSelect.value);
+      if (!Number.isFinite(selected)) return;
+      pinnedFrames[origin] = { frameId: selected };
+      state.pinnedFrameId = Number.isFinite(selected) ? selected : null;
+    } else {
+      delete pinnedFrames[origin];
+      state.pinnedFrameId = null;
+    }
+    await storageSet({ pinnedFrames });
+  } catch (err) {
+    console.warn("setPinnedFrameIfNeeded: pin persistence failed", err);
   }
-  await storageSet({ pinnedFrames });
   updateTargetingSummary();
 }
 
@@ -4448,15 +4453,30 @@ async function _highlightFindingInner(finding, highlightCtx) {
   return res;
 }
 
+// History snapshots are best-effort telemetry. chrome.storage.local can reject
+// (QUOTA_BYTES exceeded, transient IO) — that must degrade the diff line, not
+// crash runAction with an unhandled rejection (seen as "panel.js (runAction)"
+// in production). Never rethrow from these helpers.
 async function saveHistorySnapshot({ key, snapshot }) {
-  const { history = {} } = await storageGet(["history"]);
-  history[key] = snapshot;
-  await storageSet({ history });
+  try {
+    const { history = {} } = await storageGet(["history"]);
+    history[key] = snapshot;
+    await storageSet({ history });
+    return true;
+  } catch (err) {
+    console.warn("saveHistorySnapshot failed (history diff unavailable)", err);
+    return false;
+  }
 }
 
 async function loadHistorySnapshot(key) {
-  const { history = {} } = await storageGet(["history"]);
-  return history[key] || null;
+  try {
+    const { history = {} } = await storageGet(["history"]);
+    return history[key] || null;
+  } catch (err) {
+    console.warn("loadHistorySnapshot failed (history diff unavailable)", err);
+    return null;
+  }
 }
 
 async function runAction(action, opts = {}) {
@@ -6944,8 +6964,11 @@ document.addEventListener('click', () => {
 const DEFAULT_COL_HIDDEN = {};
 
 function initColToggles() {
-  // Load saved prefs then set up toggles
-  storageGet(['colPrefs']).then(({ colPrefs }) => {
+  // Load saved prefs then set up toggles (best-effort — storage may reject)
+  storageGet(['colPrefs']).catch((e) => {
+    console.warn('initColToggles: colPrefs load failed', e);
+    return {};
+  }).then(({ colPrefs } = {}) => {
     let useSaved = false;
     if (colPrefs && Object.keys(colPrefs).length > 0) {
       // Validate saved prefs against current column counts to avoid stale indices
@@ -7221,7 +7244,7 @@ if (_compareBtn) _compareBtn.addEventListener("click", runSessionComparison);
 initColToggles();
 updateScopeUi();
 setVersionBadge();
-loadUiPrefs();
+loadUiPrefs().catch((e) => console.warn("loadUiPrefs failed (defaults kept)", e));
 
 (async () => {
   await refreshInspectedUrl();
