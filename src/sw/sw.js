@@ -1,4 +1,8 @@
 const SNIPPET_FILE = "a11y-audit-snippet.js";
+// Vendored dom-accessibility-api bundle (spec-order accessible-name engine).
+// Injected BEFORE the snippet so window.__FlowLensAccName is available;
+// the snippet falls back to its own heuristic if it is missing.
+const ACCNAME_FILE = "accname.js";
 const SESSION_SCHEMA_VERSION = 4;
 const SESSION_SIGNATURE_VERSION = 2;
 const EN_MAPPING_VERSION = 1;
@@ -617,7 +621,7 @@ async function execAuditActionInFrame({ tabId, frameId, action, alsoConsole, wca
   try {
     await chrome.scripting.executeScript({
       target: { tabId, frameIds: [frameId] },
-      files: [SNIPPET_FILE],
+      files: [ACCNAME_FILE, SNIPPET_FILE],
       world: "MAIN"
     });
   } catch (e) {

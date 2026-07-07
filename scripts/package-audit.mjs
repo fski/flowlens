@@ -64,6 +64,7 @@ const REQUIRED = [
   "exporters.js",
   "sw.js",
   "a11y-audit-snippet.js",
+  "accname.js",
   "devtools.html",
   "devtools.js",
   "en301549-map.js",

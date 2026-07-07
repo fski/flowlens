@@ -683,7 +683,10 @@
     },
   };
 
-  const getAccName = (el) => {
+  // Legacy heuristic accessible-name computation — used when the vendored
+  // dom-accessibility-api engine (window.__FlowLensAccName, injected as
+  // accname.js before this snippet) is unavailable or throws.
+  const getAccNameFallback = (el) => {
     if (!isEl(el)) return "";
     const aria = el.getAttribute("aria-label");
     if (aria?.trim()) return aria.trim();
@@ -710,6 +713,19 @@
     const ph = el.getAttribute("placeholder");
     if (ph?.trim()) return `[placeholder] ${ph.trim()}`;
     return txt(el.textContent, 160) || "";
+  };
+
+  const getAccName = (el) => {
+    if (!isEl(el)) return "";
+    const engine = typeof window !== "undefined" ? window.__FlowLensAccName : null;
+    if (engine && typeof engine.computeAccessibleName === "function") {
+      try {
+        // Spec-order (accname) computation; keep the snippet's whitespace
+        // normalization + truncation behavior (same as the textContent path).
+        return txt(engine.computeAccessibleName(el), 160) || "";
+      } catch { /* fall through to heuristic */ }
+    }
+    return getAccNameFallback(el);
   };
 
   const add = (findings, params) => {
