@@ -93,6 +93,8 @@ const els = {
   diagFrameKey: document.getElementById("diagFrameKey"),
   diagEnMapping: document.getElementById("diagEnMapping"),
   diagDataVersions: document.getElementById("diagDataVersions"),
+  diagFrameGating: document.getElementById("diagFrameGating"),
+  diagExcludedFrames: document.getElementById("diagExcludedFrames"),
   diagUrl: document.getElementById("diagUrl"),
   diagEnv: document.getElementById("diagEnv"),
   diagFrameScope: document.getElementById("diagFrameScope"),
@@ -380,24 +382,24 @@ const RECIPES = {
     profileAllowlist: null,
   },
   chat_widget: {
-    label: "Chat Widget",
-    description: "Embedded chat widget — embedded scope, balanced depth, observe mode",
+    label: "Embedded widget (chat-like)",
+    description: "Embedded live widget — embedded scope, balanced depth, observe mode",
     frameScope: "embedded",
     depthMax: 2,
     activeMode: "observe",
     profileAllowlist: ["chat"],
   },
   helpcenter: {
-    label: "Help Center",
-    description: "Help center + bot — embedded scope, full depth, observe mode",
+    label: "Content portal (help/docs)",
+    description: "Content portal with embedded widgets — embedded scope, full depth, observe mode",
     frameScope: "embedded",
     depthMax: 3,
     activeMode: "observe",
     profileAllowlist: ["helpcenter"],
   },
   hybrid: {
-    label: "Hybrid",
-    description: "Multi-frame portal — all frames, full depth, observe mode",
+    label: "Hybrid (portal + widget)",
+    description: "Multi-frame page — all frames, full depth, observe mode",
     frameScope: "all",
     depthMax: 3,
     activeMode: "observe",
@@ -936,12 +938,31 @@ function setPressed(action) {
 }
 
 const SNAP_CTA = {
-  run:      { label: "Run Audit",      cls: "ctaBtn--amber", helper: "Perform a strict WCAG Audit" },
-  contrast: { label: "Check Contrast", cls: "ctaBtn--cyan",  helper: "Check contrast on up to 250 text nodes" },
-  tabWalk:  { label: "Run Tab\u00A0Walk",   cls: "ctaBtn--lime",  helper: "Walk 80 focusable elements" },
-  observe:  { label: "Start Observe",  cls: "ctaBtn--teal",  helper: "Re-run WCAG check every ~1s for 12s" },
-  watch:    { label: "Start Watch",    cls: "ctaBtn--mint",   helper: "Monitor loaders and focus bar for 40s" },
+  run:      { label: "Run Audit",      cls: "ctaBtn--amber", helper: "One-shot WCAG audit of the current page" },
+  contrast: { label: "Check Contrast", cls: "ctaBtn--cyan",  helper: "Check color contrast of up to 250 text nodes" },
+  tabWalk:  { label: "Run Tab\u00A0Walk",   cls: "ctaBtn--lime",  helper: "Simulate Tab-key navigation through up to 80 elements" },
+  observe:  { label: "Start Observe",  cls: "ctaBtn--teal",  helper: "Re-run the audit every ~1s for 12s to catch unstable UI" },
+  watch:    { label: "Start Watch",    cls: "ctaBtn--mint",   helper: "Monitor live updates, loaders and focus loss for 40s" },
 };
+
+// Teaching copy for the main empty state, per snap mode.
+const MODE_EMPTY_COPY = {
+  run:      { text: "Run an audit to see results", hint: "Audit checks the page against WCAG success criteria and lists issues with fix suggestions" },
+  observe:  { text: "Start Observe to see results", hint: "Observe re-runs the audit every second for 12 seconds \u2014 use it on pages that change as you interact" },
+  watch:    { text: "Start Watch to see results", hint: "Watch monitors the page for 40 seconds and reports loading spinners, silent updates and focus loss" },
+  tabWalk:  { text: "Run a Tab Walk to see results", hint: "Tab Walk presses Tab for you and records focus order, keyboard traps and skipped elements" },
+  contrast: { text: "Run a Contrast check to see results", hint: "Contrast scans visible text and checks its color contrast against WCAG thresholds" },
+};
+
+function updateEmptyStateCopy(mode) {
+  if (!els.emptyState || els.emptyState.hidden) return;
+  if (els.emptyState.classList.contains("emptyState--error")) return;
+  const copy = MODE_EMPTY_COPY[mode] || MODE_EMPTY_COPY.run;
+  const txt = document.getElementById("emptyText");
+  const hint = document.getElementById("emptyHint");
+  if (txt) txt.textContent = copy.text;
+  if (hint) hint.textContent = copy.hint;
+}
 
 const SNAP_CTA_RERUN = {
   run:      "Re-run Audit",
@@ -990,6 +1011,8 @@ function showMode(mode) {
   if (mode === "contrast") {
     renderContrastSevTabs();
   }
+
+  updateEmptyStateCopy(mode);
 }
 
 // ═══ VIEW ROUTING ═══
@@ -2315,7 +2338,7 @@ function renderFlowCounters() {
     <div class="flowCounter"><span class="flowCounterValue${added > 0 ? " flowCounterValue--red" : ""}">${added}</span><span class="flowCounterLabel">New issues</span></div>
     <div class="flowCounter"><span class="flowCounterValue${fixed > 0 ? " flowCounterValue--green" : ""}">${fixed > 0 ? "-" : ""}${fixed}</span><span class="flowCounterLabel">Fixed</span></div>
     <div class="flowCounter"><span class="flowCounterValue">${persisting}</span><span class="flowCounterLabel">Persisting</span></div>
-    <div class="flowCounter"><span class="flowCounterValue${blocking > 0 ? " flowCounterValue--red" : ""}">${blocking > 0 ? "+" : ""}${blocking}</span><span class="flowCounterLabel">Blocking</span></div>
+    <div class="flowCounter"><span class="flowCounterValue${blocking > 0 ? " flowCounterValue--red" : ""}">${blocking > 0 ? "+" : ""}${blocking}</span><span class="flowCounterLabel" title="High/medium severity issues that should block release">Must-fix</span></div>
     ${sparkline}
   `;
   el.hidden = false;
@@ -2588,6 +2611,9 @@ function updateSessionButtons() {
   // Toggle recording banner and actions in Flow Record view
   if (els.flowRecordingBanner) els.flowRecordingBanner.hidden = !hasSession;
   if (els.flowRecordActions) els.flowRecordActions.hidden = !hasSession;
+  // Onboarding hint: only while idle with nothing recorded yet
+  const flowIdleHint = document.getElementById("flowIdleHint");
+  if (flowIdleHint) flowIdleHint.hidden = hasSession || !!sessionState.lastEndedSession;
   if (els.sessionExportMenuLabel) els.sessionExportMenuLabel.hidden = !hasExportableSession;
   if (els.exportSessionJsonMenu) {
     els.exportSessionJsonMenu.hidden = !hasExportableSession;
@@ -2858,8 +2884,8 @@ function runSessionComparison() {
           <tr><td>New issues</td><td>${a.added}</td><td>${b.added}</td><td>${delta(b.added, a.added)}</td></tr>
           <tr><td>Fixed</td><td>${a.fixed}</td><td>${b.fixed}</td><td>${delta(b.fixed, a.fixed, false)}</td></tr>
           <tr><td>Persisting</td><td>${a.persisting}</td><td>${b.persisting}</td><td>${delta(b.persisting, a.persisting)}</td></tr>
-          <tr><td>Blocking added</td><td>${a.blockingAdded}</td><td>${b.blockingAdded}</td><td>${delta(b.blockingAdded, a.blockingAdded)}</td></tr>
-          <tr><td>Net blocking</td><td>${a.blocking}</td><td>${b.blocking}</td><td>${delta(b.blocking, a.blocking)}</td></tr>
+          <tr><td>Must-fix added</td><td>${a.blockingAdded}</td><td>${b.blockingAdded}</td><td>${delta(b.blockingAdded, a.blockingAdded)}</td></tr>
+          <tr><td>Net must-fix</td><td>${a.blocking}</td><td>${b.blocking}</td><td>${delta(b.blocking, a.blocking)}</td></tr>
           <tr><td>Verdict</td><td>${a.blockingAdded === 0 ? "PASS" : "FAIL"}</td><td>${b.blockingAdded === 0 ? "PASS" : "FAIL"}</td><td>${a.blockingAdded === 0 && b.blockingAdded > 0 ? '<span class="compareDelta--worse">Regressed</span>' : b.blockingAdded === 0 && a.blockingAdded > 0 ? '<span class="compareDelta--better">Improved</span>' : '<span class="compareDelta--same">—</span>'}</td></tr>
         </tbody>
       </table>
@@ -3452,7 +3478,7 @@ function formatTargetingShort(targeting) {
   return [
     `scope=${scope}`,
     `pinned=${targeting.pinned ? "y" : "n"}`,
-    `hc=${targeting.helpCenterMatchEnabled ? "y" : "n"}`,
+    `profileMatch=${targeting.helpCenterMatchEnabled ? "y" : "n"}`,
     `why=${targeting.selectionReason || "scope_primary_scored_best"}`,
     profiles ? `profiles=${profiles}` : null,
   ].filter(Boolean).join(" • ");
@@ -4242,7 +4268,7 @@ function buildSessionMarkdown(session) {
   lines.push(`Started: ${session.startedAt} • Ended: ${session.endedAt || "in-progress"}`);
   lines.push(`Steps: ${steps.length} • Frames: ${frameKeys.length}`);
   lines.push(`Versions: schema=v${asNumber(session.schemaVersion, 1)} signature=v${asNumber(session.signatureVersion, 1)} frameKey=v${asNumber(session.frameKeyVersion, 1)}`);
-  lines.push(`Settings: baselineRun=${session.settings?.captureBaselineRun ? "yes" : "no"}, activeMode=${session.settings?.captureActiveMode ? "yes" : "no"}, scope=${session.settings?.scopeAtCapture || session.settings?.targetModeAtCapture || "primary"}, hcMatch=${session.settings?.helpCenterMatchEnabled ? "yes" : "no"}`);
+  lines.push(`Settings: baselineRun=${session.settings?.captureBaselineRun ? "yes" : "no"}, activeMode=${session.settings?.captureActiveMode ? "yes" : "no"}, scope=${session.settings?.scopeAtCapture || session.settings?.targetModeAtCapture || "primary"}, profileMatch=${session.settings?.helpCenterMatchEnabled ? "yes" : "no"}`);
   const _secs = session.engineCoverage || engineCoverageSummary();
   lines.push(`Coverage (engine): ${_secs.coveredCount}/${_secs.totalCount} WCAG ${_secs.target.version} ${_secs.target.level} criteria`);
   lines.push("");
@@ -4290,7 +4316,7 @@ function buildSessionMarkdown(session) {
   if (!topBlocking.length) {
     lines.push("- none");
   } else {
-    lines.push("| Blocking | Occurrences | First | Last | Quality | Label | WCAG | Level | Confidence | Signature |");
+    lines.push("| Must-fix | Occurrences | First | Last | Quality | Label | WCAG | Level | Confidence | Signature |");
     lines.push("| --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |");
     for (const x of topBlocking) {
       const quality = x.signatureQuality || "medium";
@@ -4435,14 +4461,14 @@ function explorerRowHtml(f, idx) {
   const sev = f.severity || 'info';
   const isCrossFrame = !f.el && (typeof RULE_TO_WCAG !== "undefined") && RULE_TO_WCAG[f.type]?.group === "depth3/multiframe";
   const crossBadge = isCrossFrame ? ' <span class="badge crossFrame">Cross-frame</span>' : '';
-  return `<tr class="trow" data-i="${idx}" data-sev="${escapeHtml(sev)}"${isCrossFrame ? ' data-crossframe="1"' : ''}><td><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span></td><td>${escapeHtml(f.wcag ?? "")}</td><td>${cellHtml(f.name, 50)}${crossBadge}</td><td>${cellHtml(f.type ?? "", 30)}</td></tr>`;
+  return `<tr class="trow" tabindex="0" data-i="${idx}" data-sev="${escapeHtml(sev)}"${isCrossFrame ? ' data-crossframe="1"' : ''}><td><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span></td><td>${escapeHtml(f.wcag ?? "")}</td><td>${cellHtml(f.name, 50)}${crossBadge}</td><td>${cellHtml(f.type ?? "", 30)}</td></tr>`;
 }
 function contrastRowHtml(f, idx) {
   const pass = f.ratio >= f.required;
-  return `<tr class="trow${pass ? ' contrastPass' : ''}" data-i="${idx}"><td>${escapeHtml(String(f.ratio ?? ""))}</td><td>${escapeHtml(String(f.required ?? ""))}</td><td>${f.largeText ? "yes" : "no"}</td><td>${cellHtml(f.text, 50)}</td><td>${escapeHtml(f.tag ?? "")}</td><td>${escapeHtml(f.testId ?? "")}</td><td>${cellHtml(f.path, 60)}</td><td>${cellHtml(f.note, 50)}</td></tr>`;
+  return `<tr class="trow${pass ? ' contrastPass' : ''}" tabindex="0" data-i="${idx}"><td>${escapeHtml(String(f.ratio ?? ""))}</td><td>${escapeHtml(String(f.required ?? ""))}</td><td>${f.largeText ? "yes" : "no"}</td><td>${cellHtml(f.text, 50)}</td><td>${escapeHtml(f.tag ?? "")}</td><td>${escapeHtml(f.testId ?? "")}</td><td>${cellHtml(f.path, 60)}</td><td>${cellHtml(f.note, 50)}</td></tr>`;
 }
 function tabRowHtml(e, idx) {
-  return `<tr class="trow" data-i="${idx}"><td>${escapeHtml(String(e.i ?? ""))}</td><td>${escapeHtml(String(e.type ?? ""))}</td><td>${escapeHtml(String(e.tabIndex ?? ""))}</td><td>${cellHtml(e.name, 50)}</td><td>${cellHtml(e.path, 60)}</td><td>${cellHtml(e.note, 50)}</td></tr>`;
+  return `<tr class="trow" tabindex="0" data-i="${idx}"><td>${escapeHtml(String(e.i ?? ""))}</td><td>${escapeHtml(String(e.type ?? ""))}</td><td>${escapeHtml(String(e.tabIndex ?? ""))}</td><td>${cellHtml(e.name, 50)}</td><td>${cellHtml(e.path, 60)}</td><td>${cellHtml(e.note, 50)}</td></tr>`;
 }
 
 function txt(s, n = 140) {
@@ -4675,7 +4701,7 @@ const FIX_SUGGESTIONS = {
   DISABLED_INPUT_NO_EXPLANATION: 'Add aria-describedby explaining why disabled, or add a title.',
   LOADER_WITHOUT_ANNOUNCEMENT_HOOK: 'Add aria-live="polite" region, update text on load start/end.',
   DUPLICATE_ID: f => {
-    const base = `Make id="${f.extra?.id}" unique. In MFE contexts, add a scope prefix.`;
+    const base = `Make id="${f.extra?.id}" unique. When multiple apps share the page, add a scope prefix.`;
     return f.extra?.ariaReferenced ? `${base} Referenced by ARIA — duplicates break name resolution.` : base;
   },
   FOCUS_VISIBLE_SUPPRESSED: 'Add visible :focus-visible style (outline or box-shadow).',
@@ -4696,8 +4722,8 @@ const FIX_SUGGESTIONS = {
   DUPLICATE_NAV_NO_LABEL: 'Add unique aria-label to each <nav>.',
   DUPLICATE_BANNER: 'Only one top-level <header>. Scope extras inside <article>/<section>.',
   DUPLICATE_CONTENTINFO: 'Only one top-level <footer>. Scope extras inside <article>/<section>.',
-  HEADING_HIERARCHY_FRAGMENTED: 'Shared heading hierarchy: host provides H1, MFEs start at H2+.',
-  COMPETING_SKIP_NAV: 'Use one skip link from host page. Remove MFE skip links.',
+  HEADING_HIERARCHY_FRAGMENTED: 'Shared heading hierarchy: the host page provides the H1, embedded apps start at H2+.',
+  COMPETING_SKIP_NAV: 'Use one skip link from the host page. Remove skip links from embedded apps.',
   SHADOW_DOM_FOCUS_ISSUE: 'Add delegatesFocus:true to shadow root, or set tabindex on focusable elements.',
   IFRAME_MISSING_TITLE: 'Add title="Description" to the <iframe>.',
   IFRAME_CROSS_ORIGIN: 'Verify parent page has a title attribute on this iframe.',
@@ -5637,7 +5663,7 @@ async function endSession() {
     const pass = totalBlockingAdded === 0;
     const verdict = pass
       ? `PASS — ${steps.length} steps, 0 blocking regressions`
-      : `FAIL — ${totalBlockingAdded} blocking issues in steps ${blockingSteps.join(", ")}`;
+      : `FAIL — ${totalBlockingAdded} must-fix issues in steps ${blockingSteps.join(", ")}`;
     const summary = `FlowLens: ${verdict} (${sess.inspectedOrigin || "—"})`;
     await copyText(summary);
     toast(pass ? "Session ended — PASS (copied)" : "Session ended — FAIL (copied)");
@@ -6575,7 +6601,7 @@ function buildDiagnosticsMarkdown(payload) {
       "## Depth 3 Integrity (current run view)",
       `- Announcement Integrity: ${p.depth3Aggregates.announcementIntegrity} (${p.depth3Aggregates.counts?.announcements || 0} findings)`,
       `- Focus Stability: ${p.depth3Aggregates.focusStability} (${p.depth3Aggregates.counts?.focus || 0} findings)`,
-      `- Chat Semantics: ${p.depth3Aggregates.chatSemantics} (${p.depth3Aggregates.counts?.semantics || 0} findings)`,
+      `- Widget semantics: ${p.depth3Aggregates.chatSemantics} (${p.depth3Aggregates.counts?.semantics || 0} findings)`,
       `- Multi-Frame Integrity: ${p.depth3Aggregates.multiFrameIntegrity} (${p.depth3Aggregates.counts?.multiframe || 0} findings)`,
       "",
     ] : []),
@@ -7378,6 +7404,23 @@ if (els.sevTabs) {
     scheduleExplorerRender();
     const refocus = els.sevTabs.querySelector(`.sevTab[data-sev="${sev}"]`);
     if (refocus) refocus.focus();
+  });
+
+  // Roving arrow-key navigation, delegated because the tab list is
+  // re-rendered via innerHTML on every filter change.
+  els.sevTabs.addEventListener("keydown", (e) => {
+    const tabs = [...els.sevTabs.querySelectorAll(".sevTab")];
+    if (!tabs.length) return;
+    const idx = tabs.indexOf(e.target.closest(".sevTab"));
+    if (idx < 0) return;
+    let next = idx;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (idx + 1) % tabs.length;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (idx - 1 + tabs.length) % tabs.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = tabs.length - 1;
+    else return;
+    e.preventDefault();
+    tabs[next].click(); // click handler re-renders and restores focus
   });
 }
 

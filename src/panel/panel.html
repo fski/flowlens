@@ -84,7 +84,7 @@
             <span class="pLabel" id="progressLabel">Scanning…</span>
             <span class="pTime mono" id="progressTime">0.0s</span>
           </div>
-          <div class="pTrack" aria-hidden="true">
+          <div class="pTrack">
             <div class="pFill" id="progressBar" role="progressbar" aria-label="Audit progress completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="0%" aria-describedby="progressLabel progressStatus"></div>
           </div>
           <span class="sr-only" id="progressStatus">Audit idle</span>
@@ -139,7 +139,7 @@
                 <caption class="sr-only">All findings</caption>
                 <thead>
                   <tr>
-                    <th scope="col" title="Severity">sev</th><th scope="col" title="WCAG criterion">wcag</th><th scope="col" title="Element name">name</th><th scope="col" title="Issue type">type</th>
+                    <th scope="col" title="Severity">Severity</th><th scope="col" title="WCAG criterion">WCAG</th><th scope="col" title="Element name">Name</th><th scope="col" title="Issue type">Type</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -166,7 +166,7 @@
                 <caption class="sr-only">Contrast results</caption>
                 <thead>
                   <tr>
-                    <th scope="col" title="Contrast ratio">ratio</th><th scope="col" title="Required ratio">req</th><th scope="col" title="Large text">large</th><th scope="col" title="Text content">text</th><th scope="col" title="HTML tag">tag</th><th scope="col" title="Test ID">testId</th><th scope="col" title="CSS selector path">path</th><th scope="col" title="Note">note</th>
+                    <th scope="col" title="Contrast ratio">Ratio</th><th scope="col" title="Required ratio">Required</th><th scope="col" title="Large text">Large</th><th scope="col" title="Text content">Text</th><th scope="col" title="HTML tag">Tag</th><th scope="col" title="Test ID">Test ID</th><th scope="col" title="CSS selector path">Path</th><th scope="col" title="Note">Note</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -191,7 +191,7 @@
                 <caption class="sr-only">Tab walk events</caption>
                 <thead>
                   <tr>
-                    <th scope="col" title="Tab order index">i</th><th scope="col" title="Element type">type</th><th scope="col" title="Tab index value">tabIndex</th><th scope="col" title="Element name">name</th><th scope="col" title="CSS selector path">path</th><th scope="col" title="Note">note</th>
+                    <th scope="col" title="Tab order index">#</th><th scope="col" title="Element type">Type</th><th scope="col" title="Tab index value">Tab index</th><th scope="col" title="Element name">Name</th><th scope="col" title="CSS selector path">Path</th><th scope="col" title="Note">Note</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -209,7 +209,7 @@
                 <caption class="sr-only">Watch events</caption>
                 <thead>
                   <tr>
-                    <th scope="col" title="Timestamp">time</th><th scope="col" title="Event type">type</th><th scope="col" title="Event details">note</th>
+                    <th scope="col" title="Timestamp">Time</th><th scope="col" title="Event type">Type</th><th scope="col" title="Event details">Note</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -255,8 +255,8 @@
                   <button class="emItem" id="sheetCopyRaw" type="button" role="menuitem" hidden><span class="l">Copy Raw</span></button>
                   <button class="emItem" id="downloadJunitXml" type="button" role="menuitem"><span class="l">Download JUnit XML</span></button>
                   <div class="emLabel">JUnit CI Options</div>
-                  <label class="emCiOption"><input type="checkbox" id="ciFailOnBlocking" checked /><span>Fail CI on blocking issues</span></label>
-                  <label class="emCiOption"><input type="checkbox" id="ciTreatNeedsReview" /><span>Treat needs_review as failures</span></label>
+                  <label class="emCiOption"><input type="checkbox" id="ciFailOnBlocking" checked /><span>Fail CI on must-fix issues</span></label>
+                  <label class="emCiOption"><input type="checkbox" id="ciTreatNeedsReview" /><span>Treat "needs human review" as failures</span></label>
                   <label class="emCiOption emCiOption--number"><span>Max failures allowed</span><input type="number" id="ciMaxFailures" min="0" step="1" value="0" class="ciNumInput" /></label>
                   <div class="emLabel" id="sessionExportMenuLabel" hidden>Session</div>
                   <button class="emItem" id="exportSessionJunitMenu" type="button" role="menuitem" hidden><span class="l">Session JUnit XML</span><span class="dd">Last ended session</span></button>
@@ -295,9 +295,9 @@
             <button class="ctaBtn ctaBtn--outline" id="sessionEnd" type="button" title="End active session" disabled>
               End <kbd class="keycap" aria-hidden="true">e</kbd>
             </button>
-            <label class="autoCapToggle" title="Auto-capture on navigation">
-              <input type="checkbox" id="autoCaptureNav" />
-              <span class="autoCapLabel">Auto</span>
+            <label class="autoCapToggle" title="Automatically capture a step on every page navigation">
+              <input type="checkbox" id="autoCaptureNav" checked />
+              <span class="autoCapLabel">Auto-capture</span>
             </label>
             <select id="autoCaptureDelay" class="autoCapDelay" title="Auto-capture delay" aria-label="Auto-capture delay">
               <option value="500">0.5s</option>
@@ -312,6 +312,13 @@
           </div>
           <p class="helperText" id="flowRecordHelper">Record a11y changes across a multi-step flow</p>
         </div>
+
+        <!-- Flow idle onboarding hint -->
+        <ol class="flowIdleHint" id="flowIdleHint">
+          <li><strong>Record</strong> — start a flow session on the first page</li>
+          <li><strong>Walk your flow</strong> — steps are captured automatically on each page change (or press <kbd class="keycap" aria-hidden="true">s</kbd> to mark one manually)</li>
+          <li><strong>End</strong> — get a pass/fail verdict with new, fixed and persisting issues per step</li>
+        </ol>
 
         <!-- Flow session counters -->
         <div class="flowCounterRow" id="flowCounterRow" hidden></div>
@@ -353,7 +360,7 @@
                 <caption class="sr-only">Flow timeline</caption>
                 <thead>
                   <tr>
-                    <th scope="col" title="Step number">step</th><th scope="col" title="Page route">route</th><th scope="col" title="Audit mode">mode</th><th scope="col" title="New issues">new</th><th scope="col" title="Fixed issues">fixed</th><th scope="col" title="Persisting issues">persisting</th><th scope="col" title="Top blockers">top blockers</th>
+                    <th scope="col" title="Step number">Step</th><th scope="col" title="Page route">Route</th><th scope="col" title="Audit mode">Mode</th><th scope="col" title="New issues">New</th><th scope="col" title="Fixed issues">Fixed</th><th scope="col" title="Persisting issues">Persisting</th><th scope="col" title="Top must-fix issues">Top must-fix</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -422,27 +429,27 @@
                 </select>
               </div>
               <div class="settingsGroup">
-                <span class="settingsLabel">Depth</span>
-                <label class="sr-only" for="depthMax">Audit depth level</label>
+                <span class="settingsLabel">Scan depth</span>
+                <label class="sr-only" for="depthMax">Scan depth</label>
                 <select id="depthMax">
-                  <option value="1">Depth 1 (Fast)</option>
-                  <option value="2">Depth 2 (Balanced)</option>
-                  <option value="3" selected>Depth 3 (Full)</option>
+                  <option value="1">Quick — static checks</option>
+                  <option value="2">Standard — + interaction stability</option>
+                  <option value="3" selected>Deep — + live widget integrity</option>
                 </select>
               </div>
               <div class="settingsGroup">
-                <span class="settingsLabel">Recipe</span>
-                <label class="sr-only" for="recipeSelect">Capture recipe</label>
+                <span class="settingsLabel">Page type</span>
+                <label class="sr-only" for="recipeSelect">Page type preset</label>
                 <select id="recipeSelect">
-                  <option value="auto" selected>Auto</option>
-                  <option value="chat_widget">Chat Widget</option>
-                  <option value="helpcenter">Help Center</option>
-                  <option value="hybrid">Hybrid</option>
+                  <option value="auto" selected>Auto (detect)</option>
+                  <option value="chat_widget">Embedded widget (chat-like)</option>
+                  <option value="helpcenter">Content portal (help/docs)</option>
+                  <option value="hybrid">Hybrid (portal + widget)</option>
                 </select>
               </div>
               <div class="settingsGroup">
                 <span class="settingsLabel">Profiles</span>
-                <div id="profileSelect" class="profilePills" role="group" aria-label="Active MFE profiles"></div>
+                <div id="profileSelect" class="profilePills" role="group" aria-label="Active profiles"></div>
               </div>
               <div class="settingsGroup">
                 <span class="settingsLabel">Target scope</span>
