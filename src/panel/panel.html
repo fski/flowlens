@@ -75,6 +75,20 @@
           <p class="helperText" id="snapHelper">Perform a strict WCAG Audit</p>
         </div>
 
+        <!-- Assist toolbox: WCAG stress tests + vision simulators on the inspected page -->
+        <details class="assistBar" id="assistBar">
+          <summary class="assistSummary">Assist</summary>
+          <div class="assistBtns" role="group" aria-label="Assist modes">
+            <button class="btn xs" type="button" data-assist="textSpacing" aria-pressed="false" title="Apply WCAG 1.4.12 minimum text spacing to the inspected page">Text spacing</button>
+            <button class="btn xs" type="button" data-assist="grayscale" aria-pressed="false" title="Render the inspected page in grayscale">Grayscale</button>
+            <button class="btn xs" type="button" data-assist="protanopia" aria-pressed="false" title="Simulate protanopia (red-blind) color vision">Protanopia</button>
+            <button class="btn xs" type="button" data-assist="deuteranopia" aria-pressed="false" title="Simulate deuteranopia (green-blind) color vision">Deuteranopia</button>
+            <button class="btn xs" type="button" data-assist="tritanopia" aria-pressed="false" title="Simulate tritanopia (blue-blind) color vision">Tritanopia</button>
+            <button class="btn xs" type="button" data-assist="achromatopsia" aria-pressed="false" title="Simulate achromatopsia (total color blindness)">Achromatopsia</button>
+            <button class="btn xs" type="button" data-assist="clear" title="Remove the active assist mode from the inspected page">Clear</button>
+          </div>
+        </details>
+
         <!-- Severity filter tabs -->
         <div class="sevTabs" id="sevTabs" role="tablist" aria-label="Filter by severity"></div>
 

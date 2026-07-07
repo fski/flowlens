@@ -1041,6 +1041,50 @@ kbd {
 .flowIdleHint li + li { margin-top: 4px; }
 .flowIdleHint strong { color: var(--tx); }
 
+/* ═══ ASSIST TOOLBOX ═══ */
+.assistBar {
+  padding: 0 16px 12px;
+  background: var(--raised);
+}
+
+.assistBar > summary {
+  display: inline-block;
+  padding: 4px 8px;
+  border: 1px solid var(--brd);
+  border-radius: var(--radius-sm);
+  color: var(--tx2);
+  font: 600 12px/1 var(--font-mono);
+  cursor: pointer;
+  user-select: none;
+  transition: color .15s, background-color .15s, border-color .15s;
+}
+
+.assistBar > summary:hover {
+  background: var(--overlay);
+  border-color: var(--brd2);
+  color: var(--tx);
+}
+
+.assistBar > summary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--bg), 0 0 0 4px var(--infoB);
+}
+
+.assistBar[open] > summary { color: var(--tx); }
+
+.assistBtns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.assistBtns .btn.xs[aria-pressed="true"] {
+  color: var(--tx);
+  background: var(--emphasis);
+  border-color: var(--brd3);
+}
+
 /* ═══ SEVERITY FILTER TABS ═══ */
 .sevTabs {
   display: flex;

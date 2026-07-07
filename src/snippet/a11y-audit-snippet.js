@@ -69,6 +69,46 @@
     "focus_on_body",
     "focus_failed",
   ]);
+  // Assist toolbox — WCAG stress-test toggles + vision simulators
+  // (inspired by ARC Toolkit's text-spacing stress test and Stark/Colorblindly
+  // CVD simulation; implemented natively, no external code or assets).
+  const ASSIST_STYLE_ID = "__flowlens_assist_style__";
+  const ASSIST_SVG_ID = "__flowlens_assist_svg__";
+  const ASSIST_CVD_FILTER_ID = "__flowlens_cvd__";
+  // Standard Machado/Brettel-derived full-severity dichromacy matrices
+  // (public colorimetry data). Rows produce R'G'B' from RGB; 4th/5th columns
+  // are 0 (no alpha mix / no offset); alpha row passes through.
+  // Achromatopsia uses Rec. 601 luminance weights on every channel row.
+  const ASSIST_CVD_MATRICES = {
+    protanopia:
+      "0.152286 1.052583 -0.204868 0 0 " +
+      "0.114503 0.786281 0.099216 0 0 " +
+      "-0.003882 -0.048116 1.051998 0 0 " +
+      "0 0 0 1 0",
+    deuteranopia:
+      "0.367322 0.860646 -0.227968 0 0 " +
+      "0.280085 0.672501 0.047413 0 0 " +
+      "-0.011820 0.042940 0.968881 0 0 " +
+      "0 0 0 1 0",
+    tritanopia:
+      "1.255528 -0.076749 -0.178779 0 0 " +
+      "-0.078411 0.930809 0.147602 0 0 " +
+      "0.004733 0.691367 0.303900 0 0 " +
+      "0 0 0 1 0",
+    achromatopsia:
+      "0.299 0.587 0.114 0 0 " +
+      "0.299 0.587 0.114 0 0 " +
+      "0.299 0.587 0.114 0 0 " +
+      "0 0 0 1 0",
+  };
+  const ASSIST_KINDS = new Set([
+    "textSpacing",
+    "grayscale",
+    "protanopia",
+    "deuteranopia",
+    "tritanopia",
+    "achromatopsia",
+  ]);
 
   // ---------------- utils ----------------
   const isEl = (x) => x && x.nodeType === 1;
@@ -1636,6 +1676,69 @@
     const existing = doc.getElementById(ANNOTATION_CONTAINER_ID);
     if (existing) existing.remove();
     clearTabPath();
+  };
+
+  /**
+   * Assist toolbox — remove any active assist mode (style + SVG filter).
+   * Always safe to call; fully reverses applyAssist().
+   */
+  const clearAssist = () => {
+    const style = doc.getElementById(ASSIST_STYLE_ID);
+    if (style) style.remove();
+    const svg = doc.getElementById(ASSIST_SVG_ID);
+    if (svg) svg.remove();
+    return { ok: true };
+  };
+
+  /**
+   * Assist toolbox — apply one WCAG stress-test / vision-simulation mode to
+   * the page. Only one assist is active at a time: applying a new kind
+   * replaces the previous one. Everything is reversible via clearAssist();
+   * no listeners, no timers, no external resources.
+   *
+   * Kinds:
+   *  - "textSpacing" — SC 1.4.12 (Text Spacing) minimums: line-height 1.5,
+   *    letter-spacing 0.12em, word-spacing 0.16em, paragraph spacing 2em.
+   *  - "grayscale" — full desaturation (color-not-sole-means spot check).
+   *  - "protanopia" | "deuteranopia" | "tritanopia" | "achromatopsia" —
+   *    color-vision-deficiency simulation via a hidden SVG feColorMatrix
+   *    filter referenced from an html-level CSS filter.
+   */
+  const applyAssist = (kind) => {
+    if (!ASSIST_KINDS.has(kind)) return { ok: false, error: "UNKNOWN_ASSIST_KIND" };
+    clearAssist(); // one assist active at a time — applying replaces the previous one
+
+    const style = doc.createElement("style");
+    style.id = ASSIST_STYLE_ID;
+
+    if (kind === "textSpacing") {
+      style.textContent = [
+        "* { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; }",
+        "p { margin-bottom: 2em !important; }",
+      ].join("\n");
+    } else if (kind === "grayscale") {
+      style.textContent = "html { filter: grayscale(100%) !important; }";
+    } else {
+      const SVG_NS = "http://www.w3.org/2000/svg";
+      const svg = doc.createElementNS(SVG_NS, "svg");
+      svg.id = ASSIST_SVG_ID;
+      svg.setAttribute("width", "0");
+      svg.setAttribute("height", "0");
+      svg.setAttribute("aria-hidden", "true");
+      svg.style.cssText = "position:absolute;width:0;height:0;overflow:hidden;";
+      const filter = doc.createElementNS(SVG_NS, "filter");
+      filter.id = ASSIST_CVD_FILTER_ID;
+      const matrix = doc.createElementNS(SVG_NS, "feColorMatrix");
+      matrix.setAttribute("type", "matrix");
+      matrix.setAttribute("values", ASSIST_CVD_MATRICES[kind]);
+      filter.appendChild(matrix);
+      svg.appendChild(filter);
+      (doc.body || doc.documentElement).appendChild(svg);
+      style.textContent = `html { filter: url(#${ASSIST_CVD_FILTER_ID}) !important; }`;
+    }
+
+    (doc.head || doc.documentElement).appendChild(style);
+    return { ok: true, kind };
   };
 
   /**
@@ -4187,6 +4290,8 @@
     clearAnnotations,
     showTabPath,
     clearTabPath,
+    applyAssist,
+    clearAssist,
     get modeHints() { return modeHints; },
     set modeHints(v) { modeHints = v && typeof v === "object" ? v : defaultModeHints; },
     last: null,
@@ -4206,6 +4311,9 @@
       console.log("A11YFlowAudit.contrastScan({ limit: 250 }) // approx contrast");
       console.log("A11YFlowAudit.annotate(findings)          // overlay annotations");
       console.log("A11YFlowAudit.clearAnnotations()          // remove overlays");
+      console.log("A11YFlowAudit.applyAssist('textSpacing')  // WCAG 1.4.12 text-spacing stress test");
+      console.log("A11YFlowAudit.applyAssist('protanopia')   // CVD simulation (also: deuteranopia, tritanopia, achromatopsia, grayscale)");
+      console.log("A11YFlowAudit.clearAssist()               // remove active assist mode");
     }
   };
 

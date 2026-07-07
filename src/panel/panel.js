@@ -83,6 +83,7 @@ const els = {
   tabWalkQ: document.getElementById("tabWalkQ"),
   showTabPathBtn: document.getElementById("showTabPathBtn"),
   clearTabPathBtn: document.getElementById("clearTabPathBtn"),
+  assistBar: document.getElementById("assistBar"),
   pastRunsToggle: document.getElementById("pastRunsToggle"),
   pastRunsBody: document.getElementById("pastRunsBody"),
   pastRunsList: document.getElementById("pastRunsList"),
@@ -6201,6 +6202,38 @@ if (els.clearTabPathBtn) {
       toast(res?.ok ? "Overlay cleared" : `Could not clear overlay (${res?.error || "unknown"})`);
     } catch {
       toast("Could not clear overlay (runtime unavailable)");
+    }
+  });
+}
+
+// Assist toolbox — WCAG stress-test toggles + vision simulators applied to the
+// inspected page. Only one assist is active at a time; Clear (or re-clicking
+// the active toggle) removes it. Everything happens via APPLY_ASSIST messages.
+if (els.assistBar) {
+  const assistButtons = Array.from(els.assistBar.querySelectorAll("button[data-assist]"));
+  const setAssistPressed = (activeKind) => {
+    for (const b of assistButtons) {
+      if (b.dataset.assist === "clear") continue;
+      b.setAttribute("aria-pressed", String(b.dataset.assist === activeKind));
+    }
+  };
+  els.assistBar.addEventListener("click", async (e) => {
+    const btn = e.target.closest ? e.target.closest("button[data-assist]") : null;
+    if (!btn || !els.assistBar.contains(btn)) return;
+    const requested = btn.dataset.assist;
+    const isActive = btn.getAttribute("aria-pressed") === "true";
+    // Re-clicking the active toggle turns it off (same as Clear)
+    const kind = (requested === "clear" || isActive) ? "clear" : requested;
+    try {
+      const res = await send({ type: "APPLY_ASSIST", frameId: state.bestFrameId ?? 0, kind });
+      if (res?.ok) {
+        setAssistPressed(kind === "clear" ? null : kind);
+        toast(kind === "clear" ? "Assist cleared" : `Assist on: ${btn.textContent.trim()}`);
+      } else {
+        toast(`Assist failed (${res?.error || "unknown"})`);
+      }
+    } catch {
+      toast("Assist failed (runtime unavailable)");
     }
   });
 }
