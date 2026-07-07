@@ -89,6 +89,33 @@
           </div>
         </details>
 
+        <!-- Page structure: headings outline + landmarks of the inspected page -->
+        <details class="assistBar structureBar" id="structureSection">
+          <summary class="assistSummary">Page structure</summary>
+          <div class="structureBody">
+            <div class="structureActions">
+              <button class="btn xs" id="structureScanBtn" type="button" title="Scan headings and landmarks of the inspected page (traverses open shadow roots)">Scan structure</button>
+              <span class="structureSummary mono" id="structureSummary" role="status" aria-live="polite" aria-atomic="true"></span>
+            </div>
+            <section class="structureList" aria-label="Headings outline">
+              <div class="structureListHead">
+                <span class="structureListTitle">Headings</span>
+                <button class="btn xs" id="structureShowHeadings" type="button" title="Outline headings with level badges on the inspected page">Show on page</button>
+                <button class="btn xs" id="structureClearHeadings" type="button" title="Remove the structure overlay from the inspected page">Clear</button>
+              </div>
+              <ul class="structureItems" id="structureHeadingsList"></ul>
+            </section>
+            <section class="structureList" aria-label="Landmarks">
+              <div class="structureListHead">
+                <span class="structureListTitle">Landmarks</span>
+                <button class="btn xs" id="structureShowLandmarks" type="button" title="Outline landmark regions with role badges on the inspected page">Show on page</button>
+                <button class="btn xs" id="structureClearLandmarks" type="button" title="Remove the structure overlay from the inspected page">Clear</button>
+              </div>
+              <ul class="structureItems" id="structureLandmarksList"></ul>
+            </section>
+          </div>
+        </details>
+
         <!-- Severity filter tabs -->
         <div class="sevTabs" id="sevTabs" role="tablist" aria-label="Filter by severity"></div>
 
@@ -238,6 +265,12 @@
           </section>
 
         </div><!-- /resultsZone -->
+
+        <!-- Manual checks: WCAG areas automation cannot decide (informational only) -->
+        <details class="assistBar manualChecks" id="manualChecksSection">
+          <summary class="assistSummary">Automation covers only part of WCAG &mdash; manual checks</summary>
+          <ul class="manualChecksList" id="manualChecksList"></ul>
+        </details>
 
         <!-- Bottom Sheets -->
         <div class="bottomSheets" id="bottomSheets">
@@ -422,9 +455,12 @@
           </div>
         </section>
 
-        <!-- Status line -->
-        <div class="lastStatusLine mono" id="lastStatusLine" role="status" aria-live="polite" aria-atomic="true" hidden>
-          Last status: IDLE
+        <!-- Status line + weighted score chip -->
+        <div class="statusRow">
+          <div class="lastStatusLine mono" id="lastStatusLine" role="status" aria-live="polite" aria-atomic="true" hidden>
+            Last status: IDLE
+          </div>
+          <span class="scoreChip mono" id="scoreChip" role="status" aria-live="polite" aria-atomic="true" hidden></span>
         </div>
 
       </div><!-- /flowContent -->

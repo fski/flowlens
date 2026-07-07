@@ -21,11 +21,14 @@ const TAB_BLOCKING_EVENT_TYPES = new Set([
   "focus_on_body",
   "focus_failed",
 ]);
-const MESSAGE_TYPES = new Set(["LIST_FRAMES", "HIGHLIGHT", "RUN_AUDIT", "CAPTURE_STEP", "SHOW_TAB_PATH", "APPLY_ASSIST"]);
+const MESSAGE_TYPES = new Set(["LIST_FRAMES", "HIGHLIGHT", "RUN_AUDIT", "CAPTURE_STEP", "SHOW_TAB_PATH", "APPLY_ASSIST", "GET_PAGE_STRUCTURE", "SHOW_STRUCTURE"]);
 const MAX_TAB_PATH_EVENTS = 400;
 // Assist toolbox kinds ("clear" removes the active assist mode).
 // Mirrors ASSIST_KINDS in src/snippet/a11y-audit-snippet.js.
 const ASSIST_KINDS = new Set(["textSpacing", "grayscale", "protanopia", "deuteranopia", "tritanopia", "achromatopsia", "clear"]);
+// Page-structure overlay kinds ("clear" removes the overlay).
+// Mirrors STRUCTURE_KINDS in src/snippet/a11y-audit-snippet.js.
+const STRUCTURE_KINDS = new Set(["headings", "landmarks", "clear"]);
 const AUDIT_ACTIONS = new Set(["run", "observe", "watch", "tabWalk", "contrast"]);
 const WCAG_LEVELS = new Set(["2.1-AA", "2.1-AAA", "2.2-AA", "2.2-AAA"]);
 
@@ -48,7 +51,7 @@ function validateIncomingMessage(msg, sender) {
   if (!isPlainObject(msg)) return { ok: false, error: "BAD_MESSAGE_SCHEMA" };
   if (!MESSAGE_TYPES.has(msg.type)) return { ok: false, error: "UNKNOWN_MESSAGE" };
 
-  if ((msg.type === "LIST_FRAMES" || msg.type === "RUN_AUDIT" || msg.type === "CAPTURE_STEP" || msg.type === "HIGHLIGHT" || msg.type === "SHOW_TAB_PATH" || msg.type === "APPLY_ASSIST")
+  if ((msg.type === "LIST_FRAMES" || msg.type === "RUN_AUDIT" || msg.type === "CAPTURE_STEP" || msg.type === "HIGHLIGHT" || msg.type === "SHOW_TAB_PATH" || msg.type === "APPLY_ASSIST" || msg.type === "GET_PAGE_STRUCTURE" || msg.type === "SHOW_STRUCTURE")
       && !isNonNegativeInt(msg.tabId)) {
     return { ok: false, error: "BAD_TAB_ID" };
   }
@@ -70,6 +73,15 @@ function validateIncomingMessage(msg, sender) {
   if (msg.type === "APPLY_ASSIST") {
     if (!isNonNegativeInt(msg.frameId)) return { ok: false, error: "BAD_FRAME_ID" };
     if (typeof msg.kind !== "string" || !ASSIST_KINDS.has(msg.kind)) return { ok: false, error: "BAD_KIND" };
+  }
+
+  if (msg.type === "GET_PAGE_STRUCTURE") {
+    if (!isNonNegativeInt(msg.frameId)) return { ok: false, error: "BAD_FRAME_ID" };
+  }
+
+  if (msg.type === "SHOW_STRUCTURE") {
+    if (!isNonNegativeInt(msg.frameId)) return { ok: false, error: "BAD_FRAME_ID" };
+    if (typeof msg.kind !== "string" || !STRUCTURE_KINDS.has(msg.kind)) return { ok: false, error: "BAD_KIND" };
   }
 
   if (msg.type === "RUN_AUDIT") {
@@ -1195,6 +1207,105 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             const api = window.A11YFlowAudit;
             if (!api || typeof api.applyAssist !== "function") return { ok: false, error: "SNIPPET_API_MISSING" };
             try { return api.applyAssist(kind); } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+          },
+          args: [kind],
+        });
+      } catch {
+        sendResponse({ ok: false, error: "FRAME_INACCESSIBLE", frameIdUsed: frameId });
+        return;
+      }
+      const r = results?.[0]?.result || { ok: false, error: "NO_RESULT" };
+      sendResponse({ ...r, frameIdUsed: frameId });
+      return;
+    }
+
+    if (msg.type === "GET_PAGE_STRUCTURE") {
+      const tabId = Number(msg.tabId);
+      const frameId = Number(msg.frameId);
+
+      // Ensure the snippet API exists in the target frame (idempotent, same as audits).
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId, frameIds: [frameId] },
+          files: [ACCNAME_FILE, ARIA_DATA_FILE, SNIPPET_FILE],
+          world: "MAIN",
+        });
+      } catch (e) {
+        sendResponse({ ok: false, error: "INJECT_FAILED", frameIdUsed: frameId });
+        return;
+      }
+
+      let results;
+      try {
+        results = await chrome.scripting.executeScript({
+          target: { tabId, frameIds: [frameId] },
+          world: "MAIN",
+          func: () => {
+            const api = window.A11YFlowAudit;
+            if (!api || typeof api.getPageStructure !== "function") return { ok: false, error: "SNIPPET_API_MISSING" };
+            try { return { ok: true, structure: api.getPageStructure() }; } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+          },
+        });
+      } catch {
+        sendResponse({ ok: false, error: "FRAME_INACCESSIBLE", frameIdUsed: frameId });
+        return;
+      }
+      const r = results?.[0]?.result || { ok: false, error: "NO_RESULT" };
+      sendResponse({ ...r, frameIdUsed: frameId });
+      return;
+    }
+
+    if (msg.type === "SHOW_STRUCTURE") {
+      const tabId = Number(msg.tabId);
+      const frameId = Number(msg.frameId);
+      const kind = String(msg.kind);
+
+      // Clear mode: remove the structure overlay without (re)injecting the snippet.
+      if (kind === "clear") {
+        let clearResults;
+        try {
+          clearResults = await chrome.scripting.executeScript({
+            target: { tabId, frameIds: [frameId] },
+            world: "MAIN",
+            func: () => {
+              const api = window.A11YFlowAudit;
+              if (api && typeof api.clearStructureOverlay === "function") {
+                try { api.clearStructureOverlay(); return { ok: true, cleared: true }; } catch {}
+              }
+              // Direct removal covers pages where the snippet is gone (e.g. after reload)
+              try { document.getElementById("__flowlens_structure__")?.remove(); } catch {}
+              return { ok: true, cleared: true };
+            },
+          });
+        } catch {
+          sendResponse({ ok: false, error: "FRAME_INACCESSIBLE", frameIdUsed: frameId });
+          return;
+        }
+        sendResponse({ ...(clearResults?.[0]?.result || { ok: false, error: "NO_RESULT" }), frameIdUsed: frameId });
+        return;
+      }
+
+      // Ensure the snippet API exists in the target frame (idempotent, same as audits).
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId, frameIds: [frameId] },
+          files: [ACCNAME_FILE, ARIA_DATA_FILE, SNIPPET_FILE],
+          world: "MAIN",
+        });
+      } catch (e) {
+        sendResponse({ ok: false, error: "INJECT_FAILED", frameIdUsed: frameId });
+        return;
+      }
+
+      let results;
+      try {
+        results = await chrome.scripting.executeScript({
+          target: { tabId, frameIds: [frameId] },
+          world: "MAIN",
+          func: (kind) => {
+            const api = window.A11YFlowAudit;
+            if (!api || typeof api.showStructureOverlay !== "function") return { ok: false, error: "SNIPPET_API_MISSING" };
+            try { return api.showStructureOverlay(kind); } catch (e) { return { ok: false, error: String(e?.message || e) }; }
           },
           args: [kind],
         });

@@ -109,6 +109,23 @@
     "tritanopia",
     "achromatopsia",
   ]);
+  // Page structure (landmarks + headings) — inspired by matatk/landmarks and
+  // headingsMap (concepts only; implemented natively, no external code).
+  // Mirrors STRUCTURE_KINDS in src/sw/sw.js (which additionally allows "clear").
+  const STRUCTURE_CONTAINER_ID = "__flowlens_structure__";
+  const MAX_STRUCTURE_HEADINGS = 200;
+  const MAX_STRUCTURE_LANDMARKS = 100;
+  const STRUCTURE_KINDS = new Set(["headings", "landmarks"]);
+  const STRUCTURE_HEADING_COLOR = "#5B8DD4";
+  const STRUCTURE_LANDMARK_COLOR = "#9A6DD4";
+  // Computed landmark roles surfaced by getPageStructure()
+  const LANDMARK_ROLES = new Set([
+    "main", "nav", "banner", "contentinfo", "complementary", "region", "form", "search",
+  ]);
+  const LANDMARK_SELECTOR =
+    "main,nav,header,footer,aside,form,section,search," +
+    "[role='main'],[role='navigation'],[role='banner'],[role='contentinfo']," +
+    "[role='complementary'],[role='region'],[role='form'],[role='search']";
 
   // ---------------- utils ----------------
   const isEl = (x) => x && x.nodeType === 1;
@@ -1796,12 +1813,22 @@
   };
 
   /**
-   * Clear all FlowLens overlay annotations from the page (also removes the tab path overlay).
+   * Clear the page-structure overlay (labeled heading/landmark outline boxes).
+   */
+  const clearStructureOverlay = () => {
+    const existing = doc.getElementById(STRUCTURE_CONTAINER_ID);
+    if (existing) existing.remove();
+  };
+
+  /**
+   * Clear all FlowLens overlay annotations from the page (also removes the
+   * tab path overlay and the page-structure overlay).
    */
   const clearAnnotations = () => {
     const existing = doc.getElementById(ANNOTATION_CONTAINER_ID);
     if (existing) existing.remove();
     clearTabPath();
+    clearStructureOverlay();
   };
 
   /**
@@ -1865,6 +1892,219 @@
 
     (doc.head || doc.documentElement).appendChild(style);
     return { ok: true, kind };
+  };
+
+  // ---------------- Page structure (landmarks + headings) ----------------
+
+  /**
+   * Heading level: 1-6 from the tag name, or aria-level for role="heading"
+   * (defaults to 2 per WAI-ARIA when aria-level is absent/invalid).
+   */
+  const headingLevel = (el) => {
+    const m = /^H([1-6])$/.exec(el.tagName || "");
+    if (m) return parseInt(m[1], 10);
+    const lvl = parseInt(el.getAttribute("aria-level") || "", 10);
+    return lvl >= 1 && lvl <= 6 ? lvl : 2;
+  };
+
+  /**
+   * Landmark label: aria-label, or the resolved text of aria-labelledby
+   * references. Returns null when the landmark is unlabeled.
+   */
+  const landmarkLabel = (el) => {
+    const aria = (el.getAttribute("aria-label") || "").trim();
+    if (aria) return txt(aria, 80);
+    const refIds = (el.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean);
+    if (refIds.length) {
+      const parts = [];
+      for (const id of refIds) {
+        const ref = doc.getElementById(id);
+        if (ref) parts.push(ref.textContent || "");
+      }
+      const joined = txt(parts.join(" "), 80);
+      if (joined) return joined;
+    }
+    return null;
+  };
+
+  /**
+   * Computed landmark role (main/nav/banner/contentinfo/complementary/region/
+   * form/search) from an explicit role attribute or the implicit tag mapping.
+   * Returns null for elements that are not landmarks (e.g. a scoped <header>,
+   * an unnamed <section>/<form>).
+   */
+  const computeLandmarkRole = (el) => {
+    const explicit = (el.getAttribute("role") || "").trim().toLowerCase();
+    if (explicit) {
+      if (explicit === "navigation") return "nav";
+      return LANDMARK_ROLES.has(explicit) ? explicit : null;
+    }
+    const tag = (el.tagName || "").toLowerCase();
+    if (tag === "main") return "main";
+    if (tag === "nav") return "nav";
+    if (tag === "aside") return "complementary";
+    if (tag === "search") return "search";
+    if (tag === "header" || tag === "footer") {
+      // banner/contentinfo only when not scoped to sectioning content
+      let scoped = null;
+      try { scoped = el.closest ? el.closest("article, aside, main, nav, section") : null; } catch {}
+      if (scoped) return null;
+      return tag === "header" ? "banner" : "contentinfo";
+    }
+    // <form>/<section> are landmarks only when they have an accessible name
+    if (tag === "form") return landmarkLabel(el) ? "form" : null;
+    if (tag === "section") return landmarkLabel(el) ? "region" : null;
+    return null;
+  };
+
+  /**
+   * Internal: collect visible headings + landmarks across the document and
+   * all reachable open shadow roots (same traversal as run(); closed shadow
+   * roots cannot be inspected). Keeps live element refs for the overlay.
+   *
+   * Issues:
+   *  - heading "level_skip" — the level jumps by more than one from the
+   *    previous heading in document order (e.g. h2 -> h4).
+   *  - landmark "duplicate_unlabeled" — the same role appears 2+ times
+   *    without distinct labels, so AT users cannot tell the instances apart.
+   *
+   * Capped at MAX_STRUCTURE_HEADINGS / MAX_STRUCTURE_LANDMARKS.
+   */
+  const collectPageStructure = () => {
+    const { scopes } = collectScopesWithCoverage(doc.documentElement);
+
+    const headings = [];
+    let prevLevel = null;
+    let headingsCapped = false;
+    for (const { root } of scopes) {
+      let found;
+      try { found = [...root.querySelectorAll("h1,h2,h3,h4,h5,h6,[role='heading']")]; } catch { found = []; }
+      for (const el of found) {
+        if (isHidden(el)) continue;
+        if (headings.length >= MAX_STRUCTURE_HEADINGS) { headingsCapped = true; break; }
+        const level = headingLevel(el);
+        const issues = [];
+        if (prevLevel != null && level > prevLevel + 1) issues.push("level_skip");
+        headings.push({ el, level, text: txt(el.textContent, 80), path: cssPath(el), issues });
+        prevLevel = level;
+      }
+      if (headingsCapped) break;
+    }
+
+    const landmarks = [];
+    let landmarksCapped = false;
+    for (const { root } of scopes) {
+      let found;
+      try { found = [...root.querySelectorAll(LANDMARK_SELECTOR)]; } catch { found = []; }
+      for (const el of found) {
+        if (isHidden(el)) continue;
+        const role = computeLandmarkRole(el);
+        if (!role) continue;
+        if (landmarks.length >= MAX_STRUCTURE_LANDMARKS) { landmarksCapped = true; break; }
+        landmarks.push({ el, role, label: landmarkLabel(el), path: cssPath(el), issues: [] });
+      }
+      if (landmarksCapped) break;
+    }
+
+    // duplicate_unlabeled: same role 2+ times without distinct labels
+    const byRole = new Map();
+    for (const lm of landmarks) {
+      if (!byRole.has(lm.role)) byRole.set(lm.role, []);
+      byRole.get(lm.role).push(lm);
+    }
+    for (const group of byRole.values()) {
+      if (group.length < 2) continue;
+      const labelCounts = new Map();
+      for (const lm of group) {
+        const key = lm.label == null ? "" : lm.label.toLowerCase();
+        labelCounts.set(key, (labelCounts.get(key) || 0) + 1);
+      }
+      for (const lm of group) {
+        const key = lm.label == null ? "" : lm.label.toLowerCase();
+        if (lm.label == null || labelCounts.get(key) > 1) lm.issues.push("duplicate_unlabeled");
+      }
+    }
+
+    return { headings, landmarks, headingsCapped, landmarksCapped };
+  };
+
+  /**
+   * Page structure snapshot — headings outline + landmark regions with
+   * structural issues. Serializable (no element refs); safe to send across
+   * the extension message boundary.
+   */
+  const getPageStructure = () => {
+    const { headings, landmarks, headingsCapped, landmarksCapped } = collectPageStructure();
+    const headingsOut = headings.map(h => ({ level: h.level, text: h.text, path: h.path, issues: h.issues }));
+    const landmarksOut = landmarks.map(l => ({ role: l.role, label: l.label, path: l.path, issues: l.issues }));
+    const issueCount =
+      headingsOut.reduce((n, h) => n + h.issues.length, 0) +
+      landmarksOut.reduce((n, l) => n + l.issues.length, 0);
+    const res = {
+      headings: headingsOut,
+      landmarks: landmarksOut,
+      summary: {
+        h1Count: headingsOut.filter(h => h.level === 1).length,
+        headingCount: headingsOut.length,
+        landmarkCount: landmarksOut.length,
+        issues: issueCount,
+        headingsCapped,
+        landmarksCapped,
+      },
+      capturedAt: nowIso(),
+    };
+    api.lastStructure = res;
+    return res;
+  };
+
+  /**
+   * Page-structure overlay — draws labeled outline boxes ("H2" badges for
+   * headings, role badges for landmarks) in one absolutely-positioned
+   * container (same pattern as annotateFindings/showTabPath). Items with
+   * structural issues render red. Idempotent: re-running clears the previous
+   * structure overlay first; no listeners (pointer-events: none everywhere);
+   * no external resources. Removed by clearStructureOverlay()/clearAnnotations().
+   */
+  const showStructureOverlay = (kind) => {
+    if (!STRUCTURE_KINDS.has(kind)) return { ok: false, error: "UNKNOWN_STRUCTURE_KIND" };
+    clearStructureOverlay();
+
+    const { headings, landmarks } = collectPageStructure();
+    const items = kind === "headings"
+      ? headings.map(h => ({ el: h.el, badge: `H${h.level}`, flagged: h.issues.length > 0, color: STRUCTURE_HEADING_COLOR }))
+      : landmarks.map(l => ({ el: l.el, badge: l.label ? `${l.role}: ${txt(l.label, 24)}` : l.role, flagged: l.issues.length > 0, color: STRUCTURE_LANDMARK_COLOR }));
+
+    const container = doc.createElement("div");
+    container.id = STRUCTURE_CONTAINER_ID;
+    container.setAttribute("aria-hidden", "true");
+    container.style.cssText = "position:fixed;top:0;left:0;width:0;height:0;overflow:visible;z-index:2147483646;pointer-events:none;";
+
+    let rendered = 0;
+    let flagged = 0;
+    for (const item of items) {
+      const el = item.el;
+      if (!isEl(el) || !el.isConnected) continue;
+      let rect;
+      try { rect = el.getBoundingClientRect(); } catch { continue; }
+      if (!rect || (rect.width === 0 && rect.height === 0)) continue;
+      if (item.flagged) flagged++;
+      const color = item.flagged ? TAB_PATH_BLOCKED_COLOR : item.color;
+
+      const marker = doc.createElement("div");
+      marker.className = ANNOTATION_CLASS;
+      marker.style.cssText = `position:fixed;top:${rect.top - 2}px;left:${rect.left - 2}px;width:${rect.width + 4}px;height:${rect.height + 4}px;border:2px solid ${color};border-radius:3px;pointer-events:none;z-index:2147483646;box-sizing:border-box;`;
+
+      const badge = doc.createElement("span");
+      badge.style.cssText = `position:absolute;top:-10px;left:-2px;background:${color};color:#fff;font:bold 10px/12px system-ui;padding:1px 4px;border-radius:2px;white-space:nowrap;pointer-events:none;max-width:200px;overflow:hidden;text-overflow:ellipsis;`;
+      badge.textContent = item.badge; // textContent only — page text never parsed as HTML
+      marker.appendChild(badge);
+
+      container.appendChild(marker);
+      rendered++;
+    }
+
+    doc.body.appendChild(container);
+    return { ok: true, kind, total: items.length, rendered, flagged };
   };
 
   /**
@@ -4419,6 +4659,9 @@
     clearTabPath,
     applyAssist,
     clearAssist,
+    getPageStructure,
+    showStructureOverlay,
+    clearStructureOverlay,
     get modeHints() { return modeHints; },
     set modeHints(v) { modeHints = v && typeof v === "object" ? v : defaultModeHints; },
     last: null,
@@ -4426,6 +4669,7 @@
     lastWatch: null,
     lastTabWalk: null,
     lastContrast: null,
+    lastStructure: null,
     help() {
       console.log("A11YFlowAudit.run({ strict:true })");
       console.log("A11YFlowAudit.run({ rootSelector: '#my-component' })  // subtree scan");
@@ -4441,6 +4685,9 @@
       console.log("A11YFlowAudit.applyAssist('textSpacing')  // WCAG 1.4.12 text-spacing stress test");
       console.log("A11YFlowAudit.applyAssist('protanopia')   // CVD simulation (also: deuteranopia, tritanopia, achromatopsia, grayscale)");
       console.log("A11YFlowAudit.clearAssist()               // remove active assist mode");
+      console.log("A11YFlowAudit.getPageStructure()          // headings outline + landmarks");
+      console.log("A11YFlowAudit.showStructureOverlay('headings') // labeled outline boxes (also: 'landmarks')");
+      console.log("A11YFlowAudit.clearStructureOverlay()     // remove structure overlay");
     }
   };
 

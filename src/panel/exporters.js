@@ -867,6 +867,33 @@ function compareAgainstBaseline(baseline, currentFindings, frameKeyStable, mode 
   return { newIssues, resolvedIssues, matchedCount };
 }
 
+// --- Manual checklist (Lighthouse "additional items to manually check" pattern) ---
+
+/**
+ * Static list of manual WCAG checks that automation cannot decide.
+ * Purely informational — never affects findings, score, or CI status.
+ * Deterministic: same list on every call.
+ *
+ * @param {string} [mode] - active audit mode; reserved for future
+ *   mode-specific items (the checklist is identical for all modes today).
+ * @returns {Array<{id: string, label: string, wcag: string}>}
+ */
+function buildManualChecklist(mode) {
+  void mode; // reserved — same checklist for every mode today
+  return [
+    { id: "manual-alt-quality", label: "Image alt text is meaningful (not just present) and conveys each image's purpose", wcag: "1.1.1" },
+    { id: "manual-captions-accuracy", label: "Video captions are accurate and synchronized; audio descriptions cover essential visuals", wcag: "1.2.2 / 1.2.5" },
+    { id: "manual-reading-order", label: "Visual reading order matches the DOM order when the page is linearized", wcag: "1.3.2" },
+    { id: "manual-color-meaning", label: "Color is never the only means of conveying information (charts, validation states, links)", wcag: "1.4.1" },
+    { id: "manual-motion-control", label: "Motion, animation and auto-updating content can be paused, stopped or hidden", wcag: "2.2.2 / 2.3.3" },
+    { id: "manual-focus-order", label: "Focus order follows a sensible, task-oriented sequence through the page", wcag: "2.4.3" },
+    { id: "manual-link-purpose", label: "Link text makes sense out of context (no bare \"click here\" or repeated ambiguous labels)", wcag: "2.4.4" },
+    { id: "manual-context-changes", label: "No unexpected context changes on focus or input (popups, navigation, focus jumps)", wcag: "3.2.1 / 3.2.2" },
+    { id: "manual-error-clarity", label: "Error messages clearly describe the problem and how to fix it", wcag: "3.3.1 / 3.3.3" },
+    { id: "manual-cognitive-load", label: "Instructions and flows avoid unnecessary cognitive load (plain language, few steps, no memory tests)", wcag: "3.2.4 / 3.3.2" },
+  ];
+}
+
 // --- Self-contained HTML report ---
 
 /**
@@ -907,6 +934,7 @@ const HTML_REPORT_CSS = [
  *
  * @param {{title?: string, generatedAt?: string, url?: string, mode?: string,
  *   findings?: Array, severityCounts?: object,
+ *   score?: number, manualChecklist?: Array<{id?: string, label?: string, wcag?: string}>,
  *   sessionSummary?: {id?: string, steps?: Array<{index?: number, label?: string,
  *     route?: string, added?: number, fixed?: number, persisting?: number,
  *     blockingAdded?: number}>}}} payload
@@ -941,6 +969,23 @@ function buildHtmlReport(payload) {
   const findingsSection = findings.length
     ? `<table>\n<thead><tr><th>Severity</th><th>WCAG</th><th>Name</th><th>Type</th><th>Path</th><th>Fix</th></tr></thead>\n<tbody>\n${findingRows}\n</tbody>\n</table>`
     : `<p class="empty">No findings.</p>`;
+
+  // Weighted score line (only when the caller provides a score).
+  const scoreLine = (p.score != null && Number.isFinite(Number(p.score)))
+    ? `<p class="meta">Score: ${Math.max(0, Math.min(100, Math.round(Number(p.score))))}/100 &mdash; severity-weighted (high=10, medium=3, low=1, info=0), smooth impact curve</p>`
+    : "";
+
+  // Manual checklist section — WCAG areas automation cannot decide.
+  let checklistSection = "";
+  const checklist = Array.isArray(p.manualChecklist) ? p.manualChecklist : [];
+  if (checklist.length) {
+    const checklistRows = checklist
+      .map(item => `<tr><td>${esc(item?.wcag || "")}</td><td>${esc(item?.label || "")}</td></tr>`)
+      .join("\n");
+    checklistSection =
+      "<h2>Automation covers only part of WCAG &mdash; manual checks</h2>\n" +
+      `<table>\n<thead><tr><th>WCAG</th><th>Manual check</th></tr></thead>\n<tbody>\n${checklistRows}\n</tbody>\n</table>`;
+  }
 
   let sessionSection = "";
   const steps = Array.isArray(p.sessionSummary?.steps) ? p.sessionSummary.steps : [];
@@ -979,11 +1024,13 @@ function buildHtmlReport(payload) {
     `<p class="meta">Generated: ${esc(p.generatedAt || "")}</p>`,
     `<p class="meta">URL: ${esc(p.url || "")}</p>`,
     `<p class="meta">Mode: ${esc(p.mode || "run")} &middot; Findings: ${findings.length}</p>`,
+    scoreLine,
     "<h2>Severity summary</h2>",
     `<table>\n<thead><tr><th>Severity</th><th>Count</th></tr></thead>\n<tbody>\n${severityRows}\n</tbody>\n</table>`,
     "<h2>Findings</h2>",
     findingsSection,
     sessionSection,
+    checklistSection,
     "</main>",
     "</body>",
     "</html>",

@@ -492,6 +492,50 @@ function severityWeight(severity) {
   return 1;
 }
 
+// --- Weighted accessibility score (Lighthouse-inspired impact curve) ---
+
+/**
+ * Severity weights used by computeWeightedScore. Deliberately steeper than
+ * severityWeight() above (which only orders diff entries): a single
+ * high-severity finding should visibly dent the score, while purely
+ * informational findings never affect it.
+ */
+const SCORE_SEVERITY_WEIGHTS = { high: 10, medium: 3, low: 1, info: 0 };
+
+/**
+ * Compute a 0-100 weighted accessibility score from a findings list.
+ *
+ * Formula:
+ *   weightedSum = sum of weight(severity)  with high=10, medium=3, low=1, info=0
+ *   score = round(100 * (1 - min(1, weightedSum / (10 + weightedSum))))
+ *
+ * The ratio weightedSum / (10 + weightedSum) is a smooth, saturating impact
+ * curve: the first findings hurt the most (one high-severity finding halves
+ * the score), later findings have diminishing impact, and the score decays
+ * asymptotically toward 0 while staying strictly bounded to [0, 100].
+ * No findings -> 100. Deterministic and order-independent.
+ *
+ * "critical" is treated as "high" (heaviest weight); unknown severities
+ * count as 0, like info.
+ *
+ * @param {Array} findings
+ * @returns {{score: number, weights: {high: number, medium: number, low: number, info: number}}}
+ */
+function computeWeightedScore(findings) {
+  const list = Array.isArray(findings) ? findings : [];
+  let weightedSum = 0;
+  for (const f of list) {
+    const sev = String(f?.severity || "info").toLowerCase();
+    const w = sev === "critical" ? SCORE_SEVERITY_WEIGHTS.high : SCORE_SEVERITY_WEIGHTS[sev];
+    weightedSum += Number.isFinite(w) ? w : 0;
+  }
+  const raw = Math.round(100 * (1 - Math.min(1, weightedSum / (10 + weightedSum))));
+  return {
+    score: Math.max(0, Math.min(100, raw)),
+    weights: { ...SCORE_SEVERITY_WEIGHTS },
+  };
+}
+
 // --- Upgrade: Signature quality for shadow nth paths ---
 
 /**

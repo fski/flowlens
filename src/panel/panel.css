@@ -1085,6 +1085,131 @@ kbd {
   border-color: var(--brd3);
 }
 
+/* ═══ PAGE STRUCTURE ═══ */
+.structureBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.structureActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.structureSummary {
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.structureList {
+  border: 1px solid var(--brd0);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  padding: 6px 8px;
+}
+
+.structureListHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.structureListTitle {
+  flex: 1;
+  font: 600 12px/1 var(--font-mono);
+  color: var(--tx2);
+}
+
+.structureItems {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+.structureItems li {
+  padding: 2px 4px;
+  color: var(--tx2);
+  word-break: break-word;
+}
+
+.structureTag {
+  font: 600 10px/1 var(--font-mono);
+  color: var(--tx3);
+  margin-right: 6px;
+}
+
+.structureIssue {
+  color: var(--red);
+  font: 600 10px/1 var(--font-mono);
+  margin-left: 6px;
+  text-transform: uppercase;
+}
+
+.structureEmpty {
+  color: var(--tx3);
+  font-style: italic;
+}
+
+/* ═══ WEIGHTED SCORE CHIP + MANUAL CHECKS ═══ */
+.statusRow {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.statusRow .lastStatusLine {
+  flex: 1;
+}
+
+.scoreChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--brd0);
+  background: var(--raised);
+  color: var(--tx2);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.scoreChip[data-band="good"] { color: var(--green); border-color: var(--okB); background: var(--okS); }
+.scoreChip[data-band="mid"] { color: var(--yellow); border-color: var(--warnB); background: var(--warnS); }
+.scoreChip[data-band="poor"] { color: var(--red); border-color: var(--dangerB); background: var(--dangerS); }
+
+.manualChecksList {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0 0;
+}
+
+.manualChecksList li {
+  padding: 3px 0;
+  font-size: 12px;
+  color: var(--tx2);
+}
+
+.manualCheckLabel {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  cursor: pointer;
+}
+
+.manualChecksWcag {
+  color: var(--tx3);
+  font: 600 10px/1 var(--font-mono);
+  white-space: nowrap;
+}
+
 /* ═══ SEVERITY FILTER TABS ═══ */
 .sevTabs {
   display: flex;

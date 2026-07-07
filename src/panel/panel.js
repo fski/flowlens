@@ -84,6 +84,18 @@ const els = {
   showTabPathBtn: document.getElementById("showTabPathBtn"),
   clearTabPathBtn: document.getElementById("clearTabPathBtn"),
   assistBar: document.getElementById("assistBar"),
+  structureSection: document.getElementById("structureSection"),
+  structureScanBtn: document.getElementById("structureScanBtn"),
+  structureSummary: document.getElementById("structureSummary"),
+  structureHeadingsList: document.getElementById("structureHeadingsList"),
+  structureLandmarksList: document.getElementById("structureLandmarksList"),
+  structureShowHeadings: document.getElementById("structureShowHeadings"),
+  structureClearHeadings: document.getElementById("structureClearHeadings"),
+  structureShowLandmarks: document.getElementById("structureShowLandmarks"),
+  structureClearLandmarks: document.getElementById("structureClearLandmarks"),
+  scoreChip: document.getElementById("scoreChip"),
+  manualChecksSection: document.getElementById("manualChecksSection"),
+  manualChecksList: document.getElementById("manualChecksList"),
   pastRunsToggle: document.getElementById("pastRunsToggle"),
   pastRunsBody: document.getElementById("pastRunsBody"),
   pastRunsList: document.getElementById("pastRunsList"),
@@ -218,6 +230,7 @@ const state = {
   lastPersistentStatus: { status: "IDLE", reason: "-", detail: "" },
   lastSelectionReason: "—",
   hasPersistentStatus: false,
+  pageStructure: null,
 };
 
 /**
@@ -3167,6 +3180,95 @@ function renderRunSummary(r, rec = null) {
   renderShadowCoverage(els.shadowCoverageRow, r?.shadowCoverage || null);
 }
 
+// ═══ PAGE STRUCTURE (Snap tab) ═══
+
+function structureHeadingItemHtml(h) {
+  const level = Math.min(Math.max(Number(h?.level) || 1, 1), 6);
+  const hasSkip = Array.isArray(h?.issues) && h.issues.includes("level_skip");
+  const issue = hasSkip
+    ? '<span class="structureIssue" title="Heading level jumps more than one level from the previous heading (WCAG 1.3.1)">level skip</span>'
+    : "";
+  const text = txt(h?.text || "", 80);
+  return `<li style="padding-left:${(level - 1) * 14}px" title="${escapeHtml(h?.path || "")}">` +
+    `<span class="structureTag">H${level}</span>` +
+    `${text ? escapeHtml(text) : '<span class="structureEmpty">(empty)</span>'}${issue}</li>`;
+}
+
+function structureLandmarkItemHtml(l) {
+  const hasDup = Array.isArray(l?.issues) && l.issues.includes("duplicate_unlabeled");
+  const issue = hasDup
+    ? '<span class="structureIssue" title="Same landmark role appears more than once without a distinct label (WCAG 1.3.1)">duplicate</span>'
+    : "";
+  const label = l?.label
+    ? escapeHtml(txt(l.label, 80))
+    : '<span class="structureEmpty">(no label)</span>';
+  return `<li title="${escapeHtml(l?.path || "")}">` +
+    `<span class="structureTag">${escapeHtml(String(l?.role || ""))}</span>${label}${issue}</li>`;
+}
+
+function renderPageStructure(structure) {
+  const s = structure || {};
+  const headings = Array.isArray(s.headings) ? s.headings : [];
+  const landmarks = Array.isArray(s.landmarks) ? s.landmarks : [];
+  if (els.structureHeadingsList) {
+    els.structureHeadingsList.innerHTML = headings.length
+      ? headings.map(structureHeadingItemHtml).join("")
+      : '<li class="structureEmpty">No headings found</li>';
+  }
+  if (els.structureLandmarksList) {
+    els.structureLandmarksList.innerHTML = landmarks.length
+      ? landmarks.map(structureLandmarkItemHtml).join("")
+      : '<li class="structureEmpty">No landmarks found</li>';
+  }
+  if (els.structureSummary) {
+    const sum = s.summary || {};
+    const capped = sum.headingsCapped || sum.landmarksCapped ? " • capped" : "";
+    els.structureSummary.textContent =
+      `H1: ${Number(sum.h1Count) || 0} • Headings: ${Number(sum.headingCount) || 0}` +
+      ` • Landmarks: ${Number(sum.landmarkCount) || 0} • Issues: ${Number(sum.issues) || 0}${capped}`;
+  }
+}
+
+// ═══ WEIGHTED SCORE CHIP + MANUAL CHECKS ═══
+
+/**
+ * Render the weighted score chip next to the persistent status line.
+ * Uses computeWeightedScore() (signature-engine.js) — see the formula
+ * comment there. Pass null/undefined to hide the chip.
+ */
+function renderScoreChip(findings) {
+  if (!els.scoreChip) return;
+  if (!Array.isArray(findings)) {
+    els.scoreChip.hidden = true;
+    return;
+  }
+  const { score, weights } = computeWeightedScore(findings);
+  els.scoreChip.textContent = `Score ${score}`;
+  els.scoreChip.title =
+    `Weighted accessibility score (0-100). Severity weights: high=${weights.high}, ` +
+    `medium=${weights.medium}, low=${weights.low}, info=${weights.info}. ` +
+    "score = round(100 * (1 - min(1, weightedSum / (10 + weightedSum)))) — a smooth impact curve. " +
+    "Automation covers only part of WCAG; see the manual checks list.";
+  els.scoreChip.dataset.band = score >= 90 ? "good" : score >= 50 ? "mid" : "poor";
+  els.scoreChip.hidden = false;
+}
+
+// Manual checklist checkbox state — in memory only, per DevTools session.
+const manualCheckState = new Set();
+
+function renderManualChecklist() {
+  if (!els.manualChecksList) return;
+  const items = buildManualChecklist(state.activeMode || "run");
+  els.manualChecksList.innerHTML = items.map(item => {
+    const id = escapeHtml(String(item.id));
+    const checked = manualCheckState.has(String(item.id)) ? " checked" : "";
+    return `<li><label class="manualCheckLabel">` +
+      `<input type="checkbox" class="manualCheckBox" data-check-id="${id}"${checked} /> ` +
+      `<span>${escapeHtml(item.label)}</span> ` +
+      `<span class="manualChecksWcag">${escapeHtml(item.wcag)}</span></label></li>`;
+  }).join("");
+}
+
 
 function applyExplorerFilters(findings) {
   const q = (els.q.value || "").trim().toLowerCase();
@@ -4186,6 +4288,8 @@ async function runAction(action, opts = {}) {
   const _ec = bestResult?.events?.length;
   const detail = _fc ? ` — ${_fc} findings` : _cc != null ? ` — ${_cc} failures` : _ec != null ? ` — ${_ec} events` : "";
   setPersistentStatus("OK", action.toUpperCase(), `${_fc || _cc || _ec || 0} issues`);
+  // Weighted score chip — findings-based modes only (run/observe)
+  renderScoreChip(action === "run" || action === "observe" ? allFindings : null);
   toast(`${modeLabel(action)} done${detail}`);
   return true;
 }
@@ -5519,6 +5623,8 @@ if (els.downloadHtmlReport) {
       mode: state.lastResult?.mode || state.activeMode || "run",
       findings,
       severityCounts: countBySeverity(findings),
+      score: computeWeightedScore(findings).score,
+      manualChecklist: buildManualChecklist(state.lastResult?.mode || state.activeMode || "run"),
       sessionSummary,
     });
     downloadText(`a11yflowaudit-report-${Date.now()}.html`, html, "text/html");
@@ -6235,6 +6341,67 @@ if (els.assistBar) {
     } catch {
       toast("Assist failed (runtime unavailable)");
     }
+  });
+}
+
+// Page structure — scan headings + landmarks of the inspected page and
+// render them as indented outline / labeled landmark lists.
+if (els.structureScanBtn) {
+  els.structureScanBtn.addEventListener("click", async () => {
+    try {
+      const res = await send({ type: "GET_PAGE_STRUCTURE", frameId: state.bestFrameId ?? 0 });
+      if (res?.ok && res.structure) {
+        state.pageStructure = res.structure;
+        renderPageStructure(res.structure);
+        const sum = res.structure.summary || {};
+        toast(`Structure: ${sum.headingCount ?? 0} headings, ${sum.landmarkCount ?? 0} landmarks`);
+      } else {
+        toast(`Could not scan structure (${res?.error || "unknown"})`);
+      }
+    } catch {
+      toast("Could not scan structure (runtime unavailable)");
+    }
+  });
+}
+
+// Page structure overlay — labeled outline boxes on the inspected page
+// (kind "clear" removes the overlay; mirrors the assist/tab-path pattern).
+const sendShowStructure = async (kind) => {
+  try {
+    const res = await send({ type: "SHOW_STRUCTURE", frameId: state.bestFrameId ?? 0, kind });
+    if (res?.ok) {
+      toast(kind === "clear"
+        ? "Structure overlay cleared"
+        : `Structure shown: ${res.rendered ?? 0} ${kind}`);
+    } else {
+      toast(`Could not show structure (${res?.error || "unknown"})`);
+    }
+  } catch {
+    toast("Could not show structure (runtime unavailable)");
+  }
+};
+if (els.structureShowHeadings) {
+  els.structureShowHeadings.addEventListener("click", () => sendShowStructure("headings"));
+}
+if (els.structureShowLandmarks) {
+  els.structureShowLandmarks.addEventListener("click", () => sendShowStructure("landmarks"));
+}
+if (els.structureClearHeadings) {
+  els.structureClearHeadings.addEventListener("click", () => sendShowStructure("clear"));
+}
+if (els.structureClearLandmarks) {
+  els.structureClearLandmarks.addEventListener("click", () => sendShowStructure("clear"));
+}
+
+// Manual checks — purely informational; checkbox state lives in memory only.
+renderManualChecklist();
+if (els.manualChecksList) {
+  els.manualChecksList.addEventListener("change", (e) => {
+    const cb = e.target;
+    const id = cb?.dataset?.checkId;
+    if (!id) return;
+    if (cb.checked) manualCheckState.add(id);
+    else manualCheckState.delete(id);
   });
 }
 
