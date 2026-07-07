@@ -151,8 +151,8 @@ Defined in `BUILTIN_PROFILES` (`panel.js:208-256`):
 
 | Profile | URL includes | DOM selectors | Sub-hints |
 |---------|-------------|---------------|-----------|
-| `helpcenter` | `helpcenter-webclient`, `usehurrier.com`, `helpcenter` | `#help-center-root`, `[data-testid='help-center-wrapper']`, etc. | `helpcenter-bot`, `helpcenter-tree` |
-| `chat` | — | `[data-testid^='GST_CHAT__']`, `#GST_CHAT__FEED`, `[role='log']` | `chat` |
+| `helpcenter` | — | `[role='navigation'][aria-label]`, `main article`, `[role='main'] article` | `helpcenter-bot`, `helpcenter-tree` |
+| `chat` | — | `[role='log']`, `[role='feed']`, `textarea` | `chat` |
 
 ### Profile state
 

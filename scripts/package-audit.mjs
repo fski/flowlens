@@ -189,7 +189,7 @@ if (csp && typeof csp === "object") {
 }
 
 // Permissions allowlist
-const ALLOWED_PERMISSIONS = ["scripting", "tabs", "webNavigation", "storage"];
+const ALLOWED_PERMISSIONS = ["scripting", "webNavigation", "storage"];
 const ALLOWED_HOST_PERMISSIONS = ["http://*/*", "https://*/*"];
 
 const actualPerms = [...(manifest.permissions || [])].sort();

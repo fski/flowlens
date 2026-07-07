@@ -93,9 +93,12 @@ Profiles are vendor-agnostic. Targeting uses ARIA roles and DOM structure, not p
 ## Install
 
 1. Clone or download this repo
-2. Go to `chrome://extensions/`, enable Developer mode
-3. Click "Load unpacked", select this folder
-4. Open DevTools (F12), go to the **FlowLens** tab
+2. Run `npm install && npm run build` — this writes the extension to `dist/`
+3. Go to `chrome://extensions/`, enable Developer mode
+4. Click "Load unpacked", select the **`dist/` folder** (not the repo root)
+5. Open DevTools (F12), go to the **FlowLens** tab
+
+For development, `npm run build:dev` produces an unminified build with sourcemaps.
 
 ## Frame targeting
 
@@ -118,21 +121,26 @@ Results can be copied as JSON, downloaded as a `.json` file, copied as Markdown,
 
 ## Files
 
+Source lives in `src/`; `npm run build` assembles the loadable extension in `dist/`.
+
 ```
-manifest.json              MV3 extension config
-devtools.html/js           registers the DevTools panel
-panel.html                 UI
-panel.css                  styles (Ayu Dark theme)
-panel.js                   UI logic, state, virtual scrolling
-sw.js                      service worker, message routing, script injection
-a11y-audit-snippet.js      the actual audit code injected into pages
-stateTransitionEngine.js   C1–C4 conversation integrity evaluators
-depth3Aggregates.js        integrity axis aggregation
-ciExporter.js              CI JSON report builder
-flow-profiles.js           conversational profiles (v1 + v2)
-wcag-coverage.js           rule → WCAG criterion mapping
-limits.js                  capture bounds
-icons/                     extension icons
+src/manifest/manifest.base.json   MV3 extension config (version injected at build)
+src/devtools/                     registers the DevTools panel
+src/panel/panel.html              UI
+src/panel/panel.css               styles (Ayu Dark theme)
+src/panel/panel.js                UI logic, state, virtual scrolling
+src/sw/sw.js                      service worker, message routing, script injection
+src/snippet/a11y-audit-snippet.js the actual audit code injected into pages
+src/engine/stateTransitionEngine.js  C1–C4 conversation integrity evaluators
+src/engine/depth3Aggregates.js    integrity axis aggregation
+src/engine/ciExporter.js          CI JSON report builder
+src/shared/flow-profiles.js       conversational profiles (v1 + v2)
+src/shared/wcag-coverage.js       rule → WCAG criterion mapping
+src/shared/limits.js              capture bounds
+src/shared/version.js             single source of truth for the version
+src/host/default.config.json      host config (site-specific targeting overrides)
+src/assets/icons/                 extension icons
+scripts/                          build, package and audit tooling
 ```
 
 ## How it works

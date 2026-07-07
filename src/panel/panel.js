@@ -4567,7 +4567,7 @@ function renderWatch(res) {
     if (verdicts.length) {
       els.watchVerdicts.innerHTML = verdicts.map(v => {
         const over = v.value > v.budget;
-        return `<span class="watchVerdict ${over ? "watchVerdict--fail" : "watchVerdict--pass"}">${escapeHtml(v.metric)}: ${v.value}${over ? " \u26A0" : " \u2713"}</span>`;
+        return `<span class="watchVerdict ${over ? "watchVerdict--fail" : "watchVerdict--pass"}">${escapeHtml(v.metric)}: ${escapeHtml(String(v.value))}${over ? " \u26A0" : " \u2713"}</span>`;
       }).join("");
     } else {
       els.watchVerdicts.innerHTML = '<span class="watchVerdict watchVerdict--pass">All metrics within budget \u2713</span>';

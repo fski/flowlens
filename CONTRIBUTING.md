@@ -38,7 +38,7 @@ FlowLens makes zero network requests. All processing happens in the browser. No 
 node --test
 ```
 
-All tests use `node:test` and `node:assert/strict` with zero npm dependencies. The test harness loads panel.js into a `node:vm` context with mocked browser globals.
+All tests use `node:test` and `node:assert/strict` with zero npm dependencies. The test harness loads `src/panel/panel.js` into a `node:vm` context with mocked browser globals.
 
 ### Building
 
@@ -50,7 +50,7 @@ The build must produce a bundle under 450K total. Check the build output for fil
 
 ### Adding rules
 
-1. Add the rule evaluation in `a11y-audit-snippet.js`
+1. Add the rule evaluation in `src/snippet/a11y-audit-snippet.js`
 2. Add the rule → WCAG mapping in `src/shared/wcag-coverage.js` with `criterion`, `level`, `confidence`, and `depthLevel`
 3. For Depth 3 rules, add a `group` field (`depth3/announcements`, `depth3/focus`, `depth3/semantics`, or `depth3/multiframe`)
 4. Add corresponding tests
@@ -59,6 +59,6 @@ The build must produce a bundle under 450K total. Check the build output for fil
 ### Code style
 
 - No external dependencies (zero npm packages)
-- ES5-compatible function syntax in panel.js (no arrow functions in top-level code)
-- `var` in panel.js; `const`/`let` in test files and build scripts
-- No `async`/`await` in panel.js function definitions (except in wire-up section event handlers)
+- ES5-compatible function syntax in `src/panel/panel.js` (no arrow functions in top-level code)
+- `var` in `src/panel/panel.js`; `const`/`let` in test files and build scripts
+- No `async`/`await` in `src/panel/panel.js` function definitions (except in wire-up section event handlers)

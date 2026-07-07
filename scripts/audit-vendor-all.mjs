@@ -2,8 +2,8 @@
 /**
  * Full-repo vendor string audit — scans entire repo for company-specific references.
  * Excludes:
- *   dist/, node_modules/, .git/, src/host/  — build output, deps, host configs
- *   test/, scripts/, .context/, docs/       — tests, tooling, planning docs
+ *   dist/, node_modules/, .git/, host/  — build output, deps, host configs
+ *   test/, scripts/, .context/         — tests and tooling reference the patterns themselves
  * Only scans text file extensions (js, mjs, json, html, css, md, yml, yaml).
  * Exit 1 if any matches found.
  */
@@ -31,23 +31,17 @@ const includes = [
   '--include="*.yml"',
   '--include="*.yaml"',
 ].join(" ");
-const excludeDirs = [
+// NOTE: grep --exclude-dir matches directory basenames only, so "host"
+// (not "src/host") is the correct form.
+const excludes = [
   '--exclude-dir="dist"',
   '--exclude-dir="node_modules"',
   '--exclude-dir=".git"',
-  '--exclude-dir="src/host"',
+  '--exclude-dir="host"',
   '--exclude-dir="test"',
   '--exclude-dir="scripts"',
   '--exclude-dir=".context"',
-  '--exclude-dir="docs"',
 ].join(" ");
-// Legacy root-level source files (pre-refactor, superseded by src/).
-const excludeFiles = [
-  '--exclude="panel.js"',
-  '--exclude="sw.js"',
-  '--exclude="a11y-audit-snippet.js"',
-].join(" ");
-const excludes = `${excludeDirs} ${excludeFiles}`;
 
 const cmd = `grep -rniE "${pattern}" . ${includes} ${excludes} || true`;
 

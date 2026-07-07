@@ -65,8 +65,8 @@ Profiles add product-specific frame heuristics and audit rules. Toggle them in S
 
 | Profile | Targets | Adds |
 |---------|---------|------|
-| **Help Center** | Iframes matching `helpcenter-webclient`, `usehurrier.com`, `helpcenter`; DOM selectors `#help-center-root`, `[data-testid='help-center-wrapper']`, etc. | Tree/article/bot-specific WCAG checks |
-| **Chat** | DOM selectors `[data-testid^='GST_CHAT__']`, `#GST_CHAT__FEED`, `[role='log']` | `role=log`, message boundary, input label checks |
+| **Help Center** | Frames with DOM selectors `[role='navigation'][aria-label]`, `main article`, `[role='main'] article` | Tree/article/bot-specific WCAG checks |
+| **Chat** | Frames with DOM selectors `[role='log']`, `[role='feed']`, `textarea` | `role=log`, message boundary, input label checks |
 
 Custom profiles can be defined via `customProfiles` in extension storage.
 

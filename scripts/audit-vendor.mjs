@@ -18,7 +18,9 @@ const PATTERNS = [
 ];
 
 const pattern = PATTERNS.join("|");
-const cmd = `grep -rniE "${pattern}" src/ --include="*.js" --include="*.html" --include="*.css" --include="*.json" --exclude-dir="src/host" || true`;
+// NOTE: grep --exclude-dir matches directory basenames only, so "host"
+// (not "src/host") is the correct form.
+const cmd = `grep -rniE "${pattern}" src/ --include="*.js" --include="*.html" --include="*.css" --include="*.json" --exclude-dir="host" || true`;
 
 try {
   const result = execSync(cmd, { encoding: "utf8", cwd: new URL("..", import.meta.url).pathname });

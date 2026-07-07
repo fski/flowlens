@@ -46,6 +46,12 @@ jobs:
       - name: Audit package
         run: npm run package:audit
 
+      - name: Vendor audit (src)
+        run: npm run audit:vendor
+
+      - name: Vendor audit (full repo)
+        run: npm run audit:vendor:all
+
       - name: Release guard
         run: npm run release:guard
 

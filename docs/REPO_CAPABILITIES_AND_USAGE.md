@@ -176,8 +176,8 @@ Komunikacja Panel → SW jest przez `chrome.runtime.sendMessage`. SW waliduje ka
 |------|---------|
 | **Co robi** | Aktywacja profili MFE (microfrontend) dodaje specyficzne heurystyki targetowania ramek i reguł audytu. Wbudowane: `helpcenter`, `chat` |
 | **Pliki** | `panel.js:208-256` (`BUILTIN_PROFILES`, `profileState`), `panel.js:3473-3520` (load/save/render) |
-| **helpcenter** | URL includes: `helpcenter-webclient`, `usehurrier.com`, `helpcenter`; DOM selectors: `#help-center-root`, `[data-testid='help-center-wrapper']`, itp. Sub-hints: `helpcenter-bot`, `helpcenter-tree` |
-| **chat** | DOM selectors: `[data-testid^='GST_CHAT__']`, `#GST_CHAT__FEED`, `[role='log']`. Sub-hints: `chat` |
+| **helpcenter** | DOM selectors: `[role='navigation'][aria-label]`, `main article`, `[role='main'] article`. Sub-hints: `helpcenter-bot`, `helpcenter-tree` |
+| **chat** | DOM selectors: `[role='log']`, `[role='feed']`, `textarea`. Sub-hints: `chat` |
 | **Custom profiles** | Obsługiwane przez `customProfiles` w storage |
 | **Profile pills** | Renderowane w sekcji Settings jako toggle checkboxy |
 
