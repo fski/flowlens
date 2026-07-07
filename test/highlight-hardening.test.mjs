@@ -1,9 +1,22 @@
 /**
  * Highlight hardening tests — concurrency guard, reason codes, frameIdUsed.
+ *
+ * v6 contract change: highlight resolution moved into the snippet
+ * (api.highlightTarget) and errors are now distinct (ELEMENT_GONE /
+ * FRAME_GONE / INJECT_FAILED instead of blanket FRAME_INACCESSIBLE).
+ * The new contract is pinned in highlight-reliability.test.mjs; this file
+ * keeps the panel-side hardening pins that still apply (concurrency guard,
+ * persist reason codes, empty-state helpers).
  */
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { createContext } from './harness.mjs';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const panelSrc = readFileSync(join(__dirname, '..', 'src', 'panel', 'panel.js'), 'utf8');
 
 describe('Highlight hardening', () => {
   let ctx;
@@ -20,6 +33,16 @@ describe('Highlight hardening', () => {
 
     it('highlightFinding exists as a function', () => {
       assert.equal(typeof ctx.highlightFinding, 'function');
+    });
+  });
+
+  describe('v6 contract migration', () => {
+    it('panel no longer synthesizes the legacy FRAME_INACCESSIBLE reason', () => {
+      const start = panelSrc.indexOf('async function _highlightFindingInner');
+      const body = panelSrc.slice(start, panelSrc.indexOf('async function highlightAllOfType', start));
+      assert.ok(!body.includes('FRAME_INACCESSIBLE'), 'transport failures map to FRAME_GONE now');
+      assert.ok(body.includes('buildHighlightSpec(finding)'), 'sends the highlight spec (path/pathHash/type/name/severity)');
+      assert.ok(body.includes('highlightToastMessage(res)'), 'honest reason → toast mapping');
     });
   });
 

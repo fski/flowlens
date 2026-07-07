@@ -18,6 +18,9 @@ const SW_JS = join(__dirname, '..', 'src', 'sw', 'sw.js');
 export function createSwContext(opts = {}) {
   const source = readFileSync(SW_JS, 'utf8');
 
+  // Captured listeners — lets tests drive the onMessage handler end-to-end.
+  const captured = { onMessage: null };
+
   const ctx = vmCreateContext({
     // JS builtins
     Object, Array, String, Number, Boolean, Symbol,
@@ -38,7 +41,7 @@ export function createSwContext(opts = {}) {
     chrome: {
       runtime: {
         id: 'test-extension-id',
-        onMessage: { addListener: () => {} },
+        onMessage: { addListener: (fn) => { captured.onMessage = fn; } },
         sendMessage: () => Promise.resolve(),
       },
       scripting: {
@@ -79,6 +82,11 @@ export function createSwContext(opts = {}) {
     this.__evaluateC4_2 = evaluateC4_2;
   `, { filename: 'sw-expose.js' });
   expose.runInContext(ctx);
+
+  // Handler access: dispatch a message and await sendResponse.
+  ctx.__captured = captured;
+  ctx.__dispatchMessage = (msg, sender = { id: 'test-extension-id' }) =>
+    new Promise((resolve) => { captured.onMessage(msg, sender, resolve); });
 
   return ctx;
 }

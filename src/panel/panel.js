@@ -4445,51 +4445,114 @@ async function highlightFinding(finding, highlightCtx) {
     _highlightInFlight = false;
   }
 }
-async function _highlightFindingInner(finding, highlightCtx) {
-  const payload = {
-    path: finding.path ?? null,
-    testId: finding.testId ?? null,
-    tag: finding.tag ?? null,
-    name: finding.name ?? null,
-    role: finding.role ?? null,
-    html: finding.html ?? null,
+/**
+ * Build the highlight spec the snippet's highlightTarget/highlightAll consume.
+ * pathHash: prefer what the finding carries (outline nodes carry `h`,
+ * step-diff findings may carry `pathHash`); otherwise compute fnv1aHash8 of
+ * the path panel-side so the snippet's re-scan fallback can verify candidates.
+ */
+function buildHighlightSpec(finding) {
+  const f = finding || {};
+  const str = (v) => (typeof v === "string" && v ? v : null);
+  const path = str(f.path);
+  return {
+    path,
+    pathDeep: str(f.pathDeep),
+    pathHash: str(f.pathHash) || str(f.h) || (path ? fnv1aHash8(path) : null),
+    type: str(f.type),
+    name: str(f.name),
+    severity: str(f.severity),
   };
+}
+
+/** Map a HIGHLIGHT/HIGHLIGHT_ALL response to an honest user-facing message (null when found). */
+function highlightToastMessage(res) {
+  if (res?.found) return null;
+  if (res?.error === "FRAME_GONE" || res?.error === "INJECT_FAILED") {
+    return "Cannot reach the page — reload and re-run";
+  }
+  if (res?.ok && res?.reason === "ELEMENT_GONE") {
+    return "Element is no longer on the page (it may have re-rendered)";
+  }
+  return "Could not highlight element";
+}
+
+async function _highlightFindingInner(finding, highlightCtx) {
+  const spec = buildHighlightSpec(finding);
   const bestFrameId = highlightCtx?.bestFrameId ?? state.bestFrameId ?? 0;
   const usedFrameIds = highlightCtx?.usedFrameIds ?? [];
 
   // Try best frame first
   let res;
   try {
-    res = await send({ type: "HIGHLIGHT", frameId: bestFrameId, finding: payload });
+    res = await send({ type: "HIGHLIGHT", frameId: bestFrameId, finding: spec });
   } catch {
-    res = { ok: false, found: false, strategy: "none", reason: "FRAME_INACCESSIBLE", frameIdUsed: bestFrameId };
+    res = { ok: false, error: "FRAME_GONE", frameIdUsed: bestFrameId };
   }
 
-  // Retry across other used frames if not found
-  if (res?.found === false && usedFrameIds.length > 0) {
+  // Retry across other used frames if not found there
+  if (res?.found !== true && usedFrameIds.length > 0) {
     const retryIds = usedFrameIds.filter(id => id !== bestFrameId).slice(0, 3);
     for (const fid of retryIds) {
       try {
-        const retry = await send({ type: "HIGHLIGHT", frameId: fid, finding: payload });
+        const retry = await send({ type: "HIGHLIGHT", frameId: fid, finding: spec });
         if (retry?.found) { res = retry; break; }
       } catch { /* skip inaccessible frame */ }
     }
   }
 
-  // Show toast with strategy + frameIdUsed info
-  const frameUsed = res?.frameIdUsed != null ? ` in frame ${res.frameIdUsed}` : "";
   if (res?.found) {
-    const via = res.strategy && res.strategy !== "none" ? ` via ${res.strategy.toUpperCase()}` : "";
-    const tag = res.matched?.tag ? `: <${res.matched.tag}>` : "";
-    toast(`Highlighted${via}${tag}${frameUsed}`);
+    const tag = res.matched?.tag ? ` <${res.matched.tag}>` : "";
+    const recovered = res.resolution && res.resolution !== "path" && res.resolution !== "deepPath"
+      ? " (recovered after re-render)" : "";
+    toast(`Highlighted${tag}${recovered}`);
   } else {
-    const reason = res?.reason === "FRAME_INACCESSIBLE" ? "frame inaccessible" : "element not found";
-    toast(`Not found (${reason})`, {
+    toast(highlightToastMessage(res), {
       label: usedFrameIds.length > 1 ? "Try other frames" : undefined,
       fn: usedFrameIds.length > 1 ? () => highlightFinding(finding, { bestFrameId: usedFrameIds[1], usedFrameIds }) : undefined,
     });
   }
   return res;
+}
+
+/** Highlight every current finding of one rule type (cap 50) via HIGHLIGHT_ALL. */
+async function highlightAllOfType(type) {
+  const all = Array.isArray(state.explorer) ? state.explorer : [];
+  const matches = all.filter(f => f && f.type === type && (f.path || f.pathDeep)).slice(0, 50);
+  if (!matches.length) {
+    toast("No findings of this type can be highlighted");
+    return null;
+  }
+  const specs = matches.map(buildHighlightSpec);
+  const ctx = state._activeHighlightCtx || {};
+  const frameId = ctx.bestFrameId ?? state.bestFrameId ?? 0;
+  let res;
+  try {
+    res = await send({ type: "HIGHLIGHT_ALL", frameId, specs });
+  } catch {
+    res = { ok: false, error: "FRAME_GONE", frameIdUsed: frameId };
+  }
+  if (res?.found) {
+    toast(res.missing ? `Highlighted ${res.rendered} of ${res.requested} findings` : `Highlighted ${res.rendered} findings`);
+  } else {
+    toast(highlightToastMessage(res));
+  }
+  return res;
+}
+
+/** Remove highlight rings from the inspected page (best frame + used frames). */
+async function clearPageHighlight() {
+  const ctx = state._activeHighlightCtx || {};
+  const frameIds = [...new Set([ctx.bestFrameId ?? state.bestFrameId ?? 0, ...(ctx.usedFrameIds || [])])].slice(0, 4);
+  let cleared = false;
+  for (const fid of frameIds) {
+    try {
+      const r = await send({ type: "CLEAR_HIGHLIGHT", frameId: fid });
+      if (r?.ok) cleared = true;
+    } catch { /* frame gone — nothing left to clear there */ }
+  }
+  toast(cleared ? "Highlight cleared" : "Cannot reach the page — reload and re-run");
+  return cleared;
 }
 
 // History snapshots are best-effort telemetry. chrome.storage.local can reject
@@ -6299,6 +6362,14 @@ document.addEventListener("click", (e) => {
   toast("Copied");
 }, true);
 
+// --- Clear highlight (delegated: one button per results toolbar) ---
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".clearHighlightBtn");
+  if (!btn) return;
+  e.stopPropagation();
+  clearPageHighlight().catch(err => console.warn("clearPageHighlight failed", err));
+});
+
 // Keyboard navigation for table rows (Enter/Space to activate)
 document.addEventListener("keydown", (e) => {
   if (e.target && e.target.closest("button, a, input, select, textarea")) return;
@@ -6331,13 +6402,24 @@ function buildDetailRow(finding, colCount) {
     .map(([k, v, mono]) =>
       `<span class="detailLabel">${escapeHtml(k)}</span><span class="detailValue${mono ? ' detailMono' : ''}">${v}</span>`
     ).join('');
-  return `<tr class="detailRow" style="--row-sev:var(--sev-${escapeHtml(sev)})"><td colspan="${colCount}"><div class="detailInner">${html}<div class="detailActions"><button class="btn xs detailCopy" type="button">Copy</button></div></div></td></tr>`;
+  const highlightAllBtn = finding.type && !isCrossFrame
+    ? `<button class="btn xs detailHighlightAll" type="button" data-type="${escapeHtml(finding.type)}" title="Highlight every current finding of this rule on the page (max 50)">Highlight all of this type</button>`
+    : '';
+  return `<tr class="detailRow" style="--row-sev:var(--sev-${escapeHtml(sev)})"><td colspan="${colCount}"><div class="detailInner">${html}<div class="detailActions">${highlightAllBtn}<button class="btn xs detailCopy" type="button">Copy</button></div></div></td></tr>`;
 }
 
 if (els.allTableBody && !els.allTableBody.__bound) {
   els.allTableBody.__bound = true;
   els.allTableBody.addEventListener("click", async (e) => {
     try {
+      // "Highlight all of this type" button inside detail row
+      const hlAllBtn = e.target.closest(".detailHighlightAll");
+      if (hlAllBtn) {
+        e.stopPropagation();
+        await highlightAllOfType(hlAllBtn.dataset.type || "");
+        return;
+      }
+
       // Copy button inside detail row
       if (e.target.closest(".detailCopy")) {
         const idx = VT.all ? VT.all.expandedIdx : null;

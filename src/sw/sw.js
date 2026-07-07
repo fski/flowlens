@@ -21,7 +21,7 @@ const TAB_BLOCKING_EVENT_TYPES = new Set([
   "focus_on_body",
   "focus_failed",
 ]);
-const MESSAGE_TYPES = new Set(["LIST_FRAMES", "HIGHLIGHT", "RUN_AUDIT", "CAPTURE_STEP", "SHOW_TAB_PATH", "APPLY_ASSIST", "GET_PAGE_STRUCTURE", "GET_A11Y_OUTLINE", "GET_GUIDED_CANDIDATES", "SHOW_STRUCTURE"]);
+const MESSAGE_TYPES = new Set(["LIST_FRAMES", "HIGHLIGHT", "HIGHLIGHT_ALL", "CLEAR_HIGHLIGHT", "RUN_AUDIT", "CAPTURE_STEP", "SHOW_TAB_PATH", "APPLY_ASSIST", "GET_PAGE_STRUCTURE", "GET_A11Y_OUTLINE", "GET_GUIDED_CANDIDATES", "SHOW_STRUCTURE"]);
 const MAX_TAB_PATH_EVENTS = 400;
 // Assist toolbox kinds ("clear" removes the active assist mode).
 // Mirrors ASSIST_KINDS in src/snippet/a11y-audit-snippet.js.
@@ -34,6 +34,9 @@ const STRUCTURE_KINDS = new Set(["headings", "landmarks", "clear"]);
 const GUIDED_KINDS = new Set(["images", "controls"]);
 const AUDIT_ACTIONS = new Set(["run", "observe", "watch", "tabWalk", "contrast"]);
 const WCAG_LEVELS = new Set(["2.1-AA", "2.1-AAA", "2.2-AA", "2.2-AAA"]);
+// Highlight spec limits — mirrors MAX_HIGHLIGHT_SPECS in src/snippet/a11y-audit-snippet.js.
+const MAX_HIGHLIGHT_SPECS = 50;
+const HIGHLIGHT_SPEC_FIELD_CAPS = { path: 2048, pathDeep: 2048, pathHash: 16, type: 128, name: 512, severity: 32 };
 
 function isPlainObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -49,19 +52,54 @@ function isStringArray(value, maxItems = 100, maxLen = 256) {
   return value.every(v => typeof v === "string" && v.length <= maxLen);
 }
 
+// Highlight spec: optional string fields with strict length caps.
+function isValidHighlightSpec(s) {
+  if (!isPlainObject(s)) return false;
+  for (const [field, cap] of Object.entries(HIGHLIGHT_SPEC_FIELD_CAPS)) {
+    const v = s[field];
+    if (v != null && (typeof v !== "string" || v.length > cap)) return false;
+  }
+  return true;
+}
+
+// Truncate + normalize a panel-supplied highlight spec before it crosses into
+// the page world. Only these six string fields ever cross the boundary.
+function sanitizeHighlightSpec(finding) {
+  const f = isPlainObject(finding) ? finding : {};
+  const str = (v, n) => (typeof v === "string" && v ? v.slice(0, n) : null);
+  return {
+    path: str(f.path, 1024),
+    pathDeep: str(f.pathDeep, 1024),
+    pathHash: str(f.pathHash, 16),
+    type: str(f.type, 64),
+    name: str(f.name, 200),
+    severity: str(f.severity, 16),
+  };
+}
+
 function validateIncomingMessage(msg, sender) {
   if (sender?.id !== chrome.runtime.id) return { ok: false, error: "UNAUTHORIZED_SENDER" };
   if (!isPlainObject(msg)) return { ok: false, error: "BAD_MESSAGE_SCHEMA" };
   if (!MESSAGE_TYPES.has(msg.type)) return { ok: false, error: "UNKNOWN_MESSAGE" };
 
-  if ((msg.type === "LIST_FRAMES" || msg.type === "RUN_AUDIT" || msg.type === "CAPTURE_STEP" || msg.type === "HIGHLIGHT" || msg.type === "SHOW_TAB_PATH" || msg.type === "APPLY_ASSIST" || msg.type === "GET_PAGE_STRUCTURE" || msg.type === "GET_A11Y_OUTLINE" || msg.type === "GET_GUIDED_CANDIDATES" || msg.type === "SHOW_STRUCTURE")
+  if ((msg.type === "LIST_FRAMES" || msg.type === "RUN_AUDIT" || msg.type === "CAPTURE_STEP" || msg.type === "HIGHLIGHT" || msg.type === "HIGHLIGHT_ALL" || msg.type === "CLEAR_HIGHLIGHT" || msg.type === "SHOW_TAB_PATH" || msg.type === "APPLY_ASSIST" || msg.type === "GET_PAGE_STRUCTURE" || msg.type === "GET_A11Y_OUTLINE" || msg.type === "GET_GUIDED_CANDIDATES" || msg.type === "SHOW_STRUCTURE")
       && !isNonNegativeInt(msg.tabId)) {
     return { ok: false, error: "BAD_TAB_ID" };
   }
 
   if (msg.type === "HIGHLIGHT") {
     if (!isNonNegativeInt(msg.frameId)) return { ok: false, error: "BAD_FRAME_ID" };
-    if (msg.finding != null && !isPlainObject(msg.finding)) return { ok: false, error: "BAD_FINDING" };
+    if (msg.finding != null && !isValidHighlightSpec(msg.finding)) return { ok: false, error: "BAD_FINDING" };
+  }
+
+  if (msg.type === "HIGHLIGHT_ALL") {
+    if (!isNonNegativeInt(msg.frameId)) return { ok: false, error: "BAD_FRAME_ID" };
+    if (!Array.isArray(msg.specs) || msg.specs.length > MAX_HIGHLIGHT_SPECS) return { ok: false, error: "BAD_SPECS" };
+    if (!msg.specs.every(isValidHighlightSpec)) return { ok: false, error: "BAD_SPECS" };
+  }
+
+  if (msg.type === "CLEAR_HIGHLIGHT") {
+    if (!isNonNegativeInt(msg.frameId)) return { ok: false, error: "BAD_FRAME_ID" };
   }
 
   if (msg.type === "SHOW_TAB_PATH") {
@@ -888,209 +926,75 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
-    if (msg.type === "HIGHLIGHT") {
+    if (msg.type === "HIGHLIGHT" || msg.type === "HIGHLIGHT_ALL") {
       const tabId = Number(msg.tabId);
       const frameId = Number(msg.frameId);
-      const finding = isPlainObject(msg.finding) ? msg.finding : {};
-      let results;
+      const isAll = msg.type === "HIGHLIGHT_ALL";
+      const payload = isAll
+        ? (Array.isArray(msg.specs) ? msg.specs : []).slice(0, MAX_HIGHLIGHT_SPECS).map(sanitizeHighlightSpec)
+        : sanitizeHighlightSpec(msg.finding);
+
+      // Always (re)inject the snippet stack first — idempotent, same as
+      // GET_PAGE_STRUCTURE — so highlight works after reload/navigation
+      // without a prior audit.
       try {
-      results = await chrome.scripting.executeScript({
-        target: { tabId, frameIds: [frameId] },
-        world: "MAIN",
-        func: (finding) => {
-          const HL_ATTR = "data-a11yflow-highlight";
-          const STYLE_ID = "a11yflow-highlight-style";
-          const HL_NS = "__a11yflow_hl";
-
-          // Cancel previous highlight timeout (prevents premature removal on re-highlight)
-          if (window[HL_NS]?.tid) clearTimeout(window[HL_NS].tid);
-          if (!window[HL_NS]) window[HL_NS] = {};
-
-          // Remove previous highlight from any element
-          document.querySelectorAll(`[${HL_ATTR}]`).forEach(el => {
-            el.removeAttribute(HL_ATTR);
-          });
-
-          // Always re-inject style (survives page JS removing or mutating it)
-          try { document.getElementById(STYLE_ID)?.remove(); } catch {}
-          const style = document.createElement("style");
-          style.id = STYLE_ID;
-          style.textContent = `
-            @keyframes a11yflow-flash {
-              0%   { outline-width: 6px; outline-color: #ff0080;
-                     box-shadow: inset 0 0 0 3px rgba(255,0,128,0.3), 0 0 0 8px rgba(255,0,128,0.7), 0 0 28px 14px rgba(255,0,128,0.4); }
-              100% { outline-width: 4px; outline-color: #ff2d95;
-                     box-shadow: inset 0 0 0 2px rgba(255,45,149,0.2), 0 0 0 5px rgba(255,45,149,0.55), 0 0 12px 8px rgba(255,45,149,0.2); }
-            }
-            @keyframes a11yflow-pulse {
-              0%, 100% { outline-color: #ff2d95;
-                         box-shadow: inset 0 0 0 2px rgba(255,45,149,0.2), 0 0 0 5px rgba(255,45,149,0.55), 0 0 12px 8px rgba(255,45,149,0.2); }
-              50%      { outline-color: #ff79c6;
-                         box-shadow: inset 0 0 0 2px rgba(255,121,198,0.12), 0 0 0 3px rgba(255,121,198,0.35), 0 0 6px 4px rgba(255,121,198,0.1); }
-            }
-            [${HL_ATTR}] {
-              outline: 4px solid #ff2d95 !important;
-              outline-offset: 3px !important;
-              box-shadow: inset 0 0 0 2px rgba(255,45,149,0.2), 0 0 0 5px rgba(255,45,149,0.55), 0 0 12px 8px rgba(255,45,149,0.2) !important;
-              animation: a11yflow-flash 0.4s ease-out, a11yflow-pulse 1.2s ease-in-out 0.4s 4 !important;
-            }
-          `;
-          (document.head || document.documentElement).appendChild(style);
-
-          const norm = (s) => (s || "").replace(/\s+/g, " ").trim().toLowerCase();
-
-          // Traverse shadow DOM roots looking for a match (depth-limited)
-          const queryDeep = (selector) => {
-            const el = document.querySelector(selector);
-            if (el) return el;
-            const walk = (root, depth) => {
-              if (depth > 5) return null;
-              for (const node of root.querySelectorAll("*")) {
-                if (node.shadowRoot) {
-                  try {
-                    const hit = node.shadowRoot.querySelector(selector);
-                    if (hit) return hit;
-                    const deeper = walk(node.shadowRoot, depth + 1);
-                    if (deeper) return deeper;
-                  } catch {}
-                }
-              }
-              return null;
-            };
-            return walk(document, 0);
-          };
-
-          const pick = () => {
-            // 1st: CSS path — most specific, unique selector from audit time
-            try {
-              if (finding?.path) {
-                const el = queryDeep(finding.path);
-                if (el) return { el, strategy: "path" };
-              }
-            } catch {}
-
-            // 2nd: testId — if the found element's tag doesn't match, narrow to descendant
-            try {
-              if (finding?.testId) {
-                const sel = `[data-testid="${CSS.escape(finding.testId)}"]`;
-                const container = queryDeep(sel);
-                if (container) {
-                  const tag = (finding.tag || "").toLowerCase();
-                  if (!tag || container.tagName.toLowerCase() === tag) return { el: container, strategy: "testId" };
-                  // testId was inherited from ancestor — find the right child
-                  const child = container.querySelector(tag);
-                  if (child) return { el: child, strategy: "testId" };
-                  return { el: container, strategy: "testId" }; // fallback to container
-                }
-              }
-            } catch {}
-
-            // 3rd: tag + role + accessible name (text, aria-label, title)
-            try {
-              const tag = (finding?.tag || "").toLowerCase();
-              const nameNorm = norm(finding?.name).slice(0, 80);
-              if (tag) {
-                const candidates = document.querySelectorAll(tag);
-                const role = finding.role || null;
-                for (const c of candidates) {
-                  if (role && c.getAttribute("role") !== role) continue;
-                  // Check multiple name sources
-                  const texts = [
-                    norm(c.getAttribute("aria-label")),
-                    norm(c.getAttribute("title")),
-                    norm(c.getAttribute("alt")),
-                    norm(c.getAttribute("placeholder")),
-                    norm(c.textContent),
-                  ];
-                  if (nameNorm) {
-                    for (const t of texts) {
-                      if (t && t.slice(0, 80).includes(nameNorm)) return { el: c, strategy: "heuristic" };
-                    }
-                  }
-                }
-                // Relax: try without role constraint
-                if (role && nameNorm) {
-                  for (const c of candidates) {
-                    const cText = norm(c.textContent).slice(0, 80);
-                    if (cText && cText.includes(nameNorm)) return { el: c, strategy: "heuristic" };
-                  }
-                }
-              }
-            } catch {}
-
-            // 4th: last resort — match by HTML snippet
-            try {
-              if (finding?.html && finding?.tag) {
-                const tag = finding.tag.toLowerCase();
-                const htmlNorm = norm(finding.html).slice(0, 120);
-                for (const c of document.querySelectorAll(tag)) {
-                  if (norm(c.outerHTML).slice(0, 120).includes(htmlNorm)) return { el: c, strategy: "html" };
-                }
-              }
-            } catch {}
-
-            return null;
-          };
-
-          const result = pick();
-          if (!result) {
-            console.warn("[A11YFlow] Could not locate element to highlight.", finding);
-            return { found: false, strategy: "none", reason: "NO_MATCH" };
-          }
-
-          let el = result.el;
-          const strategy = result.strategy;
-
-          // If element is zero-size or invisible, try its parent
-          try {
-            const rect = el.getBoundingClientRect();
-            if (rect.width < 2 && rect.height < 2 && el.parentElement && el.parentElement !== document.body) {
-              el = el.parentElement;
-            }
-          } catch {}
-
-          // Scroll into view only if outside viewport (minimize side effects)
-          try {
-            const rect = el.getBoundingClientRect();
-            const inViewport = rect.top >= 0 && rect.left >= 0 &&
-              rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
-              rect.right <= (window.innerWidth || document.documentElement.clientWidth);
-            if (!inViewport) {
-              el.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
-            }
-          } catch {}
-
-          // Collect matched element info
-          const matched = {
-            tag: (el.tagName || "").toLowerCase(),
-            role: el.getAttribute("role") || undefined,
-            labelSnippet: (el.getAttribute("aria-label") || el.textContent || "").slice(0, 40) || undefined,
-          };
-
-          // Apply highlight directly to the element (no overlay div)
-          // This survives z-index wars, stacking contexts, and tracks with scroll
-          requestAnimationFrame(() => {
-            el.setAttribute(HL_ATTR, "1");
-
-            // Remove highlight after animation completes (flash 0.4s + pulse 1.2s × 4)
-            window[HL_NS].tid = setTimeout(() => {
-              el.removeAttribute(HL_ATTR);
-              window[HL_NS].tid = null;
-            }, 6000);
-          });
-
-          return { found: true, strategy, matched };
-        },
-        args: [finding]
-      });
-      } catch (execErr) {
-        sendResponse({ ok: true, found: false, strategy: "none", reason: "FRAME_INACCESSIBLE", frameIdUsed: frameId });
+        await chrome.scripting.executeScript({
+          target: { tabId, frameIds: [frameId] },
+          files: [ACCNAME_FILE, ARIA_DATA_FILE, SNIPPET_FILE],
+          world: "MAIN",
+        });
+      } catch (e) {
+        sendResponse({ ok: false, error: "INJECT_FAILED", frameIdUsed: frameId });
         return;
       }
-      const r = results?.[0]?.result || { found: false, strategy: "none", reason: "NO_MATCH" };
-      r.frameIdUsed = frameId;
-      if (r.found === undefined) r.found = false;
-      sendResponse({ ok: true, ...r });
+
+      let results;
+      try {
+        results = await chrome.scripting.executeScript({
+          target: { tabId, frameIds: [frameId] },
+          world: "MAIN",
+          func: (payload, isAll) => {
+            const api = window.A11YFlowAudit;
+            const fn = isAll ? api?.highlightAll : api?.highlightTarget;
+            if (typeof fn !== "function") return { ok: false, error: "INJECT_FAILED" };
+            try { return fn(payload); } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+          },
+          args: [payload, isAll],
+        });
+      } catch (e) {
+        sendResponse({ ok: false, error: "FRAME_GONE", frameIdUsed: frameId });
+        return;
+      }
+      const r = results?.[0]?.result || { ok: false, error: "NO_RESULT" };
+      sendResponse({ ...r, frameIdUsed: frameId });
+      return;
+    }
+
+    if (msg.type === "CLEAR_HIGHLIGHT") {
+      const tabId = Number(msg.tabId);
+      const frameId = Number(msg.frameId);
+      // No injection for clear: direct removal also covers pages where the
+      // snippet is gone (e.g. after reload) — same pattern as SHOW_TAB_PATH clear.
+      let results;
+      try {
+        results = await chrome.scripting.executeScript({
+          target: { tabId, frameIds: [frameId] },
+          world: "MAIN",
+          func: () => {
+            const api = window.A11YFlowAudit;
+            if (api && typeof api.clearHighlight === "function") {
+              try { return api.clearHighlight(); } catch {}
+            }
+            try { document.getElementById("__flowlens_highlight__")?.remove(); } catch {}
+            try { document.getElementById("__flowlens_highlight_style__")?.remove(); } catch {}
+            return { ok: true, cleared: true };
+          },
+        });
+      } catch {
+        sendResponse({ ok: false, error: "FRAME_GONE", frameIdUsed: frameId });
+        return;
+      }
+      sendResponse({ ...(results?.[0]?.result || { ok: false, error: "NO_RESULT" }), frameIdUsed: frameId });
       return;
     }
 

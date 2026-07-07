@@ -128,6 +128,22 @@
     "main,nav,header,footer,aside,form,section,search," +
     "[role='main'],[role='navigation'],[role='banner'],[role='contentinfo']," +
     "[role='complementary'],[role='region'],[role='form'],[role='search']";
+  // Element highlight overlay — persistent ring + label chip drawn by
+  // highlightTarget()/highlightAll(), removed by clearHighlight().
+  // State lives on window (not closure) so a re-injected snippet can still
+  // detach the previous instance's scroll/resize listeners.
+  const HIGHLIGHT_CONTAINER_ID = "__flowlens_highlight__";
+  const HIGHLIGHT_STYLE_ID = "__flowlens_highlight_style__";
+  const HIGHLIGHT_STATE_KEY = "__flowlens_hl_state__";
+  const MAX_HIGHLIGHT_SPECS = 50;
+  // Safety auto-clear: highlights persist until clearHighlight()/next highlight,
+  // but never longer than this (protects the page from forgotten overlays).
+  const HIGHLIGHT_AUTO_CLEAR_MS = 30000;
+  const HIGHLIGHT_ACCENT = "#ff2d95";
+  const HIGHLIGHT_SEV_COLORS = {
+    critical: "#DB5A5A", high: "#D4864E", medium: "#C4A855",
+    low: "#5AB89A", info: "#7A8EA6",
+  };
 
   // ---------------- utils ----------------
   const isEl = (x) => x && x.nodeType === 1;
@@ -2431,6 +2447,316 @@
 
     const skipped = requested - rendered;
     return { ok: true, requested, rendered, skipped, skippedReasons };
+  };
+
+  // ---------------- Element highlight (persistent ring overlay) ----------------
+  //
+  // Resolution ladder (most exact first):
+  //   (a)  document.querySelector(spec.path) — audit-time selector, verified
+  //        against spec.name when provided.
+  //   (a2) cross-shadow deep path ("host >>> inner", cssPathDeep format).
+  //   (b)  shadow-DOM-aware walk — spec.path is scoped to its shadow root at
+  //        audit time, so querySelector it inside every open shadow root
+  //        (same traversal as the audit: collectScopesWithCoverage).
+  //   (c)  candidate re-scan — query all elements matching the LAST path
+  //        segment (tag/class tail, :nth-of-type stripped) across all scopes,
+  //        then match on fnv1aHash8(cssPath(el)) === spec.pathHash (exact),
+  //        else on the nth-stripped path + accessible name (structural),
+  //        else on a unique tail/name match.
+  //   (d)  not found → { found:false, reason:"ELEMENT_GONE" }.
+
+  const sanitizeHighlightSpec = (raw) => {
+    const s = raw && typeof raw === "object" ? raw : {};
+    const str = (v, n) => (typeof v === "string" && v ? v.slice(0, n) : null);
+    return {
+      path: str(s.path, 1024),
+      pathDeep: str(s.pathDeep, 1024),
+      pathHash: str(s.pathHash, 16),
+      type: str(s.type, 64),
+      name: str(s.name, 200),
+      severity: str(s.severity, 16),
+    };
+  };
+
+  const isDeepPath = (p) => typeof p === "string" && p.includes(">>>");
+  const stripNth = (s) => String(s || "").replace(/:nth-of-type\(\d+\)/g, "");
+
+  /** Walk a cssPathDeep-format path ("a > b >>> c > d") across open shadow roots. */
+  const queryShadowPath = (deepPath) => {
+    const parts = String(deepPath || "").split(/\s*>>>\s*/).map(p => p.trim()).filter(Boolean);
+    if (!parts.length) return null;
+    let root = doc;
+    let el = null;
+    for (let i = 0; i < parts.length; i++) {
+      try { el = root.querySelector(parts[i]); } catch { return null; }
+      if (!el) return null;
+      if (i < parts.length - 1) {
+        root = el.shadowRoot;
+        if (!root) return null;
+      }
+    }
+    return el;
+  };
+
+  /** Loose accessible-name check — used to verify/disambiguate candidates. */
+  const highlightNameMatches = (el, name) => {
+    if (!name) return true;
+    const want = txt(name, 120).toLowerCase();
+    if (!want) return true;
+    let got = "";
+    try { got = txt(getAccName(el) || el.textContent || "", 120).toLowerCase(); } catch {}
+    return !!got && (got === want || got.includes(want) || want.includes(got));
+  };
+
+  /**
+   * Resolve a highlight spec to a live element via the resolution ladder.
+   * `scopes` may be passed in (highlightAll) to avoid re-traversing per spec.
+   * Returns { el, resolution } or null (→ ELEMENT_GONE).
+   */
+  const resolveHighlightTarget = (spec, scopes = null) => {
+    let approximate = null; // best name-unverified match, used as last resort
+    const remember = (el, resolution) => { if (el && !approximate) approximate = { el, resolution }; };
+
+    // (a) direct querySelector on the document
+    if (spec.path && !isDeepPath(spec.path)) {
+      try {
+        const el = doc.querySelector(spec.path);
+        if (el) {
+          if (highlightNameMatches(el, spec.name)) return { el, resolution: "path" };
+          remember(el, "path");
+        }
+      } catch {}
+    }
+
+    // (a2) snippet cross-shadow path format (">>>" boundaries)
+    for (const p of [spec.pathDeep, spec.path]) {
+      if (isDeepPath(p)) {
+        const el = queryShadowPath(p);
+        if (el) {
+          if (highlightNameMatches(el, spec.name)) return { el, resolution: "deepPath" };
+          remember(el, "deepPath");
+        }
+      }
+    }
+
+    // (b) shadow-DOM-aware walk — audit cssPath is relative to its shadow root
+    const allScopes = scopes || collectScopesWithCoverage(doc.documentElement).scopes;
+    if (spec.path && !isDeepPath(spec.path)) {
+      for (let i = 1; i < allScopes.length; i++) {
+        try {
+          const el = allScopes[i].root.querySelector(spec.path);
+          if (el) {
+            if (highlightNameMatches(el, spec.name)) return { el, resolution: "shadowPath" };
+            remember(el, "shadowPath");
+          }
+        } catch {}
+      }
+    }
+
+    // (c) re-scan candidates matching the tail segment, verify by pathHash/structure/name
+    const lastSeg = (() => {
+      if (!spec.path) return null;
+      const local = String(spec.path).split(">>>").pop();
+      const segs = local.split(">").map(s => s.trim()).filter(Boolean);
+      return segs.length ? segs[segs.length - 1] : null;
+    })();
+    if (lastSeg) {
+      const tail = stripNth(lastSeg) || lastSeg;
+      const wantHash = spec.pathHash || steFnv1aHash8(spec.path);
+      const wantLoose = stripNth(spec.path);
+      const structural = [];
+      const tailMatches = [];
+      for (const { root } of allScopes) {
+        let els = [];
+        try { els = [...root.querySelectorAll(tail)]; } catch {}
+        for (const el of els.slice(0, MAX_TAG_CANDIDATES)) {
+          let p = "";
+          try { p = cssPath(el); } catch {}
+          if (p && (p === spec.path || steFnv1aHash8(p) === wantHash)) {
+            return { el, resolution: "pathHash" };
+          }
+          if (p && stripNth(p) === wantLoose) structural.push(el);
+          tailMatches.push(el);
+        }
+      }
+      if (spec.name) {
+        for (const el of structural) {
+          if (highlightNameMatches(el, spec.name)) return { el, resolution: "structural" };
+        }
+      }
+      if (structural.length === 1) return { el: structural[0], resolution: "structural" };
+      if (spec.name) {
+        for (const el of tailMatches) {
+          if (highlightNameMatches(el, spec.name)) return { el, resolution: "tail" };
+        }
+      }
+      if (tailMatches.length === 1) return { el: tailMatches[0], resolution: "tail" };
+      if (structural.length) return { el: structural[0], resolution: "structural" };
+    }
+
+    // (d) approximate (name-unverified) match beats nothing at all
+    return approximate;
+  };
+
+  /**
+   * Remove the highlight overlay: ring container, keyframes style, and the
+   * scroll/resize listener pair. Also removes pre-v6 attribute-based highlight
+   * leftovers. Safe to call repeatedly; works even after snippet re-injection
+   * (listener refs are kept on window, not in this closure).
+   */
+  const clearHighlight = () => {
+    const st = w[HIGHLIGHT_STATE_KEY];
+    if (st) {
+      try { w.removeEventListener("scroll", st.onMove, true); } catch {}
+      try { w.removeEventListener("resize", st.onMove, true); } catch {}
+      if (st.timer) { try { clearTimeout(st.timer); } catch {} }
+      try { delete w[HIGHLIGHT_STATE_KEY]; } catch { w[HIGHLIGHT_STATE_KEY] = null; }
+    }
+    try { doc.getElementById(HIGHLIGHT_CONTAINER_ID)?.remove(); } catch {}
+    try { doc.getElementById(HIGHLIGHT_STYLE_ID)?.remove(); } catch {}
+    // Legacy (pre-v6) highlight cleanup: injected style + element attribute
+    try { doc.getElementById("a11yflow-highlight-style")?.remove(); } catch {}
+    try {
+      doc.querySelectorAll("[data-a11yflow-highlight]").forEach(el => el.removeAttribute("data-a11yflow-highlight"));
+    } catch {}
+    return { ok: true, cleared: true };
+  };
+
+  /**
+   * Draw fixed-position rings (with a small label chip) over resolved targets.
+   * Rings track getBoundingClientRect on scroll/resize via a single
+   * rAF-throttled listener pair that clearHighlight() detaches.
+   */
+  const renderHighlightRings = (targets) => {
+    clearHighlight();
+
+    const style = doc.createElement("style");
+    style.id = HIGHLIGHT_STYLE_ID;
+    style.textContent =
+      "@keyframes __flowlens_hl_pulse {" +
+      " 0%,100% { box-shadow: 0 0 0 4px rgba(255,45,149,0.45), 0 0 14px 6px rgba(255,45,149,0.22); }" +
+      " 50% { box-shadow: 0 0 0 3px rgba(255,45,149,0.22), 0 0 6px 3px rgba(255,45,149,0.10); } }";
+    (doc.head || doc.documentElement).appendChild(style);
+
+    const container = doc.createElement("div");
+    container.id = HIGHLIGHT_CONTAINER_ID;
+    container.setAttribute("aria-hidden", "true");
+    container.style.cssText = "position:fixed;top:0;left:0;width:0;height:0;overflow:visible;z-index:2147483647;pointer-events:none;";
+
+    const multi = targets.length > 1;
+    const entries = [];
+    for (const t of targets) {
+      const color = multi
+        ? (HIGHLIGHT_SEV_COLORS[t.spec?.severity] || HIGHLIGHT_SEV_COLORS.info)
+        : HIGHLIGHT_ACCENT;
+      const ring = doc.createElement("div");
+      ring.className = ANNOTATION_CLASS;
+      ring.style.cssText =
+        `position:fixed;border:3px solid ${color};border-radius:4px;pointer-events:none;` +
+        "box-sizing:border-box;animation:__flowlens_hl_pulse 1.4s ease-in-out infinite;";
+      const chipText = [t.spec?.type, t.spec?.severity].filter(Boolean).join(" · ");
+      if (chipText) {
+        const chip = doc.createElement("span");
+        chip.style.cssText =
+          `position:absolute;top:-22px;left:-3px;background:${color};color:#fff;` +
+          "font:bold 11px/16px system-ui;padding:1px 6px;border-radius:3px;white-space:nowrap;" +
+          "max-width:240px;overflow:hidden;text-overflow:ellipsis;pointer-events:none;";
+        chip.textContent = chipText; // page/panel strings only via textContent
+        ring.appendChild(chip);
+      }
+      container.appendChild(ring);
+      entries.push({ el: t.el, ring });
+    }
+    (doc.body || doc.documentElement).appendChild(container);
+
+    const reposition = () => {
+      for (const { el, ring } of entries) {
+        if (!el.isConnected) { ring.style.display = "none"; continue; }
+        let r;
+        try { r = el.getBoundingClientRect(); } catch { continue; }
+        ring.style.display = "";
+        ring.style.top = (r.top - 4).toFixed(1) + "px";
+        ring.style.left = (r.left - 4).toFixed(1) + "px";
+        ring.style.width = Math.max(r.width + 8, 12).toFixed(1) + "px";
+        ring.style.height = Math.max(r.height + 8, 12).toFixed(1) + "px";
+      }
+    };
+    reposition();
+
+    let rafId = 0;
+    const onMove = () => {
+      if (rafId) return;
+      rafId = w.requestAnimationFrame(() => { rafId = 0; try { reposition(); } catch {} });
+    };
+    w.addEventListener("scroll", onMove, true);
+    w.addEventListener("resize", onMove, true);
+    const timer = setTimeout(() => { try { clearHighlight(); } catch {} }, HIGHLIGHT_AUTO_CLEAR_MS);
+    w[HIGHLIGHT_STATE_KEY] = { onMove, timer };
+  };
+
+  /**
+   * Highlight one finding on the page. spec = { path, pathDeep, pathHash,
+   * type, name, severity } (all optional strings; path or pathDeep required).
+   * Returns { ok:true, found:true, resolution, matched } or
+   * { ok:true, found:false, reason:"ELEMENT_GONE" }.
+   */
+  const highlightTarget = (rawSpec) => {
+    const spec = sanitizeHighlightSpec(rawSpec);
+    if (!spec.path && !spec.pathDeep) {
+      return { ok: true, found: false, reason: "ELEMENT_GONE" };
+    }
+    const hit = resolveHighlightTarget(spec);
+    if (!hit || !isEl(hit.el)) {
+      clearHighlight();
+      return { ok: true, found: false, reason: "ELEMENT_GONE" };
+    }
+    let el = hit.el;
+    // Zero-size targets (e.g. sr-only) — ring the parent so something is visible
+    try {
+      const r = el.getBoundingClientRect();
+      if (r.width < 2 && r.height < 2 && el.parentElement && el.parentElement !== doc.body) {
+        el = el.parentElement;
+      }
+    } catch {}
+    try { el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" }); } catch {}
+    renderHighlightRings([{ el, spec }]);
+    const matched = {
+      tag: (el.tagName || "").toLowerCase(),
+      role: el.getAttribute?.("role") || undefined,
+      labelSnippet: txt(el.getAttribute?.("aria-label") || el.textContent || "", 40) || undefined,
+    };
+    return { ok: true, found: true, resolution: hit.resolution, matched };
+  };
+
+  /**
+   * Highlight all findings of one rule type (≤ MAX_HIGHLIGHT_SPECS specs).
+   * Renders severity-colored rings with type chips (annotateFindings-style).
+   * Returns { ok:true, found, requested, rendered, missing }.
+   */
+  const highlightAll = (rawSpecs) => {
+    const specs = (Array.isArray(rawSpecs) ? rawSpecs : [])
+      .slice(0, MAX_HIGHLIGHT_SPECS)
+      .map(sanitizeHighlightSpec);
+    const { scopes } = collectScopesWithCoverage(doc.documentElement);
+    const targets = [];
+    const seen = new Set();
+    let missing = 0;
+    for (const spec of specs) {
+      const hit = (spec.path || spec.pathDeep) ? resolveHighlightTarget(spec, scopes) : null;
+      if (hit && isEl(hit.el) && !seen.has(hit.el)) {
+        seen.add(hit.el);
+        targets.push({ el: hit.el, spec });
+      } else {
+        missing++;
+      }
+    }
+    if (!targets.length) {
+      clearHighlight();
+      return { ok: true, found: false, requested: specs.length, rendered: 0, missing, reason: "ELEMENT_GONE" };
+    }
+    try { targets[0].el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" }); } catch {}
+    renderHighlightRings(targets);
+    return { ok: true, found: true, requested: specs.length, rendered: targets.length, missing };
   };
 
   // ---------------- main checks ----------------
@@ -4830,6 +5156,9 @@
     contrastScan,
     annotate: annotateFindings,
     clearAnnotations,
+    highlightTarget,
+    highlightAll,
+    clearHighlight,
     showTabPath,
     clearTabPath,
     applyAssist,
@@ -4861,6 +5190,9 @@
       console.log("A11YFlowAudit.contrastScan({ limit: 250 }) // approx contrast");
       console.log("A11YFlowAudit.annotate(findings)          // overlay annotations");
       console.log("A11YFlowAudit.clearAnnotations()          // remove overlays");
+      console.log("A11YFlowAudit.highlightTarget({ path })   // persistent ring on one element");
+      console.log("A11YFlowAudit.highlightAll(specs)         // rings on all findings of a rule (max 50)");
+      console.log("A11YFlowAudit.clearHighlight()            // remove the highlight ring(s)");
       console.log("A11YFlowAudit.applyAssist('textSpacing')  // WCAG 1.4.12 text-spacing stress test");
       console.log("A11YFlowAudit.applyAssist('protanopia')   // CVD simulation (also: deuteranopia, tritanopia, achromatopsia, grayscale)");
       console.log("A11YFlowAudit.clearAssist()               // remove active assist mode");

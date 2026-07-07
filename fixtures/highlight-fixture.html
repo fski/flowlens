@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>FlowLens highlight E2E fixture</title>
+  <style>
+    body { font: 14px/1.4 system-ui; margin: 24px; }
+    li { margin: 6px 0; }
+    button { padding: 4px 10px; }
+  </style>
+</head>
+<body>
+  <h1>Highlight fixture</h1>
+
+  <!-- (a) plain target: li #2 holds the only button.target -->
+  <div id="app">
+    <ul class="items">
+      <li class="row"><button class="plain">Row 1</button></li>
+      <li class="row"><button class="target">Target Btn</button></li>
+      <li class="row"><button class="plain">Row 3</button></li>
+      <li class="row"><button class="plain">Row 4</button></li>
+      <li class="row"><button class="plain">Row 5</button></li>
+    </ul>
+  </div>
+
+  <!-- (b) open shadow root target -->
+  <div id="shadow-host"></div>
+
+  <!-- (d) element that will be removed -->
+  <p class="removeme">Removable paragraph</p>
+
+  <!-- (c) re-render: rebuild the list, moving the target from li #2 to li #4 -->
+  <button id="rerender" type="button">Re-render list</button>
+
+  <script>
+    const host = document.getElementById("shadow-host");
+    const root = host.attachShadow({ mode: "open" });
+    root.innerHTML = '<div class="wrap"><button class="sh-btn">Shadow target</button></div>';
+
+    document.getElementById("rerender").addEventListener("click", () => {
+      const ul = document.querySelector("#app ul.items");
+      ul.innerHTML = [
+        '<li class="row"><button class="plain">New Row 1</button></li>',
+        '<li class="row"><button class="plain">New Row 2</button></li>',
+        '<li class="row"><button class="plain">New Row 3</button></li>',
+        '<li class="row"><button class="target">Target Btn</button></li>',
+        '<li class="row"><button class="plain">New Row 5</button></li>',
+      ].join("");
+    });
+  </script>
+</body>
+</html>
