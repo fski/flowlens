@@ -782,6 +782,214 @@ function buildDiagnosticsMarkdown(payload) {
   ].join("\n");
 }
 
+// --- Baseline export/import (pa11y-shaped issues + stable signatures) ---
+
+/**
+ * Build a baseline document from findings.
+ * Issue shape follows pa11y conventions (code/type/message/context/selector)
+ * plus a FlowLens stable signature for IBM-style baseline matching.
+ *
+ * @param {Array} findings
+ * @param {{at?: string, origin?: string, frameKeyStable?: string, mode?: string}} meta
+ * @returns {{schemaVersion: 1, createdAt: string|null, origin: string|null, issues: Array}}
+ */
+function buildBaselineFromFindings(findings, meta) {
+  const m = meta || {};
+  const frameKeyStable = m.frameKeyStable || "fk::unknown";
+  const mode = m.mode || "run";
+  const list = Array.isArray(findings) ? findings : [];
+  return {
+    schemaVersion: 1,
+    createdAt: m.at || null,
+    origin: m.origin || null,
+    issues: list.map(f => ({
+      code: f?.type || null,
+      type: f?.severity || null,
+      message: f?.name || null,
+      context: null,
+      selector: f?.path || null,
+      signature: buildStableSignature(f, frameKeyStable, mode),
+    })),
+  };
+}
+
+/**
+ * Validate a parsed baseline payload (schemaVersion 1 with an issues array).
+ * @returns {{ok: boolean, reason: string|null}}
+ */
+function validateBaselinePayload(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return { ok: false, reason: "not an object" };
+  }
+  if (payload.schemaVersion !== 1) {
+    return { ok: false, reason: "unsupported schemaVersion" };
+  }
+  if (!Array.isArray(payload.issues)) {
+    return { ok: false, reason: "issues must be an array" };
+  }
+  for (const issue of payload.issues) {
+    if (!issue || typeof issue !== "object" || typeof issue.signature !== "string" || !issue.signature) {
+      return { ok: false, reason: "issue missing signature" };
+    }
+  }
+  return { ok: true, reason: null };
+}
+
+/**
+ * Compare current findings against a baseline using stable signatures.
+ * @param {object} baseline - output of buildBaselineFromFindings (or imported file)
+ * @param {Array} currentFindings
+ * @param {string} frameKeyStable
+ * @param {string} [mode]
+ * @returns {{newIssues: Array, resolvedIssues: Array, matchedCount: number}}
+ *   newIssues: current findings whose signature is absent from the baseline.
+ *   resolvedIssues: baseline issues whose signature is absent from the current run.
+ */
+function compareAgainstBaseline(baseline, currentFindings, frameKeyStable, mode = "run") {
+  const baselineIssues = Array.isArray(baseline?.issues) ? baseline.issues : [];
+  const baselineSigs = new Set();
+  for (const issue of baselineIssues) {
+    if (issue && typeof issue.signature === "string" && issue.signature) baselineSigs.add(issue.signature);
+  }
+  const current = Array.isArray(currentFindings) ? currentFindings : [];
+  const currentSigs = new Set();
+  const newIssues = [];
+  let matchedCount = 0;
+  for (const f of current) {
+    const sig = buildStableSignature(f, frameKeyStable || "fk::unknown", mode);
+    currentSigs.add(sig);
+    if (baselineSigs.has(sig)) matchedCount += 1;
+    else newIssues.push(f);
+  }
+  const resolvedIssues = baselineIssues.filter(issue =>
+    issue && typeof issue.signature === "string" && issue.signature && !currentSigs.has(issue.signature)
+  );
+  return { newIssues, resolvedIssues, matchedCount };
+}
+
+// --- Self-contained HTML report ---
+
+/**
+ * Escape a string for safe HTML text/attribute interpolation.
+ * Local to exporters.js — deliberately does not rely on panel.js globals.
+ */
+function htmlEscape(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+const HTML_REPORT_SEVERITIES = ["critical", "high", "medium", "low", "info"];
+
+const HTML_REPORT_CSS = [
+  "body{font:14px/1.5 -apple-system,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif;color:#1c2733;background:#ffffff;margin:0;padding:24px;}",
+  "main{max-width:1080px;margin:0 auto;}",
+  "h1{font-size:20px;margin:0 0 4px;}",
+  "h2{font-size:15px;margin:28px 0 8px;border-bottom:1px solid #d8dee6;padding-bottom:4px;}",
+  ".meta{color:#5a6b7d;font-size:12px;margin:0 0 4px;word-break:break-all;}",
+  "table{border-collapse:collapse;width:100%;font-size:12px;}",
+  "th,td{border:1px solid #d8dee6;padding:5px 8px;text-align:left;vertical-align:top;word-break:break-word;}",
+  "th{background:#eef2f6;font-weight:600;}",
+  "tr:nth-child(even) td{background:#f7f9fb;}",
+  "code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;}",
+  ".sev{font-weight:700;text-transform:uppercase;font-size:11px;}",
+  ".sev-critical{color:#a11d1d;}.sev-high{color:#b35a1f;}.sev-medium{color:#8a6d1a;}",
+  ".sev-low{color:#1f7a5c;}.sev-info{color:#4a5d72;}",
+  ".empty{color:#5a6b7d;font-style:italic;}",
+].join("\n");
+
+/**
+ * Build a fully self-contained static HTML report (inline CSS, no scripts,
+ * no external references). All interpolated values are escaped locally.
+ *
+ * @param {{title?: string, generatedAt?: string, url?: string, mode?: string,
+ *   findings?: Array, severityCounts?: object,
+ *   sessionSummary?: {id?: string, steps?: Array<{index?: number, label?: string,
+ *     route?: string, added?: number, fixed?: number, persisting?: number,
+ *     blockingAdded?: number}>}}} payload
+ * @returns {string} single-file HTML document
+ */
+function buildHtmlReport(payload) {
+  const p = payload || {};
+  const esc = htmlEscape;
+  const title = p.title || "FlowLens Accessibility Report";
+  const findings = Array.isArray(p.findings) ? p.findings : [];
+  const counts = p.severityCounts && typeof p.severityCounts === "object" ? p.severityCounts : {};
+
+  const severityRows = HTML_REPORT_SEVERITIES
+    .map(sev => {
+      const n = Number(counts[sev]) || 0;
+      return `<tr><td><span class="sev sev-${esc(sev)}">${esc(sev)}</span></td><td>${n}</td></tr>`;
+    })
+    .join("\n");
+
+  const findingRows = findings.map(f => {
+    const sev = String(f?.severity || "info");
+    return "<tr>" +
+      `<td><span class="sev sev-${esc(sev)}">${esc(sev)}</span></td>` +
+      `<td>${esc(f?.wcag || "")}</td>` +
+      `<td>${esc(f?.name || "")}</td>` +
+      `<td>${esc(f?.type || "")}</td>` +
+      `<td><code>${esc(f?.path || "")}</code></td>` +
+      `<td>${esc(f?.fix || "")}</td>` +
+      "</tr>";
+  }).join("\n");
+
+  const findingsSection = findings.length
+    ? `<table>\n<thead><tr><th>Severity</th><th>WCAG</th><th>Name</th><th>Type</th><th>Path</th><th>Fix</th></tr></thead>\n<tbody>\n${findingRows}\n</tbody>\n</table>`
+    : `<p class="empty">No findings.</p>`;
+
+  let sessionSection = "";
+  const steps = Array.isArray(p.sessionSummary?.steps) ? p.sessionSummary.steps : [];
+  if (steps.length) {
+    const stepRows = steps.map(s => {
+      const blockingAdded = Number(s?.blockingAdded) || 0;
+      const verdict = blockingAdded > 0 ? "FAIL" : "PASS";
+      return "<tr>" +
+        `<td>${Number(s?.index) || 0}</td>` +
+        `<td>${esc(s?.label || "")}</td>` +
+        `<td>${esc(s?.route || "")}</td>` +
+        `<td>${Number(s?.added) || 0}</td>` +
+        `<td>${Number(s?.fixed) || 0}</td>` +
+        `<td>${Number(s?.persisting) || 0}</td>` +
+        `<td>${blockingAdded}</td>` +
+        `<td>${verdict}</td>` +
+        "</tr>";
+    }).join("\n");
+    sessionSection =
+      `<h2>Flow steps${p.sessionSummary?.id ? ` — ${esc(p.sessionSummary.id)}` : ""}</h2>\n` +
+      `<table>\n<thead><tr><th>Step</th><th>Label</th><th>Route</th><th>New</th><th>Fixed</th><th>Persisting</th><th>Blocking added</th><th>Verdict</th></tr></thead>\n<tbody>\n${stepRows}\n</tbody>\n</table>`;
+  }
+
+  return [
+    "<!doctype html>",
+    '<html lang="en">',
+    "<head>",
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    `<title>${esc(title)}</title>`,
+    `<style>\n${HTML_REPORT_CSS}\n</style>`,
+    "</head>",
+    "<body>",
+    "<main>",
+    `<h1>${esc(title)}</h1>`,
+    `<p class="meta">Generated: ${esc(p.generatedAt || "")}</p>`,
+    `<p class="meta">URL: ${esc(p.url || "")}</p>`,
+    `<p class="meta">Mode: ${esc(p.mode || "run")} &middot; Findings: ${findings.length}</p>`,
+    "<h2>Severity summary</h2>",
+    `<table>\n<thead><tr><th>Severity</th><th>Count</th></tr></thead>\n<tbody>\n${severityRows}\n</tbody>\n</table>`,
+    "<h2>Findings</h2>",
+    findingsSection,
+    sessionSection,
+    "</main>",
+    "</body>",
+    "</html>",
+  ].filter(Boolean).join("\n");
+}
+
 /**
  * Enrich a regression signature into a CI-safe entry with only scalar fields.
  * Parses ruleId from signature format: mode|type|wcag|severity|hash.

@@ -105,6 +105,9 @@
           <!-- Shadow coverage receipt (populated by JS) -->
           <div class="shadowCoverageRow" id="shadowCoverageRow" hidden></div>
 
+          <!-- Baseline comparison banner (populated by JS after each audit run) -->
+          <div class="baselineBanner" id="baselineBanner" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+
           <!-- Integrity overview bar -->
           <div class="integrityOverview" id="integrityOverview" hidden>
             <button class="integrityPill" data-group="depth3/announcements" type="button">
@@ -130,6 +133,7 @@
                 <button id="searchClear" class="searchClear" type="button" aria-label="Clear search">&times;</button>
               </div>
               <div class="toolbarActions">
+                <label class="groupToggle"><input type="checkbox" id="groupByComponent" /> <span>Group by component</span></label>
                 <span class="findingsCount" id="findingsCount" aria-live="polite"></span>
                 <span class="highlightHint">Click row to expand</span>
               </div>
@@ -252,6 +256,9 @@
                 <div class="exportMenu" id="exportMenu" role="menu" aria-labelledby="exportToggle" hidden>
                   <button class="emItem" id="downloadJson" type="button" role="menuitem"><span class="l">Download JSON</span></button>
                   <button class="emItem" id="downloadMd" type="button" role="menuitem"><span class="l">Download MD</span></button>
+                  <button class="emItem" id="downloadHtmlReport" type="button" role="menuitem"><span class="l">Download HTML report</span></button>
+                  <button class="emItem" id="saveBaselineMenu" type="button" role="menuitem"><span class="l">Save baseline (JSON)</span></button>
+                  <button class="emItem" id="loadBaselineMenu" type="button" role="menuitem"><span class="l">Load baseline&hellip;</span></button>
                   <button class="emItem" id="copyJson" type="button" role="menuitem"><span class="l">Copy JSON</span></button>
                   <button class="emItem" id="copyMd" type="button" role="menuitem" hidden><span class="l">Copy Markdown</span></button>
                   <button class="emItem" id="sheetCopyRaw" type="button" role="menuitem" hidden><span class="l">Copy Raw</span></button>
@@ -267,6 +274,7 @@
                   <button class="emItem" id="exportDiffReportMenu" type="button" role="menuitem" hidden><span class="l">Diff Report JSON</span><span class="dd">Machine-readable CI diff</span></button>
                   <span class="inlineHint sr-only" id="copyMdHint" aria-live="polite"></span>
                 </div>
+                <input type="file" id="baselineFileInput" accept="application/json,.json" aria-label="Load baseline JSON file" hidden />
               </div>
             </div>
             <div class="sheetBody" id="rawJsonBody" hidden>

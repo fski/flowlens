@@ -692,6 +692,85 @@ function validateDiffParity(step, prevStep, rawAppendix, stableRun, stablePrev) 
   }
 }
 
+// --- Component rollup (group findings by repeated component pattern) ---
+
+/**
+ * Severity weight for component rollup ordering.
+ * Unlike severityWeight(), knows about "critical" and ranks "info" below "low".
+ */
+function componentSeverityWeight(severity) {
+  const s = String(severity || "").toLowerCase();
+  if (s === "critical") return 4;
+  if (s === "high") return 3;
+  if (s === "medium") return 2;
+  if (s === "low") return 1;
+  return 0;
+}
+
+/**
+ * Derive a component key from a finding's selector path by stripping
+ * positional discriminators, so repeated instances of the same component
+ * collapse into one group. Mirrors normalizePathForSig's treatment of
+ * volatile path segments (nth-child indices, long hex ids, numeric ids),
+ * and additionally strips :nth-of-type(n), [data-index] attributes and
+ * trailing numeric indices in id/class tokens.
+ */
+function componentKeyFromPath(path) {
+  const normalized = normalizeWs(path, 220)
+    .replace(/:nth-child\(\d+\)/g, "")
+    .replace(/:nth-of-type\(\d+\)/g, "")
+    .replace(/\[data-index(?:=(?:"[^"]*"|'[^']*'|[^\]]*))?\]/g, "")
+    .replace(/\b[0-9a-f]{8,}\b/gi, "#")
+    .replace(/\b\d{2,}\b/g, "#")
+    .replace(/-\d+\b/g, "-#")
+    .replace(/\d+\s*$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized || "path:none";
+}
+
+/**
+ * Group findings by component: (type + normalized selector pattern).
+ * Repeated instances of the same component (e.g. list rows differing only by
+ * :nth-child index) collapse into a single group.
+ *
+ * @param {Array} findings
+ * @returns {Array<{componentKey: string, type: string, severity: string,
+ *   count: number, sample: object, findings: Array}>}
+ *   sorted by max severity desc, then count desc, then componentKey asc.
+ */
+function groupFindingsByComponent(findings) {
+  const list = Array.isArray(findings) ? findings : [];
+  const groups = new Map();
+  for (const f of list) {
+    if (!f || typeof f !== "object") continue;
+    const type = String(f.type || "unknown");
+    const componentKey = `${type}::${componentKeyFromPath(f.path)}`;
+    let g = groups.get(componentKey);
+    if (!g) {
+      g = {
+        componentKey,
+        type,
+        severity: String(f.severity || "info"),
+        count: 0,
+        sample: f,
+        findings: [],
+      };
+      groups.set(componentKey, g);
+    }
+    g.count += 1;
+    g.findings.push(f);
+    if (componentSeverityWeight(f.severity) > componentSeverityWeight(g.severity)) {
+      g.severity = String(f.severity || "info");
+    }
+  }
+  return [...groups.values()].sort((a, b) =>
+    (componentSeverityWeight(b.severity) - componentSeverityWeight(a.severity))
+    || (b.count - a.count)
+    || a.componentKey.localeCompare(b.componentKey)
+  );
+}
+
 function diffSnapshots(prev, next) {
   if (!prev || !next) return { text: "(no previous)" };
   const prevSet = new Set(prev.findingHashes || []);

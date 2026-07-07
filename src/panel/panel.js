@@ -26,6 +26,11 @@ const els = {
   copyJson: document.getElementById("copyJson"),
   downloadJson: document.getElementById("downloadJson"),
   downloadMd: document.getElementById("downloadMd"),
+  downloadHtmlReport: document.getElementById("downloadHtmlReport"),
+  saveBaselineMenu: document.getElementById("saveBaselineMenu"),
+  loadBaselineMenu: document.getElementById("loadBaselineMenu"),
+  baselineFileInput: document.getElementById("baselineFileInput"),
+  baselineBanner: document.getElementById("baselineBanner"),
   copyMd: document.getElementById("copyMd"),
   sessionExportMenuLabel: document.getElementById("sessionExportMenuLabel"),
   exportSessionJsonMenu: document.getElementById("exportSessionJsonMenu"),
@@ -59,6 +64,7 @@ const els = {
   q: document.getElementById("q"),
   findingsCount: document.getElementById("findingsCount"),
   allTableBody: document.querySelector("#allTable tbody"),
+  groupByComponent: document.getElementById("groupByComponent"),
 
   toast: document.getElementById("toast"),
   runIcon: document.getElementById("runIcon"),
@@ -200,6 +206,7 @@ const state = {
   tabData: [],
   activeMode: "run",
   sevFilter: new Set(),
+  groupByComponent: false,
   findingsByMode: {},
   contrastFilter: "all",
   hasRunMode: new Set(),
@@ -3105,7 +3112,11 @@ function explorerRowHtml(f, idx) {
   const sev = f.severity || 'info';
   const isCrossFrame = !f.el && (typeof RULE_TO_WCAG !== "undefined") && RULE_TO_WCAG[f.type]?.group === "depth3/multiframe";
   const crossBadge = isCrossFrame ? ' <span class="badge crossFrame">Cross-frame</span>' : '';
-  return `<tr class="trow" tabindex="0" data-i="${idx}" data-sev="${escapeHtml(sev)}"${isCrossFrame ? ' data-crossframe="1"' : ''}><td><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span></td><td>${escapeHtml(f.wcag ?? "")}</td><td>${cellHtml(f.name, 50)}${crossBadge}</td><td>${cellHtml(f.type ?? "", 30)}</td></tr>`;
+  const groupCount = Number(f._groupCount) || 0;
+  const groupBadge = groupCount > 1
+    ? ` <span class="badge groupCount" title="${groupCount} instances of this component">&times;${groupCount}</span>`
+    : '';
+  return `<tr class="trow" tabindex="0" data-i="${idx}" data-sev="${escapeHtml(sev)}"${isCrossFrame ? ' data-crossframe="1"' : ''}><td><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span></td><td>${escapeHtml(f.wcag ?? "")}</td><td>${cellHtml(f.name, 50)}${crossBadge}${groupBadge}</td><td>${cellHtml(f.type ?? "", 30)}</td></tr>`;
 }
 function contrastRowHtml(f, idx) {
   const pass = f.ratio >= f.required;
@@ -3590,7 +3601,16 @@ function scheduleRerenderFindings(reason) {
 
 function renderExplorer(findings) {
   const all = Array.isArray(findings) ? findings : [];
-  const filtered = applySortState(applyExplorerFilters(findings), 'explorer');
+  let filtered = applySortState(applyExplorerFilters(findings), 'explorer');
+  if (state.groupByComponent) {
+    // One row per component (type + normalized selector pattern), keeping the
+    // finding shape so row expand / highlight reuse the sample finding.
+    filtered = groupFindingsByComponent(filtered).map(g => Object.assign({}, g.sample, {
+      severity: g.severity,
+      _groupCount: g.count,
+      _groupKey: g.componentKey,
+    }));
+  }
   state.explorer = filtered;
 
   // Update findings count
@@ -4136,6 +4156,13 @@ async function runAction(action, opts = {}) {
   const allFindings = Array.isArray(bestResult?.findings) ? bestResult.findings : [];
   const findings = applyAllFindingFilters(allFindings);
 
+  // Baseline comparison banner (audit runs only; hidden when no baseline loaded)
+  if (action === "run") {
+    updateBaselineBanner(findings).catch(e => console.warn("Baseline banner failed", e));
+  } else if (els.baselineBanner) {
+    els.baselineBanner.hidden = true;
+  }
+
   // History/diff uses unfiltered findings for consistency across depth/rulePack changes
   const key = `snap::${originFrom(url)}::${detectEnv(url)}::${bestEntry?.frameUrl || ""}`;
   const prev = await loadHistorySnapshot(key);
@@ -4540,6 +4567,76 @@ function downloadText(name, text, mime = "text/plain") {
   a.download = name;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// --- Baseline comparison (module-level, persisted per origin) ---
+const MAX_BASELINE_FILE_BYTES = 5 * 1024 * 1024;
+let loadedBaseline = null;
+let loadedBaselineOrigin = null;
+
+function baselineStorageKey(origin) {
+  return `baseline::${origin || ""}`;
+}
+
+async function loadBaselineForOrigin(origin) {
+  try {
+    const key = baselineStorageKey(origin);
+    const data = await storageGet([key]);
+    const stored = data?.[key];
+    return (stored && typeof stored === "object" && Array.isArray(stored.issues)) ? stored : null;
+  } catch (e) {
+    console.warn("Baseline load from storage failed", e);
+    return null;
+  }
+}
+
+async function setLoadedBaseline(baseline, origin) {
+  loadedBaseline = baseline;
+  loadedBaselineOrigin = origin || "";
+  try {
+    await storageSet({ [baselineStorageKey(origin)]: baseline });
+  } catch (e) {
+    console.warn("Baseline persistence failed (kept in memory)", e);
+  }
+}
+
+function currentBaselineFrameKeyStable() {
+  const bestEntry = state.lastResult?.bestEntry || state.lastResult?.best || null;
+  return bestEntry?.frameKeyStable || bestEntry?.frameKey || "fk::unknown";
+}
+
+/**
+ * Compare `findings` against the loaded baseline for the current origin and
+ * render the compact "vs baseline" banner in the results zone.
+ * Hidden when no baseline is loaded/stored for this origin.
+ */
+async function updateBaselineBanner(findings) {
+  const el = els.baselineBanner;
+  if (!el) return;
+  try {
+    const { origin } = getCurrentScopeInfo();
+    if (!loadedBaseline || loadedBaselineOrigin !== (origin || "")) {
+      loadedBaseline = await loadBaselineForOrigin(origin);
+      loadedBaselineOrigin = origin || "";
+    }
+    if (!loadedBaseline || !Array.isArray(loadedBaseline.issues)) {
+      el.hidden = true;
+      el.textContent = "";
+      return;
+    }
+    const cmp = compareAgainstBaseline(
+      loadedBaseline,
+      Array.isArray(findings) ? findings : [],
+      currentBaselineFrameKeyStable(),
+      "run"
+    );
+    // textContent assignment — page-derived strings can never become markup here.
+    el.textContent = `vs baseline: +${cmp.newIssues.length} new, −${cmp.resolvedIssues.length} resolved`;
+    el.hidden = false;
+  } catch (e) {
+    console.warn("Baseline banner update failed", e);
+    el.hidden = true;
+  }
 }
 
 async function exportSessionJson() {
@@ -5393,6 +5490,103 @@ if (els.downloadMd) {
   });
 }
 
+if (els.downloadHtmlReport) {
+  els.downloadHtmlReport.addEventListener("click", () => {
+    const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
+    const bestEntry = state.lastResult?.bestEntry || state.lastResult?.best || null;
+    const allFindings = Array.isArray(bestEntry?.result?.findings) ? bestEntry.result.findings : [];
+    const findings = applyFixSuggestions(applyAllFindingFilters(allFindings));
+    const session = sessionState.current || sessionState.lastEndedSession || null;
+    const sessionSummary = (session && Array.isArray(session.steps) && session.steps.length)
+      ? {
+        id: session.id || "",
+        steps: session.steps.map(s => ({
+          index: s?.index ?? 0,
+          label: s?.label || "",
+          route: s?.routeHint || s?.url || "",
+          added: s?.diffs?.consolidated?.added ?? 0,
+          fixed: s?.diffs?.consolidated?.fixed ?? 0,
+          persisting: s?.diffs?.consolidated?.persisting ?? 0,
+          blockingAdded: s?.diffs?.consolidated?.blockingAdded ?? 0,
+        })),
+      }
+      : null;
+    const html = buildHtmlReport({
+      title: "FlowLens Accessibility Report",
+      generatedAt: new Date().toISOString(),
+      url,
+      mode: state.lastResult?.mode || state.activeMode || "run",
+      findings,
+      severityCounts: countBySeverity(findings),
+      sessionSummary,
+    });
+    downloadText(`a11yflowaudit-report-${Date.now()}.html`, html, "text/html");
+    setExportMenuOpen(false);
+    toast("Downloaded HTML report");
+  });
+}
+
+if (els.saveBaselineMenu) {
+  els.saveBaselineMenu.addEventListener("click", () => {
+    const bestEntry = state.lastResult?.bestEntry || state.lastResult?.best || null;
+    const allFindings = Array.isArray(bestEntry?.result?.findings) ? bestEntry.result.findings : [];
+    const findings = applyAllFindingFilters(allFindings);
+    if (!findings.length) {
+      setExportMenuOpen(false);
+      toast("No findings to baseline — run an audit first");
+      return;
+    }
+    const { origin } = getCurrentScopeInfo();
+    const baseline = buildBaselineFromFindings(findings, {
+      at: new Date().toISOString(),
+      origin,
+      frameKeyStable: currentBaselineFrameKeyStable(),
+      mode: "run",
+    });
+    downloadText(`a11yflowaudit-baseline-${Date.now()}.json`, JSON.stringify(baseline, null, 2), "application/json");
+    setExportMenuOpen(false);
+    toast("Baseline saved");
+  });
+}
+
+if (els.loadBaselineMenu && els.baselineFileInput) {
+  els.loadBaselineMenu.addEventListener("click", () => {
+    setExportMenuOpen(false);
+    els.baselineFileInput.click();
+  });
+  els.baselineFileInput.addEventListener("change", () => {
+    const file = els.baselineFileInput.files && els.baselineFileInput.files[0];
+    els.baselineFileInput.value = "";
+    if (!file) return;
+    if (file.size > MAX_BASELINE_FILE_BYTES) {
+      toast("Baseline file too large (max 5MB)");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => toast("Could not read baseline file");
+    reader.onload = async () => {
+      try {
+        const parsed = JSON.parse(String(reader.result || ""));
+        const check = validateBaselinePayload(parsed);
+        if (!check.ok) {
+          toast(`Invalid baseline file (${check.reason})`);
+          return;
+        }
+        const { origin } = getCurrentScopeInfo();
+        await setLoadedBaseline(parsed, origin);
+        toast(`Baseline loaded (${parsed.issues.length} issues)`);
+        if (state.hasRunMode.has("run")) {
+          await updateBaselineBanner(state.currentFindings || []);
+        }
+      } catch (e) {
+        console.warn("Baseline import failed", e);
+        toast("Invalid baseline file (parse error)");
+      }
+    };
+    reader.readAsText(file);
+  });
+}
+
 els.copyMd.addEventListener("click", async () => {
   await copyMarkdown();
   setExportMenuOpen(false);
@@ -5848,6 +6042,14 @@ function scheduleExplorerRender() {
 }
 
 els.q.addEventListener("input", scheduleExplorerRender);
+
+// Group-by-component toggle (default OFF — flat findings list unchanged)
+if (els.groupByComponent) {
+  els.groupByComponent.addEventListener("change", () => {
+    state.groupByComponent = !!els.groupByComponent.checked;
+    renderExplorer(state.currentFindings);
+  });
+}
 
 // Search clear button
 const searchClearBtn = document.getElementById("searchClear");
