@@ -606,6 +606,11 @@ async function storageSet(obj) {
     }
   }
 }
+async function storageRemove(keys) {
+  const ks = Array.isArray(keys) ? keys : [keys];
+  if (__storageLocal) return await __storageLocal.remove(ks);
+  for (const k of ks) localStorage.removeItem(__lsPrefix + k);
+}
 
 
 function send(msg) {
@@ -1127,7 +1132,10 @@ function renderContrastSevTabs() {
   if (!els.sevTabs) return;
   const total = state.contrastSamples.length;
   const fail = state.contrastData.length;
-  const pass = total - fail;
+  // Count passes directly (matching updateContrastView's pass filter) instead
+  // of total - fail: persisted records cap samples harder than failures, so
+  // the subtraction can go negative after a reload.
+  const pass = state.contrastSamples.filter(s => s.ratio >= s.required).length;
   const f = state.contrastFilter;
 
   const renderTab = (sev, label, count, active) =>
@@ -2663,6 +2671,7 @@ async function archiveSessionBestEffort(session) {
         [keys.archive]: session,
         [getSessionKeys(origin || session.inspectedOrigin || "", env || "prod").active]: null
       });
+      await updateArchiveIndex({ key: keys.archive, id: String(session.id), startedAt: session.startedAt || "" });
       sessionState.lastArchiveId = session.id;
       debugSession("archive_ok", { estimatedBytes });
       renderSaveStatus("saved");
@@ -2682,16 +2691,82 @@ async function archiveSessionBestEffort(session) {
 
 // ---- Session comparison ----
 
-async function listArchivedSessions() {
-  if (!__storageLocal) return [];
+// Archives are tracked in an index key so listing them costs a few targeted
+// reads instead of deserializing the entire store, and so old archives can be
+// pruned (chrome.storage.local has a ~10MB quota; archives used to accumulate
+// forever).
+const ARCHIVE_INDEX_KEY = "session::archiveIndex";
+const MAX_ARCHIVED_SESSIONS = 10;
+
+async function loadArchiveIndex() {
   try {
-    const all = await __storageLocal.get(null);
-    const prefix = "session::archive::";
-    const sessions = [];
-    for (const [key, val] of Object.entries(all || {})) {
-      if (key.startsWith(prefix) && val && typeof val === "object" && val.id) {
-        sessions.push(val);
+    const got = await storageGet([ARCHIVE_INDEX_KEY]);
+    const idx = got?.[ARCHIVE_INDEX_KEY];
+    if (Array.isArray(idx)) return idx.filter(e => e && typeof e.key === "string");
+  } catch (err) {
+    console.warn("loadArchiveIndex failed", err);
+  }
+  return null;
+}
+
+/** One-time migration: full-store scan to discover pre-index archives. */
+async function rebuildArchiveIndex() {
+  const prefix = "session::archive::";
+  const entries = [];
+  try {
+    if (__storageLocal) {
+      const all = await __storageLocal.get(null);
+      for (const [key, val] of Object.entries(all || {})) {
+        if (key.startsWith(prefix) && val && typeof val === "object" && val.id) {
+          entries.push({ key, id: String(val.id), startedAt: val.startedAt || "" });
+        }
       }
+    } else {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i) || "";
+        if (!k.startsWith(__lsPrefix + prefix)) continue;
+        const key = k.slice(__lsPrefix.length);
+        try {
+          const val = JSON.parse(localStorage.getItem(k));
+          if (val && typeof val === "object" && val.id) {
+            entries.push({ key, id: String(val.id), startedAt: val.startedAt || "" });
+          }
+        } catch { /* corrupted entry */ }
+      }
+    }
+    entries.sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || ""));
+    await storageSet({ [ARCHIVE_INDEX_KEY]: entries });
+  } catch (err) {
+    console.warn("rebuildArchiveIndex failed", err);
+  }
+  return entries;
+}
+
+/** Register an archive in the index and prune beyond MAX_ARCHIVED_SESSIONS. */
+async function updateArchiveIndex(newEntry) {
+  try {
+    let index = await loadArchiveIndex();
+    if (index === null) index = await rebuildArchiveIndex();
+    index = [newEntry, ...index.filter(e => e.key !== newEntry.key)];
+    index.sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || ""));
+    const drop = index.slice(MAX_ARCHIVED_SESSIONS);
+    index = index.slice(0, MAX_ARCHIVED_SESSIONS);
+    if (drop.length) await storageRemove(drop.map(e => e.key));
+    await storageSet({ [ARCHIVE_INDEX_KEY]: index });
+  } catch (err) {
+    console.warn("updateArchiveIndex failed", err);
+  }
+}
+
+async function listArchivedSessions() {
+  try {
+    let index = await loadArchiveIndex();
+    if (index === null) index = await rebuildArchiveIndex();
+    const got = index.length ? await storageGet(index.map(e => e.key)) : {};
+    const sessions = [];
+    for (const e of index) {
+      const val = got?.[e.key];
+      if (val && typeof val === "object" && val.id) sessions.push(val);
     }
     // Also include current/lastEnded if available
     if (sessionState.lastEndedSession?.id) {
@@ -5407,11 +5482,15 @@ async function runAction(action, opts = {}) {
       });
       return false;
     }
-    setRunTelemetry({ usedFrames: "\u2014", diff: noScope ? "(no frame matches selected scope)" : "(run failed)" });
-    setPersistentStatus("FAILED", noScope ? "NO_SCOPE_MATCH" : "BACKEND", noScope ? "No frame matches selected scope" : "Run failed");
+    const notAuditable = r?.reason === "NO_AUDITABLE_FRAMES" || r?.error === "NO_AUDITABLE_FRAMES";
+    const failMsg = noScope ? "No frame matches selected scope"
+      : notAuditable ? "This page cannot be audited (script injection blocked)"
+      : `${action} failed`;
+    setRunTelemetry({ usedFrames: "\u2014", diff: `(${failMsg})` });
+    setPersistentStatus("FAILED", noScope ? "NO_SCOPE_MATCH" : notAuditable ? "NOT_AUDITABLE" : "BACKEND", failMsg);
     console.error("RUN_AUDIT backend failure", r);
-    toast(noScope ? "No frame matches selected scope" : `${action} failed`);
-    if (!state.records.length) showErrorEmptyState(noScope ? "No frame matches selected scope" : `${action} failed`);
+    toast(failMsg);
+    if (!state.records.length) showErrorEmptyState(failMsg);
     return false;
   }
 
@@ -5732,21 +5811,24 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     sessionState.current.schemaVersion = asNumber(r?.schemaVersion, sessionState.current.schemaVersion || 1);
     sessionState.current.signatureVersion = asNumber(r?.signatureVersion, sessionState.current.signatureVersion || 1);
     sessionState.current.frameKeyVersion = asNumber(r?.run?.frameKeyVersion, sessionState.current.frameKeyVersion || 1);
-    step.diffs = buildStepDiffs(step, prevStep, sessionState.current.rawAppendix || {});
-
-    // Stable signatures (shadow mode) — compute alongside legacy diff
     const stableRun = computeStableSignatureSet(step.snapshots?.run, sessionState.current.rawAppendix || {});
     const stableActive = step.snapshots?.active
       ? computeStableSignatureSet(step.snapshots.active, sessionState.current.rawAppendix || {})
       : null;
+    // Parallel validation (shadow mode) — must run BEFORE step.stableSignatures
+    // is assigned so its internal buildStepDiffs exercises the legacy path.
+    if (prevStep?.stableSignatures?.run) {
+      validateDiffParity(step, prevStep, sessionState.current.rawAppendix || {}, stableRun, prevStep.stableSignatures.run);
+    }
     step.stableSignatures = {
       run: stableRun,
       active: stableActive,
     };
-    // Parallel validation (shadow mode) — log mismatches, never break production
-    if (prevStep?.stableSignatures?.run) {
-      validateDiffParity(step, prevStep, sessionState.current.rawAppendix || {}, stableRun, prevStep.stableSignatures.run);
-    }
+    // Diffs computed AFTER stableSignatures so buildStepDiffs takes the stable
+    // path — the same path deleteStep's recomputation uses. Previously the
+    // capture-time diff used the legacy path, so deleting any step silently
+    // changed the diff numbers of all remaining steps.
+    step.diffs = buildStepDiffs(step, prevStep, sessionState.current.rawAppendix || {});
 
     // Profiles v2 — deterministic profile match scoring
     const bestFrameProbe = r?.run?.bestFrameProbe || null;
@@ -6547,8 +6629,20 @@ function buildCIReportFromState() {
     if (sev in bySeverity) bySeverity[sev]++;
   }
 
-  // Blocking count from stable signatures
-  var sigSet = computeStableSignatureSet(state.lastResult);
+  // Blocking count from stable signatures. computeStableSignatureSet expects
+  // a step snapshot ({ mode, best: { normalized: { raw } } }), not the raw
+  // RUN_AUDIT response — wrap the best entry accordingly.
+  var sigSet = { stableFindingSignatureSet: [], blockingSet: [] };
+  if (bestEntry && bestEntry.ok === true && bestEntry.result) {
+    sigSet = computeStableSignatureSet({
+      mode: state.lastResult?.action || "run",
+      best: {
+        frameKey: bestEntry.frameKey || null,
+        frameKeyStable: bestEntry.frameKeyStable || null,
+        normalized: { raw: bestEntry.result },
+      },
+    });
+  }
   var blockingCount = sigSet.blockingSet?.length || 0;
 
   // Regressions from session diff (if available)

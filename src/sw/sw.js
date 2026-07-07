@@ -729,6 +729,32 @@ async function executeAuditAcrossFrames({
   const picked = chooseBestEntry({ action, perFrame: scoredFrames, target, probeByFrameId });
   const bestEntry = picked?.entry || null;
 
+  // No frame produced a usable result (restricted page, injection blocked,
+  // snippet API missing). Surface an explicit failure instead of an ok
+  // response with zero findings — a silent false negative for the user.
+  if (!bestEntry || bestEntry.ok !== true) {
+    const failureDetail = bestEntry?.reason || bestEntry?.error || picked?.reason || "unknown";
+    return {
+      ok: false,
+      action,
+      error: "NO_AUDITABLE_FRAMES",
+      reason: "NO_AUDITABLE_FRAMES",
+      detail: String(failureDetail),
+      schemaVersion: SESSION_SCHEMA_VERSION,
+      signatureVersion: SESSION_SIGNATURE_VERSION,
+      usedFrameIds,
+      perFrame: scoredFrames.map(compactFramePayload),
+      bestEntry: null,
+      selectionReason: picked?.reason || resolutionReason,
+      scope: resolvedScope,
+      frameKeyVersion: FRAME_KEY_VERSION,
+      frameKeyByFrameId: Object.fromEntries(scoredFrames.map(x => [String(x.frameId), x.frameKey])),
+      compatibilityMode: !!resolved?.compatibilityMode,
+      compatibilityReason: resolved?.compatibilityReason || null,
+      excludedFrameCount: resolved?.excludedFrameCount || 0,
+    };
+  }
+
   // ── C4 cross-frame evaluation ──────────────────────────────────────────
   if (usedFrameIds.length > 1 && bestEntry?.ok && (action === "run" || action === "observe")) {
     const frameSummaries = scoredFrames.map(f => ({
