@@ -204,4 +204,62 @@ const GENERIC_PROFILES = {
     },
     frameScope: "primary",
   },
+
+  // ── Non-conversational archetypes — the tool serves any site, not just
+  //    chat/help-center flows ──
+
+  "form_flow_v2": {
+    label: "Form / checkout flow",
+    description: "Multi-step forms — checkout, signup, application flows",
+    version: 2,
+    intent: "form_flow",
+    recommended: { depthMax: 2, enableDepth3: false },
+    frame: {
+      urlIncludes: [],
+      domSelectors: [
+        "form",
+        "input, select, textarea",
+        "button[type='submit'], input[type='submit']",
+        "[role='alert'], output",
+      ],
+    },
+    modeHints: {},
+    frameScope: "primary",
+  },
+
+  "spa_content_v2": {
+    label: "SPA content page",
+    description: "Single-page application views with client-side routing",
+    version: 2,
+    intent: "content_page",
+    recommended: { depthMax: 2, enableDepth3: false },
+    frame: {
+      urlIncludes: [],
+      domSelectors: [
+        "main, [role='main']",
+        "nav[aria-label], [role='navigation'][aria-label]",
+        "h1",
+      ],
+    },
+    modeHints: {},
+    frameScope: "primary",
+  },
+
+  "dashboard_v2": {
+    label: "Dashboard / data table",
+    description: "Data-dense views — tables, grids, filters and toolbars",
+    version: 2,
+    intent: "dashboard",
+    recommended: { depthMax: 2, enableDepth3: false },
+    frame: {
+      urlIncludes: [],
+      domSelectors: [
+        "table, [role='table'], [role='grid']",
+        "[role='toolbar']",
+        "[role='tablist']",
+      ],
+    },
+    modeHints: {},
+    frameScope: "primary",
+  },
 };

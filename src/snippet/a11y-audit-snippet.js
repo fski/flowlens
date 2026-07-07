@@ -875,7 +875,8 @@
   const hasAnnouncementHook = () =>
     !!doc.querySelector("[aria-live='polite'],[aria-live='assertive'],[role='status'],[role='alert']");
 
-  const DEFAULT_APP_MARKERS = "[role='log'], [role='feed'], [role='navigation'][aria-label], [role='main'] article";
+  // Generic landmark-based defaults; profiles override via cfg.appMarkers.
+  const DEFAULT_APP_MARKERS = "main, [role='main'], nav[aria-label], [role='navigation'][aria-label], [role='log'], [role='feed']";
 
   const sanity = (appMarkersSel) => {
     const q = (sel) => { try { return doc.querySelectorAll(sel).length; } catch { return 0; } };

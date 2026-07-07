@@ -363,10 +363,6 @@ async function main() {
           "__FLOWLENS_VERSION__": JSON.stringify(version),
           "__HOST_CONFIG__": hostConfigJSON,
         };
-      } else if (entry.dist === "sw.js") {
-        jsOpts.define = {
-          "__HOST_CONFIG__": hostConfigJSON,
-        };
       }
       output = await processJS(raw, jsOpts);
     } else if (entry.type === "css") {
