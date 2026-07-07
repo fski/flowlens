@@ -937,7 +937,7 @@ const HTML_REPORT_CSS = [
  *   score?: number, manualChecklist?: Array<{id?: string, label?: string, wcag?: string}>,
  *   sessionSummary?: {id?: string, steps?: Array<{index?: number, label?: string,
  *     route?: string, added?: number, fixed?: number, persisting?: number,
- *     blockingAdded?: number}>}}} payload
+ *     blockingAdded?: number, srAdded?: number, srRemoved?: number}>}}} payload
  * @returns {string} single-file HTML document
  */
 function buildHtmlReport(payload) {
@@ -990,9 +990,17 @@ function buildHtmlReport(payload) {
   let sessionSection = "";
   const steps = Array.isArray(p.sessionSummary?.steps) ? p.sessionSummary.steps : [];
   if (steps.length) {
+    // "SR changes" column only when at least one step carries screen-reader
+    // outline diff counts (backwards compatible: absent for old sessions).
+    const hasSrChanges = steps.some(s => s && (s.srAdded != null || s.srRemoved != null));
     const stepRows = steps.map(s => {
       const blockingAdded = Number(s?.blockingAdded) || 0;
       const verdict = blockingAdded > 0 ? "FAIL" : "PASS";
+      const srCell = hasSrChanges
+        ? `<td>${(s?.srAdded != null || s?.srRemoved != null)
+          ? `+${Number(s?.srAdded) || 0}/&minus;${Number(s?.srRemoved) || 0}`
+          : "&mdash;"}</td>`
+        : "";
       return "<tr>" +
         `<td>${Number(s?.index) || 0}</td>` +
         `<td>${esc(s?.label || "")}</td>` +
@@ -1001,12 +1009,14 @@ function buildHtmlReport(payload) {
         `<td>${Number(s?.fixed) || 0}</td>` +
         `<td>${Number(s?.persisting) || 0}</td>` +
         `<td>${blockingAdded}</td>` +
+        srCell +
         `<td>${verdict}</td>` +
         "</tr>";
     }).join("\n");
+    const srHeader = hasSrChanges ? "<th>SR changes</th>" : "";
     sessionSection =
       `<h2>Flow steps${p.sessionSummary?.id ? ` — ${esc(p.sessionSummary.id)}` : ""}</h2>\n` +
-      `<table>\n<thead><tr><th>Step</th><th>Label</th><th>Route</th><th>New</th><th>Fixed</th><th>Persisting</th><th>Blocking added</th><th>Verdict</th></tr></thead>\n<tbody>\n${stepRows}\n</tbody>\n</table>`;
+      `<table>\n<thead><tr><th>Step</th><th>Label</th><th>Route</th><th>New</th><th>Fixed</th><th>Persisting</th><th>Blocking added</th>${srHeader}<th>Verdict</th></tr></thead>\n<tbody>\n${stepRows}\n</tbody>\n</table>`;
   }
 
   return [

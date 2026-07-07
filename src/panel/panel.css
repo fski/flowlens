@@ -1525,6 +1525,24 @@ kbd {
 #flowTimelineTable tbody tr.trow:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; background: var(--raised); }
 #flowTimelineTable tbody tr.trow.isExpanded { background: var(--raised); font-weight: 600; }
 
+/* ═══ SCREEN READER VIEW (A11Y OUTLINE) ═══ */
+.srOutlineDiffList { list-style: none; margin: 0; padding: 0; max-height: 200px; overflow-y: auto; }
+.srOutlineDiffItem { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; font: 500 12px/1.4 var(--font-mono); border-bottom: 1px solid rgba(255,255,255,0.04); }
+.srOutlineDiffItem:last-child { border-bottom: none; }
+.srOutlineSign { flex-shrink: 0; width: 12px; font-weight: 700; text-align: center; }
+.srOutlineSignAdd { color: var(--green); }
+.srOutlineSignRemove { color: var(--red); }
+.srOutlineRole { flex-shrink: 0; padding: 0 5px; border: 1px solid var(--brd); border-radius: var(--radius-sm); background: var(--raised); color: var(--tx2); font: 600 10px/1.6 var(--font-mono); text-transform: uppercase; letter-spacing: .03em; }
+.srOutlineName { flex: 1; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srOutlineCount { flex-shrink: 0; color: var(--tx3); font-size: 11px; }
+.srOutlineMore { color: var(--tx3); }
+.srOutlineDetails { margin-top: 6px; }
+.srOutlineSummary { cursor: pointer; font: 600 11px/1.6 var(--font-mono); color: var(--tx2); }
+.srOutlineSummary:hover { color: var(--cyan); }
+.srOutlineSummary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; }
+.srOutlineList { list-style: none; margin: 4px 0 0; padding: 0; max-height: 240px; overflow-y: auto; }
+.srOutlineItem { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; font: 500 12px/1.4 var(--font-mono); }
+
 /* ═══ DELETE STEP ═══ */
 .stepDeleteBtn { min-width: 24px; min-height: 24px; padding: 4px; border: none; background: transparent; color: var(--tx3); font: 600 13px/1 var(--font-mono); cursor: pointer; opacity: 0; transition: opacity .15s; vertical-align: middle; margin-left: 4px; }
 #flowTimelineTable tbody tr:hover .stepDeleteBtn,

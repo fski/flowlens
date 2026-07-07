@@ -115,6 +115,8 @@
   const STRUCTURE_CONTAINER_ID = "__flowlens_structure__";
   const MAX_STRUCTURE_HEADINGS = 200;
   const MAX_STRUCTURE_LANDMARKS = 100;
+  const MAX_A11Y_OUTLINE_NODES = 400;
+  const MAX_A11Y_OUTLINE_DEPTH = 3;
   const STRUCTURE_KINDS = new Set(["headings", "landmarks"]);
   const STRUCTURE_HEADING_COLOR = "#5B8DD4";
   const STRUCTURE_LANDMARK_COLOR = "#9A6DD4";
@@ -2105,6 +2107,108 @@
 
     doc.body.appendChild(container);
     return { ok: true, kind, total: items.length, rendered, flagged };
+  };
+
+  // ---------------- A11y outline (screen-reader view snapshot) ----------------
+
+  // Implicit tag → ARIA role map for the outline (a[href] handled separately;
+  // <input> resolved by type via A11Y_OUTLINE_INPUT_ROLES).
+  const A11Y_OUTLINE_TAG_ROLES = {
+    a: "link",
+    button: "button",
+    select: "combobox",
+    textarea: "textbox",
+    img: "img",
+    table: "table",
+    h1: "heading", h2: "heading", h3: "heading",
+    h4: "heading", h5: "heading", h6: "heading",
+  };
+  const A11Y_OUTLINE_INPUT_ROLES = {
+    button: "button", submit: "button", reset: "button", image: "button",
+    checkbox: "checkbox", radio: "radio", range: "slider",
+    number: "spinbutton", search: "searchbox",
+  };
+  const A11Y_OUTLINE_SELECTOR =
+    "h1,h2,h3,h4,h5,h6,a[href],button,input,select,textarea,img,table,[role]," +
+    LANDMARK_SELECTOR;
+
+  /**
+   * Computed outline role for one element: explicit role attribute first,
+   * then the implicit tag map (input resolved by type; landmark tags via
+   * computeLandmarkRole). Returns null for non-semantic elements.
+   */
+  const computeOutlineRole = (el) => {
+    const explicit = (el.getAttribute("role") || "").trim().toLowerCase().split(/\s+/)[0];
+    if (explicit) return explicit === "navigation" ? "nav" : explicit;
+    const tag = (el.tagName || "").toLowerCase();
+    if (tag === "a") return el.hasAttribute("href") ? "link" : null;
+    if (tag === "input") {
+      const type = (el.getAttribute("type") || "text").trim().toLowerCase();
+      if (type === "hidden") return null;
+      return A11Y_OUTLINE_INPUT_ROLES[type] || "textbox";
+    }
+    if (A11Y_OUTLINE_TAG_ROLES[tag]) return A11Y_OUTLINE_TAG_ROLES[tag];
+    return computeLandmarkRole(el);
+  };
+
+  /**
+   * Landmark nesting depth of an element (0-3 capped) — walks up parents,
+   * crossing open shadow boundaries via the host element.
+   */
+  const outlineLandmarkDepth = (el) => {
+    let depth = 0;
+    let n = el;
+    while (n && depth < MAX_A11Y_OUTLINE_DEPTH) {
+      let parent = null;
+      try {
+        parent = n.parentElement
+          || (n.getRootNode && n.getRootNode() !== doc && n.getRootNode().host ? n.getRootNode().host : null);
+      } catch { parent = null; }
+      if (!parent || !isEl(parent)) break;
+      try { if (computeLandmarkRole(parent)) depth++; } catch {}
+      n = parent;
+    }
+    return depth;
+  };
+
+  /**
+   * A11y outline — linearized list of semantic nodes ("what a screen-reader
+   * user experiences"): landmarks, headings, links, buttons, form controls,
+   * images, tables and explicit roles, across the document and all reachable
+   * open shadow roots (same traversal as getPageStructure). Hidden nodes
+   * (display:none / zero-rect / aria-hidden self or ancestor) are skipped
+   * entirely. Serializable; capped at MAX_A11Y_OUTLINE_NODES.
+   *
+   * @returns {{nodes: Array<{role: string, name: string, level: number,
+   *   depth: number, pathHash: string}>, truncated: boolean, count: number}}
+   */
+  const getA11yOutline = () => {
+    const { scopes } = collectScopesWithCoverage(doc.documentElement);
+    const nodes = [];
+    let truncated = false;
+    for (const { root } of scopes) {
+      if (truncated) break;
+      let found;
+      try { found = [...root.querySelectorAll(A11Y_OUTLINE_SELECTOR)]; } catch { found = []; }
+      for (const el of found) {
+        if (isHidden(el)) continue;
+        try { if (el.closest && el.closest("[aria-hidden='true']")) continue; } catch {}
+        let role = null;
+        try { role = computeOutlineRole(el); } catch { role = null; }
+        if (!role) continue;
+        if (nodes.length >= MAX_A11Y_OUTLINE_NODES) { truncated = true; break; }
+        nodes.push({
+          role,
+          name: txt(getAccName(el), 60),
+          level: role === "heading" ? headingLevel(el) : 0,
+          depth: outlineLandmarkDepth(el),
+          pathHash: steFnv1aHash8(cssPath(el)),
+        });
+      }
+    }
+    const res = { nodes, truncated, count: nodes.length };
+    api.lastA11yOutline = res;
+    return res;
   };
 
   /**
@@ -4660,6 +4764,7 @@
     applyAssist,
     clearAssist,
     getPageStructure,
+    getA11yOutline,
     showStructureOverlay,
     clearStructureOverlay,
     get modeHints() { return modeHints; },
@@ -4670,6 +4775,7 @@
     lastTabWalk: null,
     lastContrast: null,
     lastStructure: null,
+    lastA11yOutline: null,
     help() {
       console.log("A11YFlowAudit.run({ strict:true })");
       console.log("A11YFlowAudit.run({ rootSelector: '#my-component' })  // subtree scan");
@@ -4686,6 +4792,7 @@
       console.log("A11YFlowAudit.applyAssist('protanopia')   // CVD simulation (also: deuteranopia, tritanopia, achromatopsia, grayscale)");
       console.log("A11YFlowAudit.clearAssist()               // remove active assist mode");
       console.log("A11YFlowAudit.getPageStructure()          // headings outline + landmarks");
+      console.log("A11YFlowAudit.getA11yOutline()            // linearized screen-reader view snapshot");
       console.log("A11YFlowAudit.showStructureOverlay('headings') // labeled outline boxes (also: 'landmarks')");
       console.log("A11YFlowAudit.clearStructureOverlay()     // remove structure overlay");
     }

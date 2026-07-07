@@ -244,6 +244,10 @@ const MAX_STEPS = 100;
 const MAX_RAW_APPENDIX_ENTRIES = MAX_STEPS * 2;
 const RAW_SOFT_COMPACT_KEEP_RECENT = 30;
 const MAX_SESSION_BYTES_ESTIMATE = 4_500_000;
+// A11y outline (screen-reader view) — stored per step in compact form.
+const MAX_A11Y_OUTLINE_STORED_NODES = 400;
+const A11Y_OUTLINE_KEEP_RECENT = 10;
+const MAX_A11Y_OUTLINE_DIFF_SHOWN = 25;
 const CAPTURE_SLOW_MS = 4000;
 
 const MODE_LABELS = {
@@ -1933,6 +1937,11 @@ function normalizeLoadedSession(session) {
     if (step.snapshots.run && !step.snapshots.run.targeting) step.snapshots.run.targeting = null;
     if (step.snapshots.active && !step.snapshots.active.targeting) step.snapshots.active.targeting = null;
     if (!step.transitionStates) step.transitionStates = null;
+    // a11y outline is optional (older sessions never carried one) — normalize
+    // anything malformed to null so all readers can rely on the shape.
+    if (!step.a11yOutline || typeof step.a11yOutline !== "object" || !Array.isArray(step.a11yOutline.nodes)) {
+      step.a11yOutline = null;
+    }
   }
   if (!out.frames || typeof out.frames !== "object") out.frames = { frameKeys: [], frameKeyToLastFrameId: {} };
   if (!Array.isArray(out.frames.frameKeys)) out.frames.frameKeys = [];
@@ -2353,7 +2362,81 @@ function buildStepDrillDownData(stepIndex) {
     }
   }
 
-  return { step, added, fixed, persisting, diff: step.diffs?.consolidated || {} };
+  // Screen-reader view (a11y outline) — guarded: older persisted sessions have
+  // no a11yOutline, and it may have been pruned by the size guard.
+  const currOutline = (step?.a11yOutline && Array.isArray(step.a11yOutline.nodes)) ? step.a11yOutline : null;
+  const prevOutline = (prevStep?.a11yOutline && Array.isArray(prevStep.a11yOutline.nodes)) ? prevStep.a11yOutline : null;
+  const outlineDiff = (currOutline && prevOutline)
+    ? diffA11yOutlines(prevOutline.nodes, currOutline.nodes)
+    : null;
+
+  return { step, added, fixed, persisting, diff: step.diffs?.consolidated || {}, outline: currOutline, outlineDiff };
+}
+
+// ---- Screen reader view (a11y outline) drill-down rendering ----
+
+/** One "+ role name" / "− role name" diff line. All page-derived text escaped. */
+function a11yOutlineDiffLineHtml(entry, sign) {
+  const role = escapeHtml(String(entry?.r || ""));
+  const name = escapeHtml(txt(entry?.n || "", 60));
+  const count = asNumber(entry?.count, 1);
+  const countBadge = count > 1 ? `<span class="srOutlineCount">×${count}</span>` : "";
+  return `<li class="srOutlineDiffItem"><span class="srOutlineSign ${sign === "+" ? "srOutlineSignAdd" : "srOutlineSignRemove"}">${sign === "+" ? "+" : "−"}</span>` +
+    `<span class="srOutlineRole">${role}</span>` +
+    `<span class="srOutlineName">${name || '<span class="structureEmpty">(no name)</span>'}</span>${countBadge}</li>`;
+}
+
+/** One node of the full outline listing — headings indented by level. */
+function a11yOutlineNodeItemHtml(node) {
+  const role = String(node?.r || "");
+  const level = asNumber(node?.l, 0);
+  const indent = role === "heading" && level > 1 ? (level - 1) * 14 : 0;
+  const badge = role === "heading" && level >= 1 ? `h${level}` : role;
+  const name = escapeHtml(txt(node?.n || "", 60));
+  return `<li class="srOutlineItem" style="padding-left:${indent}px">` +
+    `<span class="srOutlineRole">${escapeHtml(badge)}</span>` +
+    `<span class="srOutlineName">${name || '<span class="structureEmpty">(no name)</span>'}</span></li>`;
+}
+
+/**
+ * "Screen reader view changes" drill-down block: outline diff versus the
+ * previous step (only when both steps carry an outline) plus a per-step
+ * "View outline" toggle (<details> — keyboard accessible by default).
+ * Returns "" when the step has no outline data (old sessions, pruned steps,
+ * outline fetch failures) — no behavior change for sessions without outlines.
+ */
+function a11yOutlineSectionHtml(outline, outlineDiff) {
+  if (!outline && !outlineDiff) return "";
+  const parts = [];
+  if (outlineDiff) {
+    const renderDiffList = (entries, totalCount, sign) => {
+      const list = Array.isArray(entries) ? entries : [];
+      if (!totalCount) return "";
+      const shown = list.slice(0, MAX_A11Y_OUTLINE_DIFF_SHOWN);
+      const shownCount = shown.reduce((n, e) => n + asNumber(e?.count, 1), 0);
+      const more = Math.max(0, totalCount - shownCount);
+      return `<ul class="srOutlineDiffList">${shown.map(e => a11yOutlineDiffLineHtml(e, sign)).join("")}` +
+        `${more > 0 ? `<li class="srOutlineDiffItem srOutlineMore">…and ${more} more</li>` : ""}</ul>`;
+    };
+    const addedHtml = renderDiffList(outlineDiff.added, asNumber(outlineDiff.addedCount, 0), "+");
+    const removedHtml = renderDiffList(outlineDiff.removed, asNumber(outlineDiff.removedCount, 0), "-");
+    const changesHtml = (addedHtml || removedHtml)
+      ? `${addedHtml}${removedHtml}`
+      : '<span style="color:var(--tx3);font-size:12px;">No changes</span>';
+    parts.push(
+      `<div class="stepDetailSection srOutlineSection">` +
+      `<div class="stepDetailSectionTitle">Screen reader view changes (+${asNumber(outlineDiff.addedCount, 0)} / −${asNumber(outlineDiff.removedCount, 0)})</div>` +
+      changesHtml +
+      `</div>`
+    );
+  }
+  if (outline && Array.isArray(outline.nodes) && outline.nodes.length) {
+    parts.push(
+      `<details class="srOutlineDetails"><summary class="srOutlineSummary">View outline (${asNumber(outline.count, outline.nodes.length)} nodes)</summary>` +
+      `<ul class="srOutlineList">${outline.nodes.slice(0, MAX_A11Y_OUTLINE_STORED_NODES).map(a11yOutlineNodeItemHtml).join("")}</ul></details>`
+    );
+  }
+  return parts.join("");
 }
 
 function renderStepDrillDown(stepIndex) {
@@ -2420,6 +2503,7 @@ function renderStepDrillDown(stepIndex) {
       <div class="stepDetailSectionTitle">Fixed (${data.fixed.length})</div>
       ${renderFindingList(data.fixed)}
     </div>
+    ${a11yOutlineSectionHtml(data.outline, data.outlineDiff)}
   `;
 
   const detailRow = document.createElement("tr");
@@ -2977,6 +3061,27 @@ function pruneSessionRawAppendix(session) {
   for (const key of Object.keys(appendix)) {
     if (!used.has(key)) delete appendix[key];
   }
+}
+
+/**
+ * Drop a11y outlines from steps older than the last `keepRecent` (size guard —
+ * called when the estimated session size exceeds MAX_SESSION_BYTES_ESTIMATE).
+ * Diff/signature data is untouched; the drill-down simply hides the
+ * "Screen reader view changes" block for pruned steps.
+ * @returns {number} how many step outlines were removed
+ */
+function pruneSessionA11yOutlines(session, keepRecent = A11Y_OUTLINE_KEEP_RECENT) {
+  if (!session || !Array.isArray(session.steps)) return 0;
+  const cut = Math.max(0, session.steps.length - keepRecent);
+  let removed = 0;
+  for (let i = 0; i < cut; i++) {
+    const step = session.steps[i];
+    if (step && typeof step === "object" && step.a11yOutline) {
+      step.a11yOutline = null;
+      removed += 1;
+    }
+  }
+  return removed;
 }
 
 function updateSessionFramesIndex(session, step) {
@@ -4523,6 +4628,29 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     }
     const routeHint = await deriveStepRouteHint(url, baseTargeting.profileIds);
 
+    // A11y outline snapshot ("screen reader view") — best-effort; failure to
+    // fetch the outline must never fail the step capture.
+    let a11yOutline = null;
+    try {
+      const outlineFrameId = r?.run?.bestEntry?.frameId ?? state.bestFrameId ?? 0;
+      const outlineRes = await send({ type: "GET_A11Y_OUTLINE", frameId: outlineFrameId });
+      if (outlineRes?.ok && outlineRes.outline && Array.isArray(outlineRes.outline.nodes)) {
+        const compactNodes = outlineRes.outline.nodes
+          .slice(0, MAX_A11Y_OUTLINE_STORED_NODES)
+          .filter(n => n && typeof n === "object")
+          .map(n => ({
+            r: String(n.role || "").slice(0, 40),
+            n: txt(n.name || "", 60),
+            l: asNumber(n.level, 0) || 0,
+            h: String(n.pathHash || "").slice(0, 8),
+          }));
+        a11yOutline = { nodes: compactNodes, count: compactNodes.length };
+      }
+    } catch (err) {
+      console.warn("GET_A11Y_OUTLINE failed — step captured without outline", err);
+      a11yOutline = null;
+    }
+
     const step = {
       id: makeId("step"),
       index: stepIndex,
@@ -4535,6 +4663,7 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
         usedFrameIds,
         usedFrameKeys: [...usedFrameKeysSet],
       },
+      a11yOutline,
       snapshots: {
         run: runSnapshot,
         active: activeSnapshot,
@@ -4599,8 +4728,17 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     pruneSessionRawAppendix(sessionState.current);
     updateSessionFramesIndex(sessionState.current, step);
 
-    const compacted = compactSessionForExport(sessionState.current);
-    const estimatedBytes = estimateJsonBytes(compacted);
+    let compacted = compactSessionForExport(sessionState.current);
+    let estimatedBytes = estimateJsonBytes(compacted);
+    if (estimatedBytes > MAX_SESSION_BYTES_ESTIMATE) {
+      // Session too big — drop a11y outlines from older steps (keep last 10)
+      // before warning; step diffs and signatures are unaffected.
+      const droppedOutlines = pruneSessionA11yOutlines(sessionState.current);
+      if (droppedOutlines > 0) {
+        compacted = compactSessionForExport(sessionState.current);
+        estimatedBytes = estimateJsonBytes(compacted);
+      }
+    }
     if (estimatedBytes > MAX_SESSION_BYTES_ESTIMATE) {
       console.warn("session size warning", { estimatedBytes });
       toast("Session is large; exports may be compacted");
@@ -5605,15 +5743,25 @@ if (els.downloadHtmlReport) {
     const sessionSummary = (session && Array.isArray(session.steps) && session.steps.length)
       ? {
         id: session.id || "",
-        steps: session.steps.map(s => ({
-          index: s?.index ?? 0,
-          label: s?.label || "",
-          route: s?.routeHint || s?.url || "",
-          added: s?.diffs?.consolidated?.added ?? 0,
-          fixed: s?.diffs?.consolidated?.fixed ?? 0,
-          persisting: s?.diffs?.consolidated?.persisting ?? 0,
-          blockingAdded: s?.diffs?.consolidated?.blockingAdded ?? 0,
-        })),
+        steps: session.steps.map((s, i, arr) => {
+          const out = {
+            index: s?.index ?? 0,
+            label: s?.label || "",
+            route: s?.routeHint || s?.url || "",
+            added: s?.diffs?.consolidated?.added ?? 0,
+            fixed: s?.diffs?.consolidated?.fixed ?? 0,
+            persisting: s?.diffs?.consolidated?.persisting ?? 0,
+            blockingAdded: s?.diffs?.consolidated?.blockingAdded ?? 0,
+          };
+          // Screen-reader outline diff counts (guarded — outlines are optional)
+          const prev = i > 0 ? arr[i - 1] : null;
+          if (s?.a11yOutline?.nodes && prev?.a11yOutline?.nodes) {
+            const od = diffA11yOutlines(prev.a11yOutline.nodes, s.a11yOutline.nodes);
+            out.srAdded = od.addedCount;
+            out.srRemoved = od.removedCount;
+          }
+          return out;
+        }),
       }
       : null;
     const html = buildHtmlReport({

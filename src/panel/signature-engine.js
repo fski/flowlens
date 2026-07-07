@@ -833,3 +833,77 @@ function diffSnapshots(prev, next) {
   const text = `added=${added}, fixed=${removed} • high ${fmt(d("high"))}, medium ${fmt(d("medium"))}, low ${fmt(d("low"))}, info ${fmt(d("info"))}`;
   return { added, removed, text };
 }
+
+// ---- A11y outline diff (screen-reader view changes between flow steps) ----
+
+const MAX_A11Y_OUTLINE_DIFF_ENTRIES = 50;
+
+/**
+ * Normalize one outline node — accepts both the compact stored form
+ * ({r, n, l, h}) and the full snippet form ({role, name, level, pathHash}).
+ */
+function a11yOutlineNodeParts(node) {
+  const r = String(node?.r ?? node?.role ?? "").slice(0, 60);
+  const n = String(node?.n ?? node?.name ?? "").slice(0, 60);
+  const lRaw = Number(node?.l ?? node?.level ?? 0);
+  const l = Number.isFinite(lRaw) ? lRaw : 0;
+  return { r, n, l };
+}
+
+/**
+ * Multiset diff of two a11y outlines, keyed by (role|name|level) with counts —
+ * order-independent, so pure reordering of identical nodes produces no diff.
+ * Two identical buttons appearing → one added entry with count 2.
+ *
+ * @param {Array} prevNodes - previous step outline nodes (compact or full form)
+ * @param {Array} currNodes - current step outline nodes
+ * @returns {{added: Array<{r: string, n: string, l: number, count: number}>,
+ *   removed: Array<{r: string, n: string, l: number, count: number}>,
+ *   addedCount: number, removedCount: number}}
+ *   added/removed lists capped at 50 entries each; the *Count totals are uncapped.
+ */
+function diffA11yOutlines(prevNodes, currNodes) {
+  const toMultiset = (list) => {
+    const m = new Map();
+    for (const node of (Array.isArray(list) ? list : [])) {
+      if (!node || typeof node !== "object") continue;
+      const p = a11yOutlineNodeParts(node);
+      const key = `${p.r}|${p.n}|${p.l}`;
+      const entry = m.get(key);
+      if (entry) entry.count += 1;
+      else m.set(key, { r: p.r, n: p.n, l: p.l, count: 1 });
+    }
+    return m;
+  };
+
+  const prev = toMultiset(prevNodes);
+  const curr = toMultiset(currNodes);
+
+  const added = [];
+  const removed = [];
+  let addedCount = 0;
+  let removedCount = 0;
+
+  for (const [key, entry] of curr) {
+    const before = prev.get(key)?.count || 0;
+    const delta = entry.count - before;
+    if (delta > 0) {
+      addedCount += delta;
+      if (added.length < MAX_A11Y_OUTLINE_DIFF_ENTRIES) {
+        added.push({ r: entry.r, n: entry.n, l: entry.l, count: delta });
+      }
+    }
+  }
+  for (const [key, entry] of prev) {
+    const after = curr.get(key)?.count || 0;
+    const delta = entry.count - after;
+    if (delta > 0) {
+      removedCount += delta;
+      if (removed.length < MAX_A11Y_OUTLINE_DIFF_ENTRIES) {
+        removed.push({ r: entry.r, n: entry.n, l: entry.l, count: delta });
+      }
+    }
+  }
+
+  return { added, removed, addedCount, removedCount };
+}
