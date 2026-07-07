@@ -58,6 +58,7 @@ const els = {
   sevTabs: document.getElementById("sevTabs"),
   emptyState: document.getElementById("emptyState"),
   resultsZone: document.getElementById("resultsZone"),
+  bottomSheets: document.getElementById("bottomSheets"),
   shadowCoverageRow: document.getElementById("shadowCoverageRow"),
 
   // explorer
@@ -1006,7 +1007,7 @@ function showMode(mode) {
   if (contrast) contrast.hidden = mode !== "contrast";
   if (tab) tab.hidden = mode !== "tabWalk";
   if (watch) watch.hidden = mode !== "watch";
-  if (els.sevTabs) els.sevTabs.hidden = !(runLike || mode === "contrast");
+  updateSevTabsVisibility(mode);
 
   // Restore cached findings when switching between run/observe
   if (runLike && state.findingsByMode[mode]) {
@@ -1065,10 +1066,25 @@ function showView(tab, sub) {
   updateSessionButtons();
 }
 
+// Severity filter tabs stay hidden until the first result exists — showing
+// ALL/CRIT./HIGH/… placeholders with "–" counts before any run is noise.
+function updateSevTabsVisibility(mode = state.activeMode || "run") {
+  if (!els.sevTabs) return;
+  const runLike = mode === "run" || mode === "observe";
+  const modeHasSevTabs = runLike || mode === "contrast";
+  const hasAnyResults = state.records.length > 0 || state.hasRunMode.size > 0;
+  els.sevTabs.hidden = !modeHasSevTabs || !hasAnyResults;
+}
+
 function updateResultsVisibility(forceValue = null) {
   const hasResults = typeof forceValue === "boolean" ? forceValue : state.records.length > 0;
   const hasSessionExport = !!(sessionState.current || sessionState.lastEndedSession);
   if (els.emptyState) els.emptyState.hidden = hasResults;
+  // Bottom sheets (Past runs / Raw JSON) only make sense once something ran
+  if (els.bottomSheets) {
+    els.bottomSheets.hidden = !(hasResults || state.records.length > 0 || hasSessionExport);
+  }
+  updateSevTabsVisibility();
   if (els.resultsZone) {
     els.resultsZone.hidden = !hasResults;
     els.resultsZone.classList.toggle("visible", !!hasResults);
@@ -5393,10 +5409,14 @@ async function saveCustomProfiles() {
   await storageSet({ customProfiles: custom });
 }
 
+// Non-conversational archetype profiles shown under the "General" heading.
+const GENERAL_PROFILE_IDS = new Set(["form_flow_v2", "spa_content_v2", "dashboard_v2"]);
+
 function renderProfileSelect() {
   if (!els.profileSelect) return;
   els.profileSelect.innerHTML = "";
-  for (const [id, p] of Object.entries(profileState.profiles)) {
+
+  const makePill = ([id, p]) => {
     const isActive = profileState.active.includes(id);
     const label = document.createElement("label");
     label.className = `profilePill${isActive ? " active" : ""}`;
@@ -5419,6 +5439,26 @@ function renderProfileSelect() {
     label.appendChild(cb);
     label.appendChild(span);
     els.profileSelect.appendChild(label);
+  };
+
+  const conversational = [];
+  const general = [];
+  for (const entry of Object.entries(profileState.profiles)) {
+    const [id] = entry;
+    // Legacy builtin profiles ("helpcenter"/"chat") stay functional — recipes
+    // reference them via profileAllowlist — but their pills near-duplicate the
+    // generic/v2 ones, so they are omitted from the picker unless active.
+    if (id in BUILTIN_PROFILES && !profileState.active.includes(id)) continue;
+    (GENERAL_PROFILE_IDS.has(id) ? general : conversational).push(entry);
+  }
+
+  for (const [heading, entries] of [["Conversational", conversational], ["General", general]]) {
+    if (!entries.length) continue;
+    const head = document.createElement("span");
+    head.className = "profileGroupLabel";
+    head.textContent = heading;
+    els.profileSelect.appendChild(head);
+    entries.forEach(makePill);
   }
 }
 

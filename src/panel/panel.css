@@ -134,6 +134,19 @@
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
+
+/* The hidden attribute always wins — some components set display on the
+   element itself (e.g. .btn, .scoreChip), which would otherwise override
+   the UA's [hidden] { display: none } rule and leak empty artifacts. */
+[hidden] { display: none !important; }
+
+/* Content column: bands stay full-width, their content is capped and
+   centered on wide panels. --content-gutter resolves per-element (the %
+   is relative to the element's own containing block). */
+:root {
+  --content-max: 800px;
+  --content-gutter: max(16px, calc((100% - var(--content-max)) / 2));
+}
 body {
   margin: 0;
   background: var(--bg);
@@ -441,6 +454,8 @@ body {
 }
 
 .targetingSummary {
+  align-self: start;
+  justify-self: start;
   padding: 8px 10px;
   border-radius: var(--radius-xs);
   border: 1px solid var(--brd0);
@@ -927,7 +942,7 @@ kbd {
 
 /* ═══ CTA BUTTONS ═══ */
 .ctaSlot {
-  padding: 16px;
+  padding: 16px var(--content-gutter);
   background: var(--raised);
 }
 
@@ -1030,9 +1045,9 @@ kbd {
 
 /* Flow tab onboarding hint (idle state only) */
 .flowIdleHint {
-  margin: 12px auto 4px;
-  padding: 12px 16px 12px 32px;
-  max-width: 460px;
+  margin: 10px auto;
+  padding: 10px 14px 10px 30px;
+  width: min(460px, calc(100% - 24px));
   color: var(--tx2);
   font: 400 12px/1.6 var(--font-mono);
   border: 1px dashed var(--brd2);
@@ -1041,9 +1056,37 @@ kbd {
 .flowIdleHint li + li { margin-top: 4px; }
 .flowIdleHint strong { color: var(--tx); }
 
+/* ═══ TOOLS ROW (Assist / Page structure / Guided checks) ═══ */
+.toolsRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 var(--content-gutter) 12px;
+  background: var(--raised);
+  border-bottom: 1px solid var(--brd0);
+}
+
+.toolsRowLabel {
+  font: 600 10px/1 var(--font-mono);
+  color: var(--tx4);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+/* Closed: each details shrinks to its summary chip. Open: it takes a
+   full row of its own so the body has room, other chips wrap around. */
+.toolsRow > .assistBar {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+}
+.toolsRow > .assistBar[open] { flex: 1 1 100%; }
+
 /* ═══ ASSIST TOOLBOX ═══ */
 .assistBar {
-  padding: 0 16px 12px;
+  padding: 0 var(--content-gutter) 12px;
   background: var(--raised);
 }
 
@@ -1270,7 +1313,7 @@ kbd {
 .sevTabs {
   display: flex;
   gap: 4px;
-  padding: 0 8px;
+  padding: 0 max(8px, calc((100% - var(--content-max)) / 2));
   background: var(--raised);
   border-bottom: 2px solid var(--brd);
 }
@@ -1416,6 +1459,7 @@ kbd {
 /* ═══ FLOW SESSION COUNTERS ═══ */
 .flowCounterRow {
   display: flex;
+  padding: 0 max(0px, calc((100% - var(--content-max)) / 2));
   background: var(--raised);
   border-top: 2px solid var(--brd);
   border-bottom: 2px solid var(--brd);
@@ -1546,7 +1590,7 @@ kbd {
 .flowCounterSparkline svg { display: block; }
 
 /* ═══ FLOW VERDICT ═══ */
-.flowVerdict { display: flex; align-items: center; gap: 10px; padding: 10px 16px; font: 600 13px/1.4 var(--font-mono); border-bottom: 2px solid var(--brd); }
+.flowVerdict { display: flex; align-items: center; gap: 10px; padding: 10px var(--content-gutter); font: 600 13px/1.4 var(--font-mono); border-bottom: 2px solid var(--brd); }
 .flowVerdict[hidden] { display: none; }
 .flowVerdict--pass { background: rgba(76,175,80,0.08); border-left: 3px solid var(--green); }
 .flowVerdict--fail { background: rgba(244,104,106,0.08); border-left: 3px solid var(--red); }
@@ -1625,7 +1669,7 @@ kbd {
   gap: 8px;
   width: 100%;
   min-height: 40px;
-  padding: 7px 16px;
+  padding: 7px var(--content-gutter);
   border: 0;
   background: var(--raised);
   color: var(--tx2);
@@ -1664,7 +1708,7 @@ kbd {
 }
 
 .accordionBody {
-  padding: 12px 16px;
+  padding: 12px var(--content-gutter);
 }
 
 .accordionBody[hidden] { display: none; }
@@ -1762,8 +1806,39 @@ kbd {
 
 /* ═══ SETTINGS ═══ */
 .settingsPane {
-  padding: 16px;
+  padding: 16px var(--content-gutter);
 }
+
+.settingsAdvanced {
+  margin-top: 20px;
+  border-top: 1px solid var(--brd0);
+  padding-top: 12px;
+}
+
+.settingsAdvanced > summary {
+  display: inline-block;
+  padding: 4px 8px;
+  border: 1px solid var(--brd);
+  border-radius: var(--radius-sm);
+  color: var(--tx2);
+  font: 600 12px/1 var(--font-mono);
+  cursor: pointer;
+  user-select: none;
+  transition: color .15s, background-color .15s, border-color .15s;
+}
+
+.settingsAdvanced > summary:hover {
+  background: var(--overlay);
+  border-color: var(--brd2);
+  color: var(--tx);
+}
+
+.settingsAdvanced > summary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--bg), 0 0 0 4px var(--infoB);
+}
+
+.settingsAdvanced[open] > summary { color: var(--tx); margin-bottom: 16px; }
 
 .lastStatusLine {
   padding: 7px 10px;
@@ -1889,7 +1964,7 @@ kbd {
 
 .progress {
   display: none;
-  padding: 12px 16px;
+  padding: 12px var(--content-gutter);
   background: var(--surface);
   border: 1px solid var(--brd);
   border-radius: 2px;
@@ -2321,6 +2396,17 @@ kbd {
   gap: 4px;
 }
 
+.profileGroupLabel {
+  flex: 1 1 100%;
+  margin-top: 6px;
+  font: 600 10px/1 var(--font-mono);
+  color: var(--tx4);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.profileGroupLabel:first-child { margin-top: 0; }
+
 .profilePill {
   display: inline-flex;
   align-items: center;
@@ -2416,7 +2502,7 @@ kbd {
 }
 
 .emptyLogo {
-  width: 160px;
+  width: 140px;
   height: auto;
   opacity: 0.5;
 }
@@ -2462,6 +2548,7 @@ kbd {
   flex: 1;
   min-height: 0;
   width: 100%;
+  padding: 0 max(0px, calc((100% - var(--content-max)) / 2));
   animation: fadeUp .2s ease-out;
 }
 
@@ -2622,7 +2709,7 @@ kbd {
 
 body.compact .wrap { gap: 0; }
 body.compact .headerBar { padding: 4px 12px; }
-body.compact .ctaSlot { padding: 8px 12px 0; }
+body.compact .ctaSlot { padding: 8px max(12px, calc((100% - var(--content-max)) / 2)) 0; }
 body.compact .ctaBtn { min-height: 40px; font-size: 13px; }
 body.compact .subTab { min-height: 40px; }
 body.compact .topTab { min-height: 40px; }
@@ -2665,6 +2752,8 @@ body.compact .brandLogo { width: 72px; height: auto; }
 
 @media (max-width: 640px) {
   .settingsGrid { grid-template-columns: 1fr; gap: 12px; }
+  /* Keyboard-shortcut keycaps crowd the tab bars in narrow panels */
+  .topTab .keycap { display: none; }
 }
 @media (max-width: 480px) {
   .sessionInfoGrid { grid-template-columns: auto 1fr; }

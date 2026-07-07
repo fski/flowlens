@@ -75,6 +75,9 @@
           <p class="helperText" id="snapHelper">Perform a strict WCAG Audit</p>
         </div>
 
+        <!-- Tools row: Assist / Page structure / Guided checks as one collapsed toolbar -->
+        <div class="toolsRow" id="toolsRow">
+        <span class="toolsRowLabel" aria-hidden="true">Tools</span>
         <!-- Assist toolbox: WCAG stress tests + vision simulators on the inspected page -->
         <details class="assistBar" id="assistBar">
           <summary class="assistSummary">Assist</summary>
@@ -133,9 +136,10 @@
             </div>
           </div>
         </details>
+        </div><!-- /toolsRow -->
 
-        <!-- Severity filter tabs -->
-        <div class="sevTabs" id="sevTabs" role="tablist" aria-label="Filter by severity"></div>
+        <!-- Severity filter tabs (revealed once the first result exists) -->
+        <div class="sevTabs" id="sevTabs" role="tablist" aria-label="Filter by severity" hidden></div>
 
         <!-- Progress -->
         <div class="progress" id="progressWrap" hidden role="status" aria-live="polite" aria-atomic="true" aria-label="Audit progress">
@@ -290,8 +294,8 @@
           <ul class="manualChecksList" id="manualChecksList"></ul>
         </details>
 
-        <!-- Bottom Sheets -->
-        <div class="bottomSheets" id="bottomSheets">
+        <!-- Bottom Sheets (revealed once the first run/record exists) -->
+        <div class="bottomSheets" id="bottomSheets" hidden>
           <section class="bottomSheet bottomSheet--runs">
             <button class="sheetHeader" id="pastRunsToggle" type="button" aria-expanded="false" aria-controls="pastRunsBody">
               <img class="sheetIcon" src="icons/Past Icon.svg" alt="" width="12" height="12" aria-hidden="true" />
@@ -488,6 +492,7 @@
       <div id="settingsContent" role="tabpanel" aria-labelledby="topTabSettings" hidden inert>
 
         <section class="settingsPane">
+          <!-- Basics: always visible -->
           <div class="settingsGrid">
               <div class="settingsGroup">
                 <span class="settingsLabel">Display</span>
@@ -515,6 +520,12 @@
                   <option value="3" selected>Deep — + live widget integrity</option>
                 </select>
               </div>
+          </div>
+
+          <!-- Advanced: collapsed by default -->
+          <details class="settingsAdvanced" id="settingsAdvanced">
+            <summary class="settingsAdvancedSummary">Advanced</summary>
+            <div class="settingsGrid">
               <div class="settingsGroup">
                 <span class="settingsLabel">Page type</span>
                 <label class="sr-only" for="recipeSelect">Page type preset</label>
@@ -558,7 +569,8 @@
                 <span class="settingsLabel">Console logging</span>
                 <label class="switch"><input id="alsoConsole" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Log to console</span></label>
               </div>
-          </div>
+            </div>
+          </details>
         </section>
 
       </div><!-- /settingsContent -->
