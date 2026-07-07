@@ -108,36 +108,44 @@ describe("filterFindingsByDepth", () => {
 describe("Depth-3 engine rules (C1/C2)", () => {
   const ctx = createContext();
 
-  it("CHAT_NEW_MESSAGE_NOT_ANNOUNCED has depthLevel 3", () => {
+  it("LIVE_CONTENT_NOT_ANNOUNCED has depthLevel 3", () => {
+    assert.equal(ctx.__RULE_TO_WCAG.LIVE_CONTENT_NOT_ANNOUNCED.depthLevel, 3);
+  });
+
+  it("INPUT_LOSES_FOCUS_ON_UPDATE has depthLevel 3", () => {
+    assert.equal(ctx.__RULE_TO_WCAG.INPUT_LOSES_FOCUS_ON_UPDATE.depthLevel, 3);
+  });
+
+  it("depthMax=2 excludes LIVE_CONTENT_NOT_ANNOUNCED", () => {
+    const findings = [{ type: "LIVE_CONTENT_NOT_ANNOUNCED", severity: "medium" }];
+    const result = ctx.filterFindingsByDepth(findings, 2);
+    assert.equal(result.length, 0);
+  });
+
+  it("depthMax=3 includes LIVE_CONTENT_NOT_ANNOUNCED", () => {
+    const findings = [{ type: "LIVE_CONTENT_NOT_ANNOUNCED", severity: "medium" }];
+    const result = ctx.filterFindingsByDepth(findings, 3);
+    assert.equal(result.length, 1);
+  });
+
+  it("depthMax=2 excludes INPUT_LOSES_FOCUS_ON_UPDATE", () => {
+    const findings = [{ type: "INPUT_LOSES_FOCUS_ON_UPDATE", severity: "medium" }];
+    const result = ctx.filterFindingsByDepth(findings, 2);
+    assert.equal(result.length, 0);
+  });
+
+  it("depthMax=3 includes INPUT_LOSES_FOCUS_ON_UPDATE", () => {
+    const findings = [{ type: "INPUT_LOSES_FOCUS_ON_UPDATE", severity: "medium" }];
+    const result = ctx.filterFindingsByDepth(findings, 3);
+    assert.equal(result.length, 1);
+  });
+
+  it("legacy ids from old sessions keep depthLevel 3 filtering behavior", () => {
     assert.equal(ctx.__RULE_TO_WCAG.CHAT_NEW_MESSAGE_NOT_ANNOUNCED.depthLevel, 3);
-  });
-
-  it("CHAT_INPUT_LOSES_FOCUS_ON_UPDATE has depthLevel 3", () => {
     assert.equal(ctx.__RULE_TO_WCAG.CHAT_INPUT_LOSES_FOCUS_ON_UPDATE.depthLevel, 3);
-  });
-
-  it("depthMax=2 excludes CHAT_NEW_MESSAGE_NOT_ANNOUNCED", () => {
-    const findings = [{ type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED", severity: "medium" }];
-    const result = ctx.filterFindingsByDepth(findings, 2);
-    assert.equal(result.length, 0);
-  });
-
-  it("depthMax=3 includes CHAT_NEW_MESSAGE_NOT_ANNOUNCED", () => {
-    const findings = [{ type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED", severity: "medium" }];
-    const result = ctx.filterFindingsByDepth(findings, 3);
-    assert.equal(result.length, 1);
-  });
-
-  it("depthMax=2 excludes CHAT_INPUT_LOSES_FOCUS_ON_UPDATE", () => {
-    const findings = [{ type: "CHAT_INPUT_LOSES_FOCUS_ON_UPDATE", severity: "medium" }];
-    const result = ctx.filterFindingsByDepth(findings, 2);
-    assert.equal(result.length, 0);
-  });
-
-  it("depthMax=3 includes CHAT_INPUT_LOSES_FOCUS_ON_UPDATE", () => {
-    const findings = [{ type: "CHAT_INPUT_LOSES_FOCUS_ON_UPDATE", severity: "medium" }];
-    const result = ctx.filterFindingsByDepth(findings, 3);
-    assert.equal(result.length, 1);
+    const legacy = [{ type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED", severity: "medium" }];
+    assert.equal(ctx.filterFindingsByDepth(legacy, 2).length, 0);
+    assert.equal(ctx.filterFindingsByDepth(legacy, 3).length, 1);
   });
 });
 
@@ -148,12 +156,12 @@ describe("Depth-3 engine rules (C1/C2)", () => {
 describe("Depth-3 engine rules (C3/C4)", () => {
   const ctx = createContext();
 
-  it("CHAT_FEED_MISSING_ROLE has depthLevel 3", () => {
-    assert.equal(ctx.__RULE_TO_WCAG.CHAT_FEED_MISSING_ROLE.depthLevel, 3);
+  it("LIVE_REGION_MISSING_ROLE has depthLevel 3", () => {
+    assert.equal(ctx.__RULE_TO_WCAG.LIVE_REGION_MISSING_ROLE.depthLevel, 3);
   });
 
-  it("CHAT_MESSAGE_NOT_ITEMIZED has depthLevel 3", () => {
-    assert.equal(ctx.__RULE_TO_WCAG.CHAT_MESSAGE_NOT_ITEMIZED.depthLevel, 3);
+  it("LIVE_ITEM_NOT_ITEMIZED has depthLevel 3", () => {
+    assert.equal(ctx.__RULE_TO_WCAG.LIVE_ITEM_NOT_ITEMIZED.depthLevel, 3);
   });
 
   it("ANNOUNCEMENT_IN_DIFFERENT_FRAME has depthLevel 3", () => {
@@ -164,23 +172,23 @@ describe("Depth-3 engine rules (C3/C4)", () => {
     assert.equal(ctx.__RULE_TO_WCAG.COMPOSER_AND_FEED_SPLIT_WITHOUT_LINKAGE.depthLevel, 3);
   });
 
-  it("depthMax=2 excludes CHAT_FEED_MISSING_ROLE", () => {
-    const result = ctx.filterFindingsByDepth([{ type: "CHAT_FEED_MISSING_ROLE", severity: "medium" }], 2);
+  it("depthMax=2 excludes LIVE_REGION_MISSING_ROLE", () => {
+    const result = ctx.filterFindingsByDepth([{ type: "LIVE_REGION_MISSING_ROLE", severity: "medium" }], 2);
     assert.equal(result.length, 0);
   });
 
-  it("depthMax=3 includes CHAT_FEED_MISSING_ROLE", () => {
-    const result = ctx.filterFindingsByDepth([{ type: "CHAT_FEED_MISSING_ROLE", severity: "medium" }], 3);
+  it("depthMax=3 includes LIVE_REGION_MISSING_ROLE", () => {
+    const result = ctx.filterFindingsByDepth([{ type: "LIVE_REGION_MISSING_ROLE", severity: "medium" }], 3);
     assert.equal(result.length, 1);
   });
 
-  it("depthMax=2 excludes CHAT_MESSAGE_NOT_ITEMIZED", () => {
-    const result = ctx.filterFindingsByDepth([{ type: "CHAT_MESSAGE_NOT_ITEMIZED", severity: "low" }], 2);
+  it("depthMax=2 excludes LIVE_ITEM_NOT_ITEMIZED", () => {
+    const result = ctx.filterFindingsByDepth([{ type: "LIVE_ITEM_NOT_ITEMIZED", severity: "low" }], 2);
     assert.equal(result.length, 0);
   });
 
-  it("depthMax=3 includes CHAT_MESSAGE_NOT_ITEMIZED", () => {
-    const result = ctx.filterFindingsByDepth([{ type: "CHAT_MESSAGE_NOT_ITEMIZED", severity: "low" }], 3);
+  it("depthMax=3 includes LIVE_ITEM_NOT_ITEMIZED", () => {
+    const result = ctx.filterFindingsByDepth([{ type: "LIVE_ITEM_NOT_ITEMIZED", severity: "low" }], 3);
     assert.equal(result.length, 1);
   });
 

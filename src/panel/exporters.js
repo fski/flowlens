@@ -849,7 +849,11 @@ function compareAgainstBaseline(baseline, currentFindings, frameKeyStable, mode 
   const baselineIssues = Array.isArray(baseline?.issues) ? baseline.issues : [];
   const baselineSigs = new Set();
   for (const issue of baselineIssues) {
-    if (issue && typeof issue.signature === "string" && issue.signature) baselineSigs.add(issue.signature);
+    // Canonicalize stored signatures (signature-engine.js) so baselines saved
+    // under deprecated rule ids still match findings emitted under renamed ids.
+    if (issue && typeof issue.signature === "string" && issue.signature) {
+      baselineSigs.add(canonicalizeStableSignature(issue.signature));
+    }
   }
   const current = Array.isArray(currentFindings) ? currentFindings : [];
   const currentSigs = new Set();
@@ -862,7 +866,8 @@ function compareAgainstBaseline(baseline, currentFindings, frameKeyStable, mode 
     else newIssues.push(f);
   }
   const resolvedIssues = baselineIssues.filter(issue =>
-    issue && typeof issue.signature === "string" && issue.signature && !currentSigs.has(issue.signature)
+    issue && typeof issue.signature === "string" && issue.signature
+      && !currentSigs.has(canonicalizeStableSignature(issue.signature))
   );
   return { newIssues, resolvedIssues, matchedCount };
 }

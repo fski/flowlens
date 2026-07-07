@@ -317,7 +317,7 @@ describe("stateTransitionEngine", () => {
     });
   });
 
-  // ── evaluateC1 (CHAT_NEW_MESSAGE_NOT_ANNOUNCED) ─────────────────────────
+  // ── evaluateC1 (LIVE_CONTENT_NOT_ANNOUNCED) ─────────────────────────
   describe("evaluateC1", () => {
     it("fires when messageCountDelta>=1, no live region, and feed exists", () => {
       const ctx = createEngineContext();
@@ -328,7 +328,7 @@ describe("stateTransitionEngine", () => {
       const delta = ctx.__buildStateDelta(prev, next);
       const result = ctx.__evaluateC1(delta, prev, next, { emittedSet: new Set() });
       assert.notEqual(result, null);
-      assert.equal(result.type, "CHAT_NEW_MESSAGE_NOT_ANNOUNCED");
+      assert.equal(result.type, "LIVE_CONTENT_NOT_ANNOUNCED");
       assert.equal(result.severity, "medium");
     });
 
@@ -452,7 +452,7 @@ describe("stateTransitionEngine", () => {
     });
   });
 
-  // ── evaluateC2 (CHAT_INPUT_LOSES_FOCUS_ON_UPDATE) ───────────────────────
+  // ── evaluateC2 (INPUT_LOSES_FOCUS_ON_UPDATE) ───────────────────────
   describe("evaluateC2", () => {
     it("fires when composerLostFocus and messageCountDelta>=1", () => {
       const ctx = createEngineContext();
@@ -471,7 +471,7 @@ describe("stateTransitionEngine", () => {
       const delta = ctx.__buildStateDelta(prev, next);
       const result = ctx.__evaluateC2(delta, prev, next, { emittedSet: new Set() });
       assert.notEqual(result, null);
-      assert.equal(result.type, "CHAT_INPUT_LOSES_FOCUS_ON_UPDATE");
+      assert.equal(result.type, "INPUT_LOSES_FOCUS_ON_UPDATE");
     });
 
     it("fires when composerLostFocus and announceEventCountDelta>=1", () => {
@@ -869,7 +869,7 @@ describe("stateTransitionEngine", () => {
     });
   });
 
-  // ── evaluateC3_1 (CHAT_FEED_MISSING_ROLE) ─────────────────────────────────
+  // ── evaluateC3_1 (LIVE_REGION_MISSING_ROLE) ─────────────────────────────────
   describe("evaluateC3_1", () => {
     it("fires when feedLocator exists and feedRole is 'none'", () => {
       const ctx = createEngineContext();
@@ -877,7 +877,7 @@ describe("stateTransitionEngine", () => {
         captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "generic" })] }) });
       const result = ctx.__evaluateC3_1(null, null, next, { emittedSet: new Set() });
       assert.notEqual(result, null);
-      assert.equal(result.type, "CHAT_FEED_MISSING_ROLE");
+      assert.equal(result.type, "LIVE_REGION_MISSING_ROLE");
       assert.equal(result.severity, "medium");
     });
 
@@ -954,7 +954,7 @@ describe("stateTransitionEngine", () => {
     });
   });
 
-  // ── evaluateC3_2 (CHAT_MESSAGE_NOT_ITEMIZED) ──────────────────────────────
+  // ── evaluateC3_2 (LIVE_ITEM_NOT_ITEMIZED) ──────────────────────────────
   describe("evaluateC3_2", () => {
     it("fires when feedLocator + messageCount>=2 + score01<0.5", () => {
       const ctx = createEngineContext();
@@ -965,7 +965,7 @@ describe("stateTransitionEngine", () => {
         })] }) });
       const result = ctx.__evaluateC3_2(null, null, next, { emittedSet: new Set() });
       assert.notEqual(result, null);
-      assert.equal(result.type, "CHAT_MESSAGE_NOT_ITEMIZED");
+      assert.equal(result.type, "LIVE_ITEM_NOT_ITEMIZED");
       assert.equal(result.severity, "low");
     });
 
@@ -1275,7 +1275,7 @@ describe("stateTransitionEngine", () => {
       const resolvedEl = fakeMap.get(result.evidenceLocatorHash) || null;
       assert.equal(resolvedEl, null); // no element found
       assert.notEqual(result, null); // but finding is still emitted
-      assert.equal(result.type, "CHAT_NEW_MESSAGE_NOT_ANNOUNCED");
+      assert.equal(result.type, "LIVE_CONTENT_NOT_ANNOUNCED");
     });
   });
 });

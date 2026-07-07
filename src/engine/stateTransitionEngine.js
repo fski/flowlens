@@ -235,7 +235,7 @@ function buildStateDelta(prevState, nextState) {
   };
 }
 
-// ── Rule: C1 — CHAT_NEW_MESSAGE_NOT_ANNOUNCED ───────────────────────────────
+// ── Rule: C1 — LIVE_CONTENT_NOT_ANNOUNCED (formerly CHAT_NEW_MESSAGE_NOT_ANNOUNCED)
 
 function evaluateC1(delta, prevState, nextState, opts) {
   const o = opts || {};
@@ -274,17 +274,17 @@ function evaluateC1(delta, prevState, nextState, opts) {
   }
 
   return {
-    type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED",
+    type: "LIVE_CONTENT_NOT_ANNOUNCED",
     severity,
     wcag: "4.1.3",
     confidence: "heuristic",
-    note: "Chat container received new messages but lacks announcement semantics (role=log, role=feed, or aria-live)." + noteSuffix,
+    note: "Live content region received new items but lacks announcement semantics (role=log, role=feed, or aria-live)." + noteSuffix,
     evidenceLocatorHash: evidenceHash,
     evidenceCssPath: delta.evidence.feedLocator ? delta.evidence.feedLocator.cssPath : null,
   };
 }
 
-// ── Rule: C2 — CHAT_INPUT_LOSES_FOCUS_ON_UPDATE ─────────────────────────────
+// ── Rule: C2 — INPUT_LOSES_FOCUS_ON_UPDATE (formerly CHAT_INPUT_LOSES_FOCUS_ON_UPDATE)
 
 function evaluateC2(delta, prevState, nextState, opts) {
   const o = opts || {};
@@ -329,11 +329,11 @@ function evaluateC2(delta, prevState, nextState, opts) {
   }
 
   return {
-    type: "CHAT_INPUT_LOSES_FOCUS_ON_UPDATE",
+    type: "INPUT_LOSES_FOCUS_ON_UPDATE",
     severity,
     wcag: "2.4.3",
     confidence: "heuristic",
-    note: "Chat input lost focus after a content update; may disrupt typing." + noteSuffix,
+    note: "Input lost focus after a content update; may disrupt typing." + noteSuffix,
     evidenceLocatorHash: evidenceHash,
     evidenceCssPath: delta.evidence.composerLocator ? delta.evidence.composerLocator.cssPath : null,
   };
@@ -364,7 +364,7 @@ function buildTransitionStateSummary(state) {
   };
 }
 
-// ── Rule: C3.1 — CHAT_FEED_MISSING_ROLE ─────────────────────────────────────
+// ── Rule: C3.1 — LIVE_REGION_MISSING_ROLE (formerly CHAT_FEED_MISSING_ROLE)
 
 function evaluateC3_1(delta, prevState, nextState, opts) {
   const o = opts || {};
@@ -396,17 +396,17 @@ function evaluateC3_1(delta, prevState, nextState, opts) {
   }
 
   return {
-    type: "CHAT_FEED_MISSING_ROLE",
+    type: "LIVE_REGION_MISSING_ROLE",
     severity,
     wcag: "1.3.1",
     confidence: "heuristic",
-    note: "Chat feed container detected but lacks role=\"log\" or role=\"feed\" for assistive technology." + noteSuffix,
+    note: "Live content container detected but lacks role=\"log\" or role=\"feed\" for assistive technology." + noteSuffix,
     evidenceLocatorHash: evidenceHash,
     evidenceCssPath: chat.feedLocator ? chat.feedLocator.cssPath : null,
   };
 }
 
-// ── Rule: C3.2 — CHAT_MESSAGE_NOT_ITEMIZED ───────────────────────────────────
+// ── Rule: C3.2 — LIVE_ITEM_NOT_ITEMIZED (formerly CHAT_MESSAGE_NOT_ITEMIZED)
 
 function evaluateC3_2(delta, prevState, nextState, opts) {
   const o = opts || {};
@@ -440,11 +440,11 @@ function evaluateC3_2(delta, prevState, nextState, opts) {
   }
 
   return {
-    type: "CHAT_MESSAGE_NOT_ITEMIZED",
+    type: "LIVE_ITEM_NOT_ITEMIZED",
     severity,
     wcag: "1.3.1",
     confidence: "heuristic",
-    note: "Chat messages are not represented with semantic item roles (article, listitem)." + noteSuffix,
+    note: "Live region items are not represented with semantic item roles (article, listitem)." + noteSuffix,
     evidenceLocatorHash: evidenceHash,
     evidenceCssPath: chat.feedLocator ? chat.feedLocator.cssPath : null,
   };

@@ -268,19 +268,19 @@ describe("Group filter + normalization integration", () => {
 
   it("filterFindingsByGroup then normalize produces consistent results", () => {
     const findings = [
-      { type: "CHAT_FEED_MISSING_ROLE", severity: "high", name: "A" },
+      { type: "LIVE_REGION_MISSING_ROLE", severity: "high", name: "A" },
       { type: "MISSING_ALT", severity: "low", name: "B" },
       { type: "COMPOSER_AND_FEED_SPLIT_WITHOUT_LINKAGE", severity: "high", name: "C" },
     ];
     const filtered = ctx.filterFindingsByGroup(findings, "depth3/semantics");
     const normalized = filtered.map(ctx.normalizeFindingForRender);
     assert.equal(normalized.length, 1);
-    assert.equal(normalized[0].type, "CHAT_FEED_MISSING_ROLE");
+    assert.equal(normalized[0].type, "LIVE_REGION_MISSING_ROLE");
   });
 
   it("normalization before group filter does not break filtering", () => {
     const findings = [
-      { type: "CHAT_FEED_MISSING_ROLE", severity: "HIGH", name: "A" },
+      { type: "LIVE_REGION_MISSING_ROLE", severity: "HIGH", name: "A" },
       { type: "MISSING_ALT", severity: "low", name: "B" },
     ];
     const normalized = findings.map(ctx.normalizeFindingForRender);

@@ -126,8 +126,8 @@ describe("updateIntegrityOverview", () => {
 
 describe("filterFindingsByGroup", () => {
   const semanticsFindings = [
-    { type: "CHAT_FEED_MISSING_ROLE", name: "Feed missing role", severity: "error" },
-    { type: "CHAT_MESSAGE_NOT_ITEMIZED", name: "Not itemized", severity: "warning" },
+    { type: "LIVE_REGION_MISSING_ROLE", name: "Feed missing role", severity: "error" },
+    { type: "LIVE_ITEM_NOT_ITEMIZED", name: "Not itemized", severity: "warning" },
   ];
   const multiframeFindings = [
     { type: "COMPOSER_AND_FEED_SPLIT_WITHOUT_LINKAGE", name: "Split", severity: "error" },
@@ -144,7 +144,7 @@ describe("filterFindingsByGroup", () => {
   it("returns only semantics findings when group is depth3/semantics", () => {
     const result = ctx.filterFindingsByGroup(all, "depth3/semantics");
     assert.equal(result.length, 2);
-    assert.ok(result.every(f => f.type === "CHAT_FEED_MISSING_ROLE" || f.type === "CHAT_MESSAGE_NOT_ITEMIZED"));
+    assert.ok(result.every(f => f.type === "LIVE_REGION_MISSING_ROLE" || f.type === "LIVE_ITEM_NOT_ITEMIZED"));
   });
 
   it("returns only multiframe findings when group is depth3/multiframe", () => {
@@ -246,7 +246,7 @@ describe("Cross-frame detection logic", () => {
 
   it("el:null + non-multiframe group → not cross-frame", () => {
     assert.equal(isCrossFrame({
-      type: "CHAT_FEED_MISSING_ROLE",  // group: depth3/semantics
+      type: "LIVE_REGION_MISSING_ROLE",  // group: depth3/semantics
     }), false);
   });
 

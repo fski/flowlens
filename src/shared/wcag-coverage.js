@@ -2,7 +2,7 @@
 // Versioned: bump WCAG_COVERAGE_VERSION when criteria list or rule mappings change.
 // Local-only, no network. Consumed by panel.js coverage functions.
 
-const WCAG_COVERAGE_VERSION = 5;
+const WCAG_COVERAGE_VERSION = 6;
 
 const WCAG_TARGET = { version: "2.2", level: "AA" };
 
@@ -78,11 +78,14 @@ const WCAG_CRITERIA = [
 ];
 
 /**
- * Map: ruleType → { criterion, level, confidence, also?, reason? }.
+ * Map: ruleType → { criterion, level, confidence, also?, reason?, deprecated?, replacedBy? }.
  * criterion is the primary WCAG criterion; compound mappings use the first.
  * criterion: null for non-WCAG rules (reason field explains why).
  * confidence: "strict" | "heuristic" | "advisory" | null (null = inferred from snippet defaults).
  * reason: present only when criterion is null — "diagnostic" or "out-of-scope-aaa".
+ * deprecated: true for legacy rule ids kept only so persisted findings from old
+ *   sessions/baselines still render metadata; replacedBy names the canonical id.
+ *   New audits never emit deprecated ids (see LEGACY_RULE_ALIASES in signature-engine.js).
  * Sorted alphabetically by ruleType.
  */
 const RULE_TO_WCAG = {
@@ -107,14 +110,18 @@ const RULE_TO_WCAG = {
   BROKEN_ARIA_REFERENCE:                   { criterion: "4.1.2", level: "A", confidence: null, depthLevel: 1 },
   BUTTON_WITHOUT_TYPE:                     { criterion: "2.1.1", level: "A", confidence: "heuristic", depthLevel: 2 },
   CHAT_AVATAR_NO_ALT:                      { criterion: "1.1.1", level: "A", confidence: null, depthLevel: 2, conversationalTag: "chat" },
-  CHAT_FEED_MISSING_ROLE:                  { criterion: "1.3.1", level: "A", confidence: "heuristic", depthLevel: 3, conversationalTag: "chat", group: "depth3/semantics" },
-  CHAT_INPUT_LOSES_FOCUS_ON_UPDATE:        { criterion: "2.4.3", level: "A", confidence: "heuristic", depthLevel: 3, conversationalTag: "chat", group: "depth3/focus" },
+  // Deprecated legacy id — new audits emit LIVE_REGION_MISSING_ROLE.
+  CHAT_FEED_MISSING_ROLE:                  { criterion: "1.3.1", level: "A", confidence: "heuristic", depthLevel: 3, conversationalTag: "chat", group: "depth3/semantics", deprecated: true, replacedBy: "LIVE_REGION_MISSING_ROLE" },
+  // Deprecated legacy id — new audits emit INPUT_LOSES_FOCUS_ON_UPDATE.
+  CHAT_INPUT_LOSES_FOCUS_ON_UPDATE:        { criterion: "2.4.3", level: "A", confidence: "heuristic", depthLevel: 3, conversationalTag: "chat", group: "depth3/focus", deprecated: true, replacedBy: "INPUT_LOSES_FOCUS_ON_UPDATE" },
   CHAT_INPUT_NO_LABEL:                     { criterion: "1.3.1", level: "A", confidence: "strict", also: ["4.1.2"], depthLevel: 1, conversationalTag: "chat" },
   CHAT_LIVE_REGION_ASSERTIVE_MISUSE:       { criterion: "4.1.3", level: "AA", confidence: "heuristic", depthLevel: 2, conversationalTag: "chat" },
   CHAT_LOG_NO_ARIA_LIVE_SOFT:              { criterion: "4.1.3", level: "AA", confidence: null, depthLevel: 1, conversationalTag: "chat" },
-  CHAT_MESSAGE_NOT_ITEMIZED:               { criterion: "1.3.1", level: "A", confidence: "heuristic", depthLevel: 3, conversationalTag: "chat", group: "depth3/semantics" },
+  // Deprecated legacy id — new audits emit LIVE_ITEM_NOT_ITEMIZED.
+  CHAT_MESSAGE_NOT_ITEMIZED:               { criterion: "1.3.1", level: "A", confidence: "heuristic", depthLevel: 3, conversationalTag: "chat", group: "depth3/semantics", deprecated: true, replacedBy: "LIVE_ITEM_NOT_ITEMIZED" },
   CHAT_MESSAGE_NO_ROLE:                    { criterion: "1.3.1", level: "A", confidence: null, depthLevel: 2, conversationalTag: "chat" },
-  CHAT_NEW_MESSAGE_NOT_ANNOUNCED:          { criterion: "4.1.3", level: "AA", confidence: "heuristic", depthLevel: 3, conversationalTag: "chat", group: "depth3/announcements" },
+  // Deprecated legacy id — new audits emit LIVE_CONTENT_NOT_ANNOUNCED.
+  CHAT_NEW_MESSAGE_NOT_ANNOUNCED:          { criterion: "4.1.3", level: "AA", confidence: "heuristic", depthLevel: 3, conversationalTag: "chat", group: "depth3/announcements", deprecated: true, replacedBy: "LIVE_CONTENT_NOT_ANNOUNCED" },
   CHAT_NO_ARIA_RELEVANT:                   { criterion: "4.1.3", level: "AA", confidence: null, depthLevel: 2, conversationalTag: "chat" },
   CHAT_NO_LIVE_REGION_FOR_MESSAGES:        { criterion: "4.1.3", level: "AA", confidence: "strict", depthLevel: 1, conversationalTag: "chat" },
   CHAT_QUICK_REPLY_NOT_BUTTON:             { criterion: "4.1.2", level: "A", confidence: "strict", depthLevel: 2, conversationalTag: "chat" },
@@ -169,6 +176,7 @@ const RULE_TO_WCAG = {
   IMG_MISSING_ALT:                         { criterion: "1.1.1", level: "A", confidence: null, depthLevel: 1 },
   IMG_ROLE_PRESENTATIONAL_WITH_ALT:        { criterion: "1.1.1", level: "A", confidence: "strict", depthLevel: 2 },
   INPUT_IMAGE_ALT:                         { criterion: "1.1.1", level: "A", confidence: null, depthLevel: 1 },
+  INPUT_LOSES_FOCUS_ON_UPDATE:             { criterion: "2.4.3", level: "A", confidence: "heuristic", depthLevel: 3, conversationalTag: "chat", group: "depth3/focus" },
   INPUT_MISSING_LABEL:                     { criterion: "1.3.1", level: "A", confidence: "strict", depthLevel: 1 },
   LABEL_FOR_MISSING_TARGET:                { criterion: "1.3.1", level: "A", confidence: "strict", also: ["3.3.2"], depthLevel: 1 },
   LABEL_NOT_IN_NAME:                       { criterion: "2.5.3", level: "A", confidence: null, depthLevel: 2 },
@@ -176,7 +184,10 @@ const RULE_TO_WCAG = {
   LINK_NO_ACCESSIBLE_NAME:                 { criterion: "2.4.4", level: "A", confidence: "strict", depthLevel: 1 },
   LINK_SUSPICIOUS_TEXT:                     { criterion: "2.4.4", level: "A", confidence: null, depthLevel: 2 },
   LIST_STRUCTURE:                           { criterion: "1.3.1", level: "A", confidence: null, depthLevel: 2 },
+  LIVE_CONTENT_NOT_ANNOUNCED:              { criterion: "4.1.3", level: "AA", confidence: "heuristic", depthLevel: 3, conversationalTag: "chat", group: "depth3/announcements" },
+  LIVE_ITEM_NOT_ITEMIZED:                  { criterion: "1.3.1", level: "A", confidence: "heuristic", depthLevel: 3, conversationalTag: "chat", group: "depth3/semantics" },
   LIVE_REGION_HIDDEN:                      { criterion: "4.1.3", level: "AA", confidence: null, depthLevel: 2 },
+  LIVE_REGION_MISSING_ROLE:                { criterion: "1.3.1", level: "A", confidence: "heuristic", depthLevel: 3, conversationalTag: "chat", group: "depth3/semantics" },
   LOADER_WITHOUT_ANNOUNCEMENT_HOOK:        { criterion: "4.1.3", level: "AA", confidence: "heuristic", depthLevel: 2 },
   MARQUEE_ELEMENT:                         { criterion: "2.2.2", level: "A", confidence: null, depthLevel: 1 },
   MESSAGE_NOT_GROUPED:                     { criterion: "1.3.1", level: "A", confidence: "advisory", depthLevel: 3, conversationalTag: "chat" },

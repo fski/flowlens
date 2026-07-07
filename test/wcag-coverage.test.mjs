@@ -1048,8 +1048,8 @@ describe("v2 expansion coverage delta", () => {
 // ══════════════════════════════════════════════════════
 
 describe("Conversational ruleset — WCAG_COVERAGE_VERSION", () => {
-  it("WCAG_COVERAGE_VERSION is 5 (bumped for guided-check rule mappings)", () => {
-    assert.equal(ctx.__WCAG_COVERAGE_VERSION, 5);
+  it("WCAG_COVERAGE_VERSION is 6 (bumped for stateful-widget rule-id rename + legacy aliases)", () => {
+    assert.equal(ctx.__WCAG_COVERAGE_VERSION, 6);
   });
 });
 
@@ -1184,26 +1184,28 @@ describe("Conversational ruleset — completeness", () => {
 // ══════════════════════════════════════════════════════
 
 describe("V4 state-based rules — RULE_TO_WCAG entries", () => {
-  it("CHAT_NEW_MESSAGE_NOT_ANNOUNCED maps to 4.1.3 AA heuristic", () => {
-    const m = ctx.__RULE_TO_WCAG.CHAT_NEW_MESSAGE_NOT_ANNOUNCED;
+  it("LIVE_CONTENT_NOT_ANNOUNCED maps to 4.1.3 AA heuristic", () => {
+    const m = ctx.__RULE_TO_WCAG.LIVE_CONTENT_NOT_ANNOUNCED;
     assert.ok(m, "entry should exist");
     assert.equal(m.criterion, "4.1.3");
     assert.equal(m.level, "AA");
     assert.equal(m.confidence, "heuristic");
+    assert.ok(!m.deprecated, "canonical entry must not be deprecated");
   });
 
-  it("CHAT_INPUT_LOSES_FOCUS_ON_UPDATE maps to 2.4.3 A heuristic", () => {
-    const m = ctx.__RULE_TO_WCAG.CHAT_INPUT_LOSES_FOCUS_ON_UPDATE;
+  it("INPUT_LOSES_FOCUS_ON_UPDATE maps to 2.4.3 A heuristic", () => {
+    const m = ctx.__RULE_TO_WCAG.INPUT_LOSES_FOCUS_ON_UPDATE;
     assert.ok(m, "entry should exist");
     assert.equal(m.criterion, "2.4.3");
     assert.equal(m.level, "A");
     assert.equal(m.confidence, "heuristic");
+    assert.ok(!m.deprecated, "canonical entry must not be deprecated");
   });
 
   it("v4 heuristic rules are classified as needs_review", () => {
     const rules = [
-      { type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED", severity: "medium", wcag: "4.1.3", confidence: "heuristic" },
-      { type: "CHAT_INPUT_LOSES_FOCUS_ON_UPDATE", severity: "medium", wcag: "2.4.3", confidence: "heuristic" },
+      { type: "LIVE_CONTENT_NOT_ANNOUNCED", severity: "medium", wcag: "4.1.3", confidence: "heuristic" },
+      { type: "INPUT_LOSES_FOCUS_ON_UPDATE", severity: "medium", wcag: "2.4.3", confidence: "heuristic" },
     ];
     for (const f of rules) {
       assert.equal(ctx.classifyReviewStatus(f), "needs_review", `${f.type} should be needs_review`);
@@ -1212,12 +1214,60 @@ describe("V4 state-based rules — RULE_TO_WCAG entries", () => {
 
   it("v4 rules are deterministic", () => {
     const fixtures = [
-      { type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED", severity: "medium", wcag: "4.1.3", confidence: "heuristic" },
-      { type: "CHAT_INPUT_LOSES_FOCUS_ON_UPDATE", severity: "medium", wcag: "2.4.3", confidence: "heuristic" },
+      { type: "LIVE_CONTENT_NOT_ANNOUNCED", severity: "medium", wcag: "4.1.3", confidence: "heuristic" },
+      { type: "INPUT_LOSES_FOCUS_ON_UPDATE", severity: "medium", wcag: "2.4.3", confidence: "heuristic" },
     ];
     const a = fixtures.map(f => ctx.classifyReviewStatus(f));
     const b = fixtures.map(f => ctx.classifyReviewStatus(f));
     assert.equal(JSON.stringify(a), JSON.stringify(b));
+  });
+});
+
+// ══════════════════════════════════════════════════════
+// V6 — Deprecated legacy rule-id aliases
+// ══════════════════════════════════════════════════════
+
+describe("V6 deprecated rule-id aliases — RULE_TO_WCAG entries", () => {
+  const EXPECTED_ALIASES = {
+    CHAT_NEW_MESSAGE_NOT_ANNOUNCED: "LIVE_CONTENT_NOT_ANNOUNCED",
+    CHAT_INPUT_LOSES_FOCUS_ON_UPDATE: "INPUT_LOSES_FOCUS_ON_UPDATE",
+    CHAT_FEED_MISSING_ROLE: "LIVE_REGION_MISSING_ROLE",
+    CHAT_MESSAGE_NOT_ITEMIZED: "LIVE_ITEM_NOT_ITEMIZED",
+  };
+
+  for (const [legacyId, canonicalId] of Object.entries(EXPECTED_ALIASES)) {
+    it(`${legacyId} is deprecated and replaced by ${canonicalId}`, () => {
+      const legacy = ctx.__RULE_TO_WCAG[legacyId];
+      const canonical = ctx.__RULE_TO_WCAG[canonicalId];
+      assert.ok(legacy, "legacy entry should exist so old persisted findings render metadata");
+      assert.ok(canonical, "canonical entry should exist");
+      assert.equal(legacy.deprecated, true);
+      assert.equal(legacy.replacedBy, canonicalId);
+      assert.ok(!canonical.deprecated);
+      // Metadata parity: signatures and filtering must behave identically.
+      assert.equal(legacy.criterion, canonical.criterion, `${legacyId} criterion mismatch`);
+      assert.equal(legacy.level, canonical.level, `${legacyId} level mismatch`);
+      assert.equal(legacy.confidence, canonical.confidence, `${legacyId} confidence mismatch`);
+      assert.equal(legacy.depthLevel, canonical.depthLevel, `${legacyId} depthLevel mismatch`);
+      assert.equal(legacy.group, canonical.group, `${legacyId} group mismatch`);
+      assert.equal(legacy.conversationalTag, canonical.conversationalTag, `${legacyId} conversationalTag mismatch`);
+    });
+  }
+
+  it("no other RULE_TO_WCAG entries are deprecated", () => {
+    const deprecated = Object.entries(ctx.__RULE_TO_WCAG)
+      .filter(([, m]) => m.deprecated)
+      .map(([rule]) => rule)
+      .sort();
+    assert.deepEqual(deprecated, Object.keys(EXPECTED_ALIASES).sort());
+  });
+
+  it("snippet no longer emits any deprecated rule id", () => {
+    const snippetSrc = readFileSync(SNIPPET_PATH, "utf8");
+    for (const legacyId of Object.keys(EXPECTED_ALIASES)) {
+      assert.ok(!snippetSrc.includes(`"${legacyId}"`),
+        `snippet still emits deprecated rule id ${legacyId}`);
+    }
   });
 });
 

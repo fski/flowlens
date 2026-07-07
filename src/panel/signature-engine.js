@@ -175,7 +175,7 @@ function findingSignatureEntries(prefix, snapshot, rawAppendix = null) {
   const entries = [];
   for (const f of findings) {
     const testIdNorm = normalizeIdentityText(f?.testId, 60);
-    const typeNorm = normalizeIdentityText(f?.type, 40);
+    const typeNorm = normalizeIdentityText(canonicalizeRuleType(f?.type), 40);
     const wcagNorm = normalizeIdentityText(f?.wcag, 24);
     const severityNorm = normalizeIdentityText(f?.severity, 10);
     const noteNorm = normalizeIdentityText(f?.note, 80);
@@ -409,10 +409,11 @@ function buildStepDiffs(step, prevStep, rawAppendix = null) {
       step.stableSignatures.run.stableFindingSignatureSet
     );
     // Also compute blocking counts from stable blockingSets
-    const prevBlocking = new Set(prevStep.stableSignatures.run.blockingSet || []);
-    const currBlocking = new Set(step.stableSignatures.run.blockingSet || []);
-    const currSigs = new Set(step.stableSignatures.run.stableFindingSignatureSet || []);
-    const prevSigs = new Set(prevStep.stableSignatures.run.stableFindingSignatureSet || []);
+    // (canonicalized so legacy-id signatures from old sessions still match)
+    const prevBlocking = new Set(canonicalizeStableSignatureList(prevStep.stableSignatures.run.blockingSet));
+    const currBlocking = new Set(canonicalizeStableSignatureList(step.stableSignatures.run.blockingSet));
+    const currSigs = new Set(canonicalizeStableSignatureList(step.stableSignatures.run.stableFindingSignatureSet));
+    const prevSigs = new Set(canonicalizeStableSignatureList(prevStep.stableSignatures.run.stableFindingSignatureSet));
     let blockingAdded = 0, blockingFixed = 0;
     for (const sig of currBlocking) if (!prevSigs.has(sig)) blockingAdded++;
     for (const sig of prevBlocking) if (!currSigs.has(sig)) blockingFixed++;
@@ -448,14 +449,14 @@ function buildStepDiffs(step, prevStep, rawAppendix = null) {
       ...(prevStep.stableSignatures.active?.stableFindingSignatureSet || []),
     ];
     const consolidated = computeStableDiff(allPrevSigs, allCurrSigs);
-    // Recompute blocking deltas from merged blocking sets
+    // Recompute blocking deltas from merged blocking sets (canonicalized)
     const allCurrBlocking = new Set([
-      ...(step.stableSignatures.run?.blockingSet || []),
-      ...(step.stableSignatures.active?.blockingSet || []),
+      ...canonicalizeStableSignatureList(step.stableSignatures.run?.blockingSet),
+      ...canonicalizeStableSignatureList(step.stableSignatures.active?.blockingSet),
     ]);
     const allPrevBlocking = new Set([
-      ...(prevStep.stableSignatures.run?.blockingSet || []),
-      ...(prevStep.stableSignatures.active?.blockingSet || []),
+      ...canonicalizeStableSignatureList(prevStep.stableSignatures.run?.blockingSet),
+      ...canonicalizeStableSignatureList(prevStep.stableSignatures.active?.blockingSet),
     ]);
     consolidated.blockingAdded = [...allCurrBlocking].filter(s => !allPrevBlocking.has(s)).length;
     consolidated.blockingFixed = [...allPrevBlocking].filter(s => !allCurrBlocking.has(s)).length;
@@ -565,6 +566,58 @@ function computeSignatureQuality(finding) {
   return "low";
 }
 
+// --- Legacy rule-id alias layer (v6 rename: chat-specific → generic stateful-widget ids) ---
+
+/**
+ * Map of deprecated (legacy) rule ids → canonical rule ids.
+ * New audit runs emit only the canonical ids; old persisted sessions and
+ * baselines may still carry the legacy ids. Every signature computation and
+ * signature-set comparison canonicalizes through this map so an old stored
+ * finding/baseline entry matches the same finding emitted under its new id.
+ * Keep in sync with the deprecated/replacedBy entries in wcag-coverage.js.
+ */
+const LEGACY_RULE_ALIASES = {
+  CHAT_NEW_MESSAGE_NOT_ANNOUNCED: "LIVE_CONTENT_NOT_ANNOUNCED",
+  CHAT_INPUT_LOSES_FOCUS_ON_UPDATE: "INPUT_LOSES_FOCUS_ON_UPDATE",
+  CHAT_FEED_MISSING_ROLE: "LIVE_REGION_MISSING_ROLE",
+  CHAT_MESSAGE_NOT_ITEMIZED: "LIVE_ITEM_NOT_ITEMIZED",
+};
+
+/**
+ * Canonicalize a rule type: map a legacy id to its current id, else return
+ * the input unchanged. Case-insensitive lookup; the result preserves the
+ * input's case convention (all-lowercase in → lowercase out) because
+ * signature tokens are stored lowercase while findings carry uppercase ids.
+ */
+function canonicalizeRuleType(type) {
+  const t = String(type || "");
+  if (!t) return t;
+  const canonical = LEGACY_RULE_ALIASES[t.toUpperCase()];
+  if (!canonical) return t;
+  return t === t.toLowerCase() ? canonical.toLowerCase() : canonical;
+}
+
+/**
+ * Canonicalize a stored stable finding signature string
+ * (`mode|type|wcag|severity|hash`) by rewriting a legacy type token to its
+ * canonical id. Non-finding signatures (contrast/tabwalk/watch — 4 tokens)
+ * and unrecognized strings are returned unchanged.
+ */
+function canonicalizeStableSignature(sig) {
+  const s = String(sig || "");
+  const parts = s.split("|");
+  if (parts.length !== 5) return s;
+  const canonicalType = canonicalizeRuleType(parts[1]);
+  if (canonicalType === parts[1]) return s;
+  parts[1] = canonicalType;
+  return parts.join("|");
+}
+
+/** Canonicalize a list of stable signatures (tolerates non-arrays). */
+function canonicalizeStableSignatureList(list) {
+  return (Array.isArray(list) ? list : []).map(canonicalizeStableSignature);
+}
+
 // --- Stable Signature Engine (v4 shadow mode) ---
 
 const STABLE_SIGNATURE_VERSION = 1;
@@ -578,9 +631,13 @@ const STABLE_SIGNATURE_VERSION = 1;
  * normalizedLocatorHash = hash(frameKeyStable + testId + role + stablePathHash + tagName)
  *
  * Excludes: text content, aria-label, dynamic attributes, marker hash.
+ *
+ * The rule type is canonicalized through LEGACY_RULE_ALIASES first, so a
+ * finding persisted under a deprecated id hashes identically to the same
+ * finding emitted under its renamed id.
  */
 function buildStableSignature(finding, frameKeyStable, mode = "run") {
-  const typeNorm = normalizeIdentityText(finding?.type, 40);
+  const typeNorm = normalizeIdentityText(canonicalizeRuleType(finding?.type), 40);
   const wcagNorm = normalizeIdentityText(finding?.wcag, 24);
   const severityNorm = normalizeWs(finding?.severity, 10) || "info";
   const ruleId = `${mode}|${typeNorm}|${wcagNorm}`;
@@ -691,10 +748,12 @@ function computeStableSignatureSet(snapshot, rawAppendix = null) {
 
 /**
  * Compute diff using stable signature sets only — no rawAppendix dependency.
+ * Both sides are canonicalized through LEGACY_RULE_ALIASES so a step/baseline
+ * stored with legacy rule ids diffs cleanly against a new run.
  */
 function computeStableDiff(prevSignatures, currSignatures) {
-  const prevSet = new Set(Array.isArray(prevSignatures) ? prevSignatures : []);
-  const currSet = new Set(Array.isArray(currSignatures) ? currSignatures : []);
+  const prevSet = new Set(canonicalizeStableSignatureList(prevSignatures));
+  const currSet = new Set(canonicalizeStableSignatureList(currSignatures));
 
   let added = 0, fixed = 0, persisting = 0;
   let blockingAdded = 0, blockingFixed = 0;

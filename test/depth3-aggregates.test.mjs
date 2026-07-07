@@ -19,17 +19,35 @@ const norm = (o) => JSON.parse(JSON.stringify(o));
 describe("RULE_TO_WCAG group field", () => {
   const EXPECTED_GROUPS = {
     ANNOUNCEMENT_IN_DIFFERENT_FRAME: "depth3/announcements",
+    LIVE_REGION_MISSING_ROLE: "depth3/semantics",
+    INPUT_LOSES_FOCUS_ON_UPDATE: "depth3/focus",
+    LIVE_ITEM_NOT_ITEMIZED: "depth3/semantics",
+    LIVE_CONTENT_NOT_ANNOUNCED: "depth3/announcements",
+    COMPOSER_AND_FEED_SPLIT_WITHOUT_LINKAGE: "depth3/multiframe",
+    // Deprecated legacy ids keep their group so old persisted findings still aggregate.
     CHAT_FEED_MISSING_ROLE: "depth3/semantics",
     CHAT_INPUT_LOSES_FOCUS_ON_UPDATE: "depth3/focus",
     CHAT_MESSAGE_NOT_ITEMIZED: "depth3/semantics",
     CHAT_NEW_MESSAGE_NOT_ANNOUNCED: "depth3/announcements",
-    COMPOSER_AND_FEED_SPLIT_WITHOUT_LINKAGE: "depth3/multiframe",
   };
 
-  it("has group field on exactly 6 rules", () => {
+  it("has group field on exactly 6 non-deprecated rules (plus 4 deprecated aliases)", () => {
     const rulesWithGroup = Object.entries(RULE_TO_WCAG)
       .filter(([, v]) => v.group != null);
-    assert.equal(rulesWithGroup.length, 6, `expected 6 rules with group, got ${rulesWithGroup.length}`);
+    const active = rulesWithGroup.filter(([, v]) => !v.deprecated);
+    const deprecated = rulesWithGroup.filter(([, v]) => v.deprecated);
+    assert.equal(active.length, 6, `expected 6 non-deprecated rules with group, got ${active.length}`);
+    assert.equal(deprecated.length, 4, `expected 4 deprecated rules with group, got ${deprecated.length}`);
+  });
+
+  it("each deprecated grouped rule shares its replacement's group", () => {
+    for (const [rule, meta] of Object.entries(RULE_TO_WCAG)) {
+      if (meta.deprecated && meta.group != null) {
+        assert.ok(meta.replacedBy, `${rule} deprecated but missing replacedBy`);
+        assert.equal(RULE_TO_WCAG[meta.replacedBy]?.group, meta.group,
+          `${rule} group differs from its replacement ${meta.replacedBy}`);
+      }
+    }
   });
 
   it("each grouped rule maps to one of the 4 valid groups", () => {
@@ -68,13 +86,13 @@ describe("buildDepth3Aggregates", () => {
   });
 
   it("returns all ok for undefined ruleMetaLookup", () => {
-    const result = buildDepth3Aggregates([{ type: "CHAT_FEED_MISSING_ROLE" }], null);
+    const result = buildDepth3Aggregates([{ type: "LIVE_REGION_MISSING_ROLE" }], null);
     assert.equal(result.chatSemantics, "ok");
   });
 
   it("degrades announcementIntegrity for announcements group finding", () => {
     const result = buildDepth3Aggregates(
-      [{ type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED" }],
+      [{ type: "LIVE_CONTENT_NOT_ANNOUNCED" }],
       RULE_TO_WCAG,
     );
     assert.equal(result.announcementIntegrity, "degraded");
@@ -87,7 +105,7 @@ describe("buildDepth3Aggregates", () => {
 
   it("degrades focusStability for focus group finding", () => {
     const result = buildDepth3Aggregates(
-      [{ type: "CHAT_INPUT_LOSES_FOCUS_ON_UPDATE" }],
+      [{ type: "INPUT_LOSES_FOCUS_ON_UPDATE" }],
       RULE_TO_WCAG,
     );
     assert.equal(result.focusStability, "degraded");
@@ -96,11 +114,25 @@ describe("buildDepth3Aggregates", () => {
 
   it("degrades chatSemantics for semantics group finding", () => {
     const result = buildDepth3Aggregates(
-      [{ type: "CHAT_FEED_MISSING_ROLE" }],
+      [{ type: "LIVE_REGION_MISSING_ROLE" }],
       RULE_TO_WCAG,
     );
     assert.equal(result.chatSemantics, "degraded");
     assert.equal(result.counts.semantics, 1);
+  });
+
+  it("legacy-id findings from old sessions still aggregate via deprecated entries", () => {
+    const result = buildDepth3Aggregates(
+      [
+        { type: "CHAT_FEED_MISSING_ROLE" },       // deprecated alias of LIVE_REGION_MISSING_ROLE
+        { type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED" }, // deprecated alias of LIVE_CONTENT_NOT_ANNOUNCED
+      ],
+      RULE_TO_WCAG,
+    );
+    assert.equal(result.chatSemantics, "degraded");
+    assert.equal(result.counts.semantics, 1);
+    assert.equal(result.announcementIntegrity, "degraded");
+    assert.equal(result.counts.announcements, 1);
   });
 
   it("degrades multiFrameIntegrity for multiframe group finding", () => {
@@ -115,8 +147,8 @@ describe("buildDepth3Aggregates", () => {
   it("counts multiple findings in the same group", () => {
     const result = buildDepth3Aggregates(
       [
-        { type: "CHAT_FEED_MISSING_ROLE" },
-        { type: "CHAT_MESSAGE_NOT_ITEMIZED" },
+        { type: "LIVE_REGION_MISSING_ROLE" },
+        { type: "LIVE_ITEM_NOT_ITEMIZED" },
       ],
       RULE_TO_WCAG,
     );
@@ -127,9 +159,9 @@ describe("buildDepth3Aggregates", () => {
   it("counts across multiple groups", () => {
     const result = buildDepth3Aggregates(
       [
-        { type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED" },
+        { type: "LIVE_CONTENT_NOT_ANNOUNCED" },
         { type: "ANNOUNCEMENT_IN_DIFFERENT_FRAME" },
-        { type: "CHAT_INPUT_LOSES_FOCUS_ON_UPDATE" },
+        { type: "INPUT_LOSES_FOCUS_ON_UPDATE" },
         { type: "COMPOSER_AND_FEED_SPLIT_WITHOUT_LINKAGE" },
       ],
       RULE_TO_WCAG,
@@ -149,7 +181,7 @@ describe("buildDepth3Aggregates", () => {
       [
         { type: "IMG_MISSING_ALT" },            // no group field
         { type: "NONEXISTENT_RULE_TYPE" },       // not in RULE_TO_WCAG at all
-        { type: "CHAT_FEED_MISSING_ROLE" },      // has group
+        { type: "LIVE_REGION_MISSING_ROLE" },    // has group
       ],
       RULE_TO_WCAG,
     );
@@ -170,9 +202,9 @@ describe("buildDepth3Aggregates", () => {
 
   it("is deterministic: same inputs => identical output", () => {
     const findings = [
-      { type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED" },
-      { type: "CHAT_FEED_MISSING_ROLE" },
-      { type: "CHAT_INPUT_LOSES_FOCUS_ON_UPDATE" },
+      { type: "LIVE_CONTENT_NOT_ANNOUNCED" },
+      { type: "LIVE_REGION_MISSING_ROLE" },
+      { type: "INPUT_LOSES_FOCUS_ON_UPDATE" },
     ];
     const r1 = buildDepth3Aggregates(findings, RULE_TO_WCAG);
     const r2 = buildDepth3Aggregates(findings, RULE_TO_WCAG);

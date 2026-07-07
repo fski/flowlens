@@ -32,7 +32,7 @@ function makeValidInput(overrides = {}) {
     },
     regressions: {
       blockingAdded: [
-        { signature: "run|CHAT_FEED_MISSING_ROLE|1.3.1|medium|abc12345", ruleId: "CHAT_FEED_MISSING_ROLE", severity: "medium", depthLevel: 3, group: "depth3/semantics" },
+        { signature: "run|LIVE_REGION_MISSING_ROLE|1.3.1|medium|abc12345", ruleId: "LIVE_REGION_MISSING_ROLE", severity: "medium", depthLevel: 3, group: "depth3/semantics" },
         { signature: "run|IMG_MISSING_ALT|1.1.1|high|def67890", ruleId: "IMG_MISSING_ALT", severity: "high", depthLevel: 1 },
       ],
       blockingFixed: [
@@ -203,8 +203,8 @@ describe("validateCIReport structural safety", () => {
       regressions: {
         blockingAdded: [
           {
-            signature: "run|CHAT_FEED_MISSING_ROLE|1.3.1|medium|abc12345",
-            ruleId: "CHAT_FEED_MISSING_ROLE",
+            signature: "run|LIVE_REGION_MISSING_ROLE|1.3.1|medium|abc12345",
+            ruleId: "LIVE_REGION_MISSING_ROLE",
             severity: "medium",
             depthLevel: 3,
             // These should NOT pass through:
@@ -291,7 +291,7 @@ describe("buildCIReport regression mapping", () => {
     const input = makeValidInput({
       regressions: {
         blockingAdded: [
-          { signature: "run|CHAT_FEED_MISSING_ROLE|1.3.1|medium|abc", ruleId: "CHAT_FEED_MISSING_ROLE", severity: "medium", depthLevel: 3, group: "depth3/semantics" },
+          { signature: "run|LIVE_REGION_MISSING_ROLE|1.3.1|medium|abc", ruleId: "LIVE_REGION_MISSING_ROLE", severity: "medium", depthLevel: 3, group: "depth3/semantics" },
         ],
         blockingFixed: [],
       },

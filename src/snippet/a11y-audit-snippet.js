@@ -503,8 +503,8 @@
     let severity = "medium"; let noteSuffix = "";
     if (quality.capped && !delta.evidence.feedLocator) { severity = "low"; noteSuffix = " (reduced confidence: capture capped, evidence locator missing)"; }
 
-    return { type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED", severity, wcag: "4.1.3", confidence: "heuristic",
-      note: "Chat container received new messages but lacks announcement semantics (role=log, role=feed, or aria-live)." + noteSuffix,
+    return { type: "LIVE_CONTENT_NOT_ANNOUNCED", severity, wcag: "4.1.3", confidence: "heuristic",
+      note: "Live content region received new items but lacks announcement semantics (role=log, role=feed, or aria-live)." + noteSuffix,
       evidenceLocatorHash: evidenceHash,
       evidenceCssPath: delta.evidence.feedLocator ? delta.evidence.feedLocator.cssPath : null };
   }
@@ -530,8 +530,8 @@
     let severity = "medium"; let noteSuffix = "";
     if (quality.capped && !delta.evidence.composerLocator) { severity = "low"; noteSuffix = " (reduced confidence: capture capped, evidence locator missing)"; }
 
-    return { type: "CHAT_INPUT_LOSES_FOCUS_ON_UPDATE", severity, wcag: "2.4.3", confidence: "heuristic",
-      note: "Chat input lost focus after a content update; may disrupt typing." + noteSuffix,
+    return { type: "INPUT_LOSES_FOCUS_ON_UPDATE", severity, wcag: "2.4.3", confidence: "heuristic",
+      note: "Input lost focus after a content update; may disrupt typing." + noteSuffix,
       evidenceLocatorHash: evidenceHash,
       evidenceCssPath: delta.evidence.composerLocator ? delta.evidence.composerLocator.cssPath : null };
   }
@@ -555,8 +555,8 @@
     let severity = "medium"; let noteSuffix = "";
     if (quality.capped && !chat.feedLocator) { severity = "low"; noteSuffix = " (reduced confidence: capture capped, evidence locator missing)"; }
 
-    return { type: "CHAT_FEED_MISSING_ROLE", severity, wcag: "1.3.1", confidence: "heuristic",
-      note: "Chat feed container detected but lacks role=\"log\" or role=\"feed\" for assistive technology." + noteSuffix,
+    return { type: "LIVE_REGION_MISSING_ROLE", severity, wcag: "1.3.1", confidence: "heuristic",
+      note: "Live content container detected but lacks role=\"log\" or role=\"feed\" for assistive technology." + noteSuffix,
       evidenceLocatorHash: evidenceHash,
       evidenceCssPath: chat.feedLocator ? chat.feedLocator.cssPath : null };
   }
@@ -581,8 +581,8 @@
     let severity = "low"; let noteSuffix = "";
     if (quality.capped && !chat.feedLocator) { severity = "low"; noteSuffix = " (reduced confidence: capture capped, evidence locator missing)"; }
 
-    return { type: "CHAT_MESSAGE_NOT_ITEMIZED", severity, wcag: "1.3.1", confidence: "heuristic",
-      note: "Chat messages are not represented with semantic item roles (article, listitem)." + noteSuffix,
+    return { type: "LIVE_ITEM_NOT_ITEMIZED", severity, wcag: "1.3.1", confidence: "heuristic",
+      note: "Live region items are not represented with semantic item roles (article, listitem)." + noteSuffix,
       evidenceLocatorHash: evidenceHash,
       evidenceCssPath: chat.feedLocator ? chat.feedLocator.cssPath : null };
   }
