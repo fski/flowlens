@@ -451,7 +451,7 @@ const sortState = {
 
 const SORT_KEYS = {
   explorer: [
-    f => ORDER[f.severity] ?? -1, f => f.wcag ?? '', f => f.name ?? '', f => f.type ?? '',
+    f => ORDER[f.severity] ?? -1, f => f.name ?? '',
   ],
   contrast: [
     f => f.ratio ?? 0, f => f.required ?? 0, f => f.largeText ? 1 : 0,
@@ -650,7 +650,7 @@ async function storageRemove(keys) {
 
 function send(msg) {
   if (!hasRuntime()) {
-    toast("Extension runtime unavailable (reload DevTools / reload extension)");
+    toast("Runtime unavailable — reload DevTools");
     return Promise.reject(new Error("chrome.runtime.sendMessage unavailable"));
   }
   return __runtime.sendMessage({ tabId, ...msg });
@@ -979,13 +979,13 @@ const SNAP_CTA = {
   watch:    { label: "Start Monitor",  cls: "ctaBtn--mint",   helper: "Deep: monitor live updates, loaders and focus loss for 40s" },
 };
 
-// Teaching copy for the main empty state, per snap mode.
+// Teaching copy for the main empty state, per snap mode (kept to one short line).
 const MODE_EMPTY_COPY = {
-  run:      { text: "Run an audit to see results", hint: "Audit checks the page against WCAG success criteria and lists issues with fix suggestions" },
-  observe:  { text: "Start Monitor to see results", hint: "Quick monitor re-runs the audit every second for 12 seconds \u2014 use it on pages that change as you interact" },
-  watch:    { text: "Start Monitor to see results", hint: "Deep monitor watches the page for 40 seconds and reports loading spinners, silent updates and focus loss" },
-  tabWalk:  { text: "Run a Tab Walk to see results", hint: "Tab Walk presses Tab for you and records focus order, keyboard traps and skipped elements" },
-  contrast: { text: "Run a Contrast check to see results", hint: "Contrast scans visible text and checks its color contrast against WCAG thresholds" },
+  run:      { text: "Run an audit to see results", hint: "Checks the page against WCAG and suggests fixes" },
+  observe:  { text: "Start Monitor to see results", hint: "Re-runs the audit every second for 12 seconds" },
+  watch:    { text: "Start Monitor to see results", hint: "Watches 40s for loaders, silent updates and focus loss" },
+  tabWalk:  { text: "Run a Tab Walk to see results", hint: "Presses Tab for you and records focus order and traps" },
+  contrast: { text: "Run a Contrast check to see results", hint: "Checks visible text contrast against WCAG thresholds" },
 };
 
 function updateEmptyStateCopy(mode) {
@@ -1810,9 +1810,11 @@ function setPersistentStatus(status = "IDLE", reason = "-", detail = "") {
   if (normalized === "OK") els.lastStatusLine.classList.add("ok");
   else if (normalized === "PARTIAL") els.lastStatusLine.classList.add("partial");
   else if (normalized === "FAILED") els.lastStatusLine.classList.add("failed");
-  const reasonPart = reasonLabel && reasonLabel !== "—" ? ` • ${reasonLabel}` : "";
+  // Keep the visible line short: STATUS • detail. The reason code is debug
+  // info — kept in state (diagnostics/exports) and surfaced via title only.
   const tail = detail ? ` • ${detail}` : "";
-  els.lastStatusLine.textContent = `Last status: ${normalized}${reasonPart}${tail}`;
+  els.lastStatusLine.textContent = `${normalized}${tail}`;
+  els.lastStatusLine.title = reasonLabel && reasonLabel !== "—" ? `Reason: ${reasonLabel}` : "";
 }
 
 function setRunTelemetry({ usedFrames, diff } = {}) {
@@ -2084,17 +2086,6 @@ function ensureSessionHudTicker() {
   }
 }
 
-function expandAccordion(sectionEl) {
-  if (!sectionEl) return;
-  const btn = sectionEl.querySelector(".accordionToggle");
-  if (!btn) return;
-  if (btn.getAttribute("aria-expanded") === "true") return;
-  btn.setAttribute("aria-expanded", "true");
-  const body = sectionEl.querySelector(".accordionBody");
-  if (body) body.hidden = false;
-  const chevron = btn.querySelector(".chevron");
-  if (chevron) chevron.textContent = "\u2227";
-}
 
 function renderSessionHud() {
   renderFlowSessionInfo();
@@ -2630,9 +2621,24 @@ function updateSessionButtons() {
   if (els.sessionEnd) {
     els.sessionEnd.disabled = !hasSession || panelBusy;
   }
-  // Toggle recording banner and actions in Flow Record view
-  if (els.flowRecordingBanner) els.flowRecordingBanner.hidden = !hasSession;
+  // Toggle recording banner and actions in Flow Record view. While recording,
+  // the banner carries the essentials: status + step count + last-step result.
+  if (els.flowRecordingBanner) {
+    els.flowRecordingBanner.hidden = !hasSession;
+    if (hasSession) {
+      const steps = Array.isArray(sessionState.current.steps) ? sessionState.current.steps : [];
+      const last = steps[steps.length - 1] || null;
+      const d = last?.diffs?.consolidated || null;
+      const lastTxt = d ? ` &middot; last: +${d.added || 0} new${d.blockingAdded ? `, +${d.blockingAdded} must-fix` : ""}` : "";
+      const stepTxt = ` &mdash; ${steps.length} step${steps.length === 1 ? "" : "s"}`;
+      els.flowRecordingBanner.innerHTML =
+        `<span class="recSpinner" aria-hidden="true">&#9676;</span> Recording${stepTxt}${lastTxt}`;
+    }
+  }
   if (els.flowRecordActions) els.flowRecordActions.hidden = !hasSession;
+  // The teaching helper line is idle-only noise once a session is running
+  const flowRecordHelper = document.getElementById("flowRecordHelper");
+  if (flowRecordHelper) flowRecordHelper.hidden = hasSession;
   // Onboarding hint: only while idle with nothing recorded yet
   const flowIdleHint = document.getElementById("flowIdleHint");
   if (flowIdleHint) flowIdleHint.hidden = hasSession || !!sessionState.lastEndedSession;
@@ -3285,7 +3291,10 @@ function cellHtml(value, maxLen = 60) {
   return `<span class="cellWrap"><span class="cellText" title="${escapeHtml(full)}">${escapeHtml(truncateMiddle(full, maxLen))}</span><button class="cellCopy" type="button" data-copy="${escapeHtml(full)}" aria-label="Copy"></button></span>`;
 }
 
-/** Shared row renderers — used by both VirtualTable and fallback paths. */
+/** Shared row renderers — used by both VirtualTable and fallback paths.
+ * Explorer rows are intentionally minimal: severity pill + name (+ group
+ * count). WCAG criterion, rule type, path and fix live in the expanded
+ * detail row (buildDetailRow). */
 function explorerRowHtml(f, idx) {
   const sev = f.severity || 'info';
   const isCrossFrame = !f.el && (typeof RULE_TO_WCAG !== "undefined") && RULE_TO_WCAG[f.type]?.group === "depth3/multiframe";
@@ -3294,8 +3303,42 @@ function explorerRowHtml(f, idx) {
   const groupBadge = groupCount > 1
     ? ` <span class="badge groupCount" title="${groupCount} instances of this component">&times;${groupCount}</span>`
     : '';
-  return `<tr class="trow" tabindex="0" data-i="${idx}" data-sev="${escapeHtml(sev)}"${isCrossFrame ? ' data-crossframe="1"' : ''}><td><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span></td><td>${escapeHtml(f.wcag ?? "")}</td><td>${cellHtml(f.name, 50)}${crossBadge}${groupBadge}</td><td>${cellHtml(f.type ?? "", 30)}</td></tr>`;
+  const label = (f.name && String(f.name).trim()) ? f.name : (f.type ?? "");
+  return `<tr class="trow" tabindex="0" data-i="${idx}" data-sev="${escapeHtml(sev)}"${isCrossFrame ? ' data-crossframe="1"' : ''}><td><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span></td><td>${cellHtml(label, 70)}${crossBadge}${groupBadge}</td></tr>`;
 }
+/** Build expanded detail row HTML for a finding. The fix suggestion is the
+ * visually primary block; type/WCAG/path are secondary metadata. Severity and
+ * name are NOT repeated here — they are visible in the collapsed row above. */
+function buildDetailRow(finding, colCount) {
+  const sev = finding.severity || 'info';
+  const fixText = String(finding.fix ?? '');
+  const fixHtml = fixText
+    ? `<div class="detailFix"><span class="detailFixLabel">Fix</span><span class="detailFixText">${escapeHtml(fixText)}</span></div>`
+    : '';
+  const path = String(finding.path ?? '');
+  const pathHtml = path
+    ? `<span title="${escapeHtml(path)}">${escapeHtml(truncateMiddle(path, 110))}</span>`
+    : '';
+  const fields = [
+    ['Type', escapeHtml(finding.type ?? '')],
+    ['WCAG', escapeHtml(finding.wcag ?? '')],
+    ['Path', pathHtml, true],
+  ];
+  const isCrossFrame = !finding.el && (typeof RULE_TO_WCAG !== "undefined") && RULE_TO_WCAG[finding.type]?.group === "depth3/multiframe";
+  if (isCrossFrame) {
+    fields.push(['Scope', '<span class="badge crossFrame">Cross-frame</span> This finding spans multiple frames and cannot be highlighted individually']);
+  }
+  const metaHtml = fields
+    .filter(([, v]) => v)
+    .map(([k, v, mono]) =>
+      `<span class="detailLabel">${escapeHtml(k)}</span><span class="detailValue${mono ? ' detailMono' : ''}">${v}</span>`
+    ).join('');
+  const highlightAllBtn = finding.type && !isCrossFrame
+    ? `<button class="btn xs detailHighlightAll" type="button" data-type="${escapeHtml(finding.type)}" title="Highlight every current finding of this rule on the page (max 50)">Highlight all of this type</button>`
+    : '';
+  return `<tr class="detailRow" style="--row-sev:var(--sev-${escapeHtml(sev)})"><td colspan="${colCount}"><div class="detailInner">${fixHtml}<div class="detailMeta">${metaHtml}</div><div class="detailActions">${highlightAllBtn}<button class="btn xs detailCopy" type="button">Copy</button></div></div></td></tr>`;
+}
+
 function contrastRowHtml(f, idx) {
   const pass = f.ratio >= f.required;
   return `<tr class="trow${pass ? ' contrastPass' : ''}" tabindex="0" data-i="${idx}"><td>${escapeHtml(String(f.ratio ?? ""))}</td><td>${escapeHtml(String(f.required ?? ""))}</td><td>${f.largeText ? "yes" : "no"}</td><td>${cellHtml(f.text, 50)}</td><td>${escapeHtml(f.tag ?? "")}</td><td>${escapeHtml(f.testId ?? "")}</td><td>${cellHtml(f.path, 60)}</td><td>${cellHtml(f.note, 50)}</td></tr>`;
@@ -3321,7 +3364,10 @@ function actionIsWatch(resultObj) {
 function renderShadowCoverage(containerEl, shadowCoverage) {
   if (!containerEl) return;
   const fmt = formatShadowCoverage(shadowCoverage);
-  if (!fmt.text) {
+  // De-bloat: "No shadow roots detected" is a non-event — keep the main view
+  // clean and leave the full coverage line to Diagnostics.
+  const scopesFound = Number(shadowCoverage?.scopesFound) || 0;
+  if (!fmt.text || scopesFound === 0) {
     containerEl.hidden = true;
     containerEl.innerHTML = "";
     return;
@@ -5085,7 +5131,6 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     });
 
     setRunTelemetry({ diff: step.diffs?.consolidated?.text || "—" });
-    const baselineFindings = asNumber(runSnapshot?.best?.normalized?.primaryCounts?.findings, 0);
     const activeFailed = activeMode !== "run" && (!r?.active?.ok || !activeSnapshot?.best);
     const activeReasonCode = activeMode === "run"
       ? "-"
@@ -5101,9 +5146,8 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     else if (rawWarn) setLastMarkStatus("PARTIAL", "raw:capped");
     else setLastMarkStatus("OK", "-");
     updateSessionButtons();
-    toast(`Step ${step.index} captured (${baselineFindings} baseline findings)`);
+    toast(`Step ${step.index} captured`);
     if (!label && !isAutoCapture) showStepLabelInput(step.index);
-    expandAccordion(document.getElementById("flowTimeline"));
     return true;
   } finally {
     sessionState.inFlight = false;
@@ -5278,8 +5322,9 @@ function setVersionBadge() {
       : (__runtime && __runtime.getManifest) ? __runtime.getManifest().version : "dev";
     badge.dataset.version = v;
     badge.textContent = hostConfig?.ui?.badgeText ? v + " " + hostConfig.ui.badgeText : v;
-    const emptyVer = document.getElementById("emptyVersion");
-    if (emptyVer) emptyVer.textContent = "v" + v;
+    // Version is shown in Settings only (de-bloat: not in the empty state)
+    const settingsVer = document.getElementById("settingsVersion");
+    if (settingsVer) settingsVer.textContent = "FlowLens v" + v;
   } catch {}
 }
 
@@ -6382,32 +6427,6 @@ document.addEventListener("keydown", (e) => {
 
 // --- DELEGATED_TABLE_CLICKS ---
 
-/** Build detail row HTML for a finding */
-function buildDetailRow(finding, colCount) {
-  const sev = finding.severity || 'info';
-  const fields = [
-    ['Severity', `<span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span>`],
-    ['WCAG', escapeHtml(finding.wcag ?? '')],
-    ['Name', escapeHtml(finding.name ?? '')],
-    ['Type', escapeHtml(finding.type ?? '')],
-    ['Path', escapeHtml(finding.path ?? ''), true],
-    ['Fix', escapeHtml(finding.fix ?? ''), true],
-  ];
-  const isCrossFrame = !finding.el && (typeof RULE_TO_WCAG !== "undefined") && RULE_TO_WCAG[finding.type]?.group === "depth3/multiframe";
-  if (isCrossFrame) {
-    fields.push(['Scope', '<span class="badge crossFrame">Cross-frame</span> This finding spans multiple frames and cannot be highlighted individually']);
-  }
-  const html = fields
-    .filter(([, v]) => v)
-    .map(([k, v, mono]) =>
-      `<span class="detailLabel">${escapeHtml(k)}</span><span class="detailValue${mono ? ' detailMono' : ''}">${v}</span>`
-    ).join('');
-  const highlightAllBtn = finding.type && !isCrossFrame
-    ? `<button class="btn xs detailHighlightAll" type="button" data-type="${escapeHtml(finding.type)}" title="Highlight every current finding of this rule on the page (max 50)">Highlight all of this type</button>`
-    : '';
-  return `<tr class="detailRow" style="--row-sev:var(--sev-${escapeHtml(sev)})"><td colspan="${colCount}"><div class="detailInner">${html}<div class="detailActions">${highlightAllBtn}<button class="btn xs detailCopy" type="button">Copy</button></div></div></td></tr>`;
-}
-
 if (els.allTableBody && !els.allTableBody.__bound) {
   els.allTableBody.__bound = true;
   els.allTableBody.addEventListener("click", async (e) => {
@@ -6959,7 +6978,7 @@ window.addEventListener("keydown", (e) => {
 
 // --- Column visibility ---
 const TABLE_COLS = {
-  allTable: ['sev', 'wcag', 'name', 'type'],
+  allTable: ['sev', 'name'],
   contrastTable: ['ratio', 'req', 'large', 'text', 'tag', 'testId', 'path', 'note'],
   tabTable: ['i', 'type', 'tabIndex', 'name', 'path', 'note'],
 };
@@ -7151,7 +7170,7 @@ function initVirtualTables() {
     VT.all = new VirtualTable({
       wrapEl: allWrap,
       tbodyEl: els.allTableBody,
-      colCount: 4,
+      colCount: 2,
       rowRenderer: explorerRowHtml,
       detailRenderer: buildDetailRow,
       estimateRowHeight: 24,

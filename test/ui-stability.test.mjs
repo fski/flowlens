@@ -254,8 +254,18 @@ describe("Normalization in render pipeline", () => {
   it("explorerRowHtml handles UNKNOWN_RULE type", () => {
     const ctx = createContext();
     const f = ctx.normalizeFindingForRender({ name: "Mystery" });
-    const html = ctx.explorerRowHtml(f, 0);
-    assert.ok(html.includes("UNKNOWN_RULE"), "should render UNKNOWN_RULE type");
+    // Row is minimal (severity + name); the rule type lives in the detail row.
+    const row = ctx.explorerRowHtml(f, 0);
+    assert.ok(row.includes("Mystery"), "row should render the finding name");
+    const detail = ctx.buildDetailRow(f, 2);
+    assert.ok(detail.includes("UNKNOWN_RULE"), "detail row should render UNKNOWN_RULE type");
+  });
+
+  it("explorerRowHtml falls back to type when name is empty", () => {
+    const ctx = createContext();
+    const f = ctx.normalizeFindingForRender({ type: "EMPTY_HEADING", severity: "medium", name: "" });
+    const row = ctx.explorerRowHtml(f, 0);
+    assert.ok(row.includes("EMPTY_HEADING"), "row should fall back to the rule type as its label");
   });
 });
 

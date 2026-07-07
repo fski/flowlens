@@ -936,6 +936,20 @@ kbd {
   text-transform: lowercase;
 }
 
+/* Keycap badges are reference info, not primary UI — revealed on hover/focus
+   only (they are aria-hidden, so this is purely visual de-noising). */
+.topTab .keycap,
+.ctaBtn .keycap {
+  opacity: 0;
+  transition: opacity .12s;
+}
+.topTab:hover .keycap,
+.topTab:focus-visible .keycap,
+.ctaBtn:hover .keycap,
+.ctaBtn:focus-visible .keycap {
+  opacity: 1;
+}
+
 /* ═══ CTA BUTTONS ═══ */
 .ctaSlot {
   padding: 16px var(--content-gutter);
@@ -1101,13 +1115,6 @@ kbd {
   padding: 0 var(--content-gutter) 12px;
   background: var(--raised);
   border-bottom: 1px solid var(--brd0);
-}
-
-.toolsRowLabel {
-  font: 600 10px/1 var(--font-mono);
-  color: var(--tx4);
-  text-transform: uppercase;
-  letter-spacing: .08em;
 }
 
 /* Closed: each details shrinks to its summary chip. Open: it takes a
@@ -1608,7 +1615,17 @@ kbd {
 .autoCapToggle { display: flex; align-items: center; gap: 4px; padding: 4px 8px; border: 1px solid var(--brd); border-radius: var(--radius-xs); cursor: pointer; font: 600 12px/1 var(--font-mono); color: var(--tx2); }
 .autoCapToggle:has(input:checked) { border-color: var(--green); color: var(--green); background: rgba(76,175,80,0.08); }
 .autoCapToggle input { accent-color: var(--green); margin: 0; }
-.autoCapDelay { padding: 2px 4px; border: 1px solid var(--brd); border-radius: 3px; background: var(--raised); color: var(--tx2); font: 500 11px/1 var(--font-mono); }
+.autoCapDelay {
+  align-self: center;
+  padding: 6px 22px 6px 8px;
+  border: 1px solid var(--brd);
+  border-radius: 3px;
+  background-color: var(--raised);
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+  color: var(--tx2);
+  font: 500 11px/1 var(--font-mono);
+}
 
 /* ═══ STEP LABEL INPUT ═══ */
 .flowLabelInput { display: flex; align-items: center; gap: 6px; padding: 8px 16px; }
@@ -1903,6 +1920,14 @@ kbd {
   box-shadow: 0 0 0 1px var(--bg), 0 0 0 4px var(--infoB);
 }
 .settingsDiagnostics[open] > summary { color: var(--tx); margin-bottom: 12px; }
+
+/* Version — shown only here (Settings), muted */
+.settingsVersion {
+  margin: 20px 0 0;
+  font: 400 11px/1 var(--font-mono);
+  color: var(--tx4);
+}
+.settingsVersion:empty { display: none; }
 
 .lastStatusLine {
   padding: 7px 10px;
@@ -2244,9 +2269,9 @@ kbd {
 /* Explorer grid layout — override table display for CSS Grid rows */
 #allTable { display: block; width: 100%; }
 #allTable thead { display: block; position: sticky; top: 0; z-index: 2; background: var(--raised); border-bottom: 2px solid var(--brd); }
-#allTable thead tr { display: grid; grid-template-columns: minmax(48px, 70px) minmax(48px, 70px) 1fr minmax(80px, 140px); }
+#allTable thead tr { display: grid; grid-template-columns: minmax(72px, 96px) 1fr; }
 #allTable tbody { display: block; }
-#allTable .trow { display: grid; grid-template-columns: minmax(48px, 70px) minmax(48px, 70px) 1fr minmax(80px, 140px); border-left: 3px solid var(--row-sev, transparent); }
+#allTable .trow { display: grid; grid-template-columns: minmax(72px, 96px) 1fr; border-left: 3px solid var(--row-sev, transparent); }
 #allTable th, #allTable .trow td { display: block; min-width: 0; }
 #allTable .vt-spacer, #allTable .vt-spacer td { display: block; }
 #allTable .detailRow, #allTable .detailRow td { display: block; }
@@ -2320,12 +2345,46 @@ kbd {
   padding: 10px 12px 10px 16px;
   background: var(--raised);
   border-left: 3px solid var(--row-sev, var(--tx3));
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 3px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   font: 500 13px/1.5 var(--font-mono);
   color: var(--tx);
 }
+/* Fix suggestion — the visually primary block of the expanded detail */
+.detailFix {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--okB, var(--brd));
+  border-left: 3px solid var(--green, var(--tx2));
+  border-radius: var(--radius-xs);
+  background: var(--okS, var(--surface));
+  color: var(--tx);
+}
+.detailFixLabel {
+  color: var(--green, var(--tx2));
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  white-space: nowrap;
+}
+.detailFixText {
+  min-width: 0;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+/* Secondary metadata (type / WCAG / path) — muted, compact */
+.detailMeta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 10px;
+  font-size: 12px;
+  color: var(--tx2);
+}
+.detailMeta:empty { display: none; }
 .detailLabel {
   color: var(--tx3);
   font-weight: 700;
@@ -2433,14 +2492,6 @@ kbd {
   font-family: var(--font-mono);
   white-space: nowrap;
 }
-.highlightHint {
-  margin-left: auto;
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--tx3);
-  opacity: 0.7;
-}
-
 .rowAct {
   margin-left: 4px;
   padding: 1px 4px;
@@ -2569,11 +2620,6 @@ kbd {
   width: 140px;
   height: auto;
   opacity: 0.5;
-}
-
-.emptyVersion {
-  font: 400 12px/1 var(--font-mono);
-  color: var(--tx4);
 }
 
 .emptyText {
@@ -2829,7 +2875,6 @@ body.compact .brandLogo { width: 72px; height: auto; }
   .flowCounter { padding: 4px 6px; }
   .flowCounterValue { font-size: 12px; padding: 3px; min-width: 20px; }
   .flowCounterLabel { font-size: 10px; }
-  .highlightHint { display: none; }
   .searchToolbar { padding: 3px 6px; gap: 4px; }
 
   /* Hide low-priority columns in tight panels */
@@ -2862,7 +2907,7 @@ body.compact .brandLogo { width: 72px; height: auto; }
 @media (max-width: 360px) {
   #allTable thead tr,
   #allTable .trow {
-    grid-template-columns: 44px 44px 1fr 72px;
+    grid-template-columns: 52px 1fr;
   }
 }
 

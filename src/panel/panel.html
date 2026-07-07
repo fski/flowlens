@@ -73,7 +73,6 @@
 
         <!-- Tools row: Assist / Page structure / Guided checks as one collapsed toolbar -->
         <div class="toolsRow" id="toolsRow">
-        <span class="toolsRowLabel" aria-hidden="true">Tools</span>
         <!-- Assist toolbox: WCAG stress tests + vision simulators on the inspected page -->
         <details class="assistBar" id="assistBar">
           <summary class="assistSummary">Assist</summary>
@@ -151,9 +150,8 @@
         <!-- Empty state -->
         <section class="emptyState" id="emptyState" aria-live="polite">
           <svg class="emptyLogo" width="228" height="138" viewBox="0 0 228 138" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><g fill="#fff"><path d="m22.1706 104v5.746h-15.66402v8.62h14.45902v5.747h-14.45902v13.408h-6.50658v-33.521z"/><path d="m50.8289 137.521h-22.6526v-5.267h8.6755v-22.986h-6.7476v-5.268h12.5312v28.254h8.1935z"/><path d="m68.1609 138c-2.4098 0-4.5466-.527-6.4102-1.58-1.8315-1.086-3.2774-2.618-4.3377-4.597-1.0282-1.98-1.5423-4.31-1.5423-6.992s.5141-5.012 1.5423-6.992c1.0603-1.979 2.5062-3.495 4.3377-4.549 1.8636-1.085 4.0004-1.628 6.4102-1.628s4.5305.543 6.362 1.628c1.8636 1.054 3.3095 2.57 4.3377 4.549 1.0603 1.98 1.5905 4.31 1.5905 6.992s-.5302 5.012-1.5905 6.992c-1.0282 1.979-2.4741 3.511-4.3377 4.597-1.8315 1.053-3.9522 1.58-6.362 1.58zm0-5.268c1.9921 0 3.5666-.67 4.7233-2.011 1.1888-1.373 1.7833-3.336 1.7833-5.89s-.5945-4.501-1.7833-5.842c-1.1567-1.373-2.7312-2.059-4.7233-2.059s-3.5826.686-4.7715 2.059c-1.1567 1.341-1.7351 3.288-1.7351 5.842s.5784 4.517 1.7351 5.89c1.1889 1.341 2.7794 2.011 4.7715 2.011z"/><path d="m93.2526 137.521h-5.7354l-4.4341-25.38h5.7836l1.7833 12.451-.5784 5.746h.723l4.0967-13.169h4.3377l4.097 13.169h.723l-.579-5.746 1.784-12.451h5.783l-4.434 25.38h-5.735l-3.6632-11.972h-.241z"/><path d="m142.266 137.521h-22.893v-33.521h6.506v27.775h16.387z"/><path d="m171.165 124.113c0 .957-.08 1.835-.241 2.633h-18.652c.322 1.82 1.044 3.273 2.169 4.358 1.157 1.086 2.635 1.628 4.434 1.628 1.446 0 2.619-.271 3.519-.814.899-.542 1.558-1.229 1.976-2.059h5.783c-.578 2.203-1.751 4.118-3.518 5.747-1.735 1.596-4.241 2.394-7.519 2.394-2.474 0-4.659-.527-6.555-1.58-1.895-1.086-3.373-2.618-4.434-4.597-1.028-1.98-1.542-4.31-1.542-6.992s.514-5.012 1.542-6.992c1.061-1.979 2.539-3.495 4.434-4.549 1.896-1.085 4.081-1.628 6.555-1.628 2.346 0 4.434.527 6.266 1.58 1.831 1.022 3.245 2.474 4.241 4.358 1.028 1.884 1.542 4.054 1.542 6.513zm-5.639-1.437c-.289-1.788-.996-3.192-2.12-4.214-1.125-1.022-2.635-1.532-4.531-1.532-1.767 0-3.229.51-4.386 1.532-1.124.99-1.847 2.394-2.169 4.214z"/><path d="m176.93 137.521v-25.38h5.061l.482 2.155h.241c.707-.83 1.622-1.469 2.747-1.916 1.125-.479 2.297-.718 3.518-.718 3.053 0 5.463.958 7.23 2.873 1.767 1.884 2.651 4.438 2.651 7.662v15.324h-5.784v-15.324c0-1.724-.434-3.033-1.301-3.927-.868-.893-2.121-1.34-3.76-1.34-1.51 0-2.779.494-3.807 1.484-.996.958-1.494 2.219-1.494 3.783v15.324z"/><path d="m216.674 138c-2.378 0-4.45-.399-6.218-1.197-1.767-.83-3.116-1.916-4.048-3.257-.932-1.372-1.446-2.841-1.542-4.405h6.024c.611 2.394 2.619 3.591 6.025 3.591 1.671 0 2.924-.223 3.759-.67.868-.447 1.301-1.101 1.301-1.963 0-.799-.449-1.357-1.349-1.676-.9-.352-2.346-.703-4.338-1.054-2.217-.351-4.064-.75-5.542-1.197-1.479-.479-2.748-1.277-3.808-2.395-1.06-1.117-1.591-2.681-1.591-4.692 0-1.405.402-2.666 1.205-3.784.836-1.117 2.073-1.995 3.712-2.633 1.638-.671 3.614-1.006 5.928-1.006 3.309 0 5.944.75 7.904 2.251 1.96 1.468 3.02 3.432 3.181 5.89h-6.025c-.257-.926-.787-1.628-1.59-2.107-.771-.511-2.008-.766-3.711-.766-1.414 0-2.539.191-3.374.574-.803.383-1.205.974-1.205 1.772 0 .894.466 1.532 1.398 1.916.964.351 2.474.67 4.53.957 2.217.351 4.033.751 5.447 1.197 1.413.416 2.634 1.166 3.663 2.251 1.06 1.054 1.59 2.554 1.59 4.502 0 2.202-.851 4.07-2.554 5.602-1.703 1.533-4.627 2.299-8.772 2.299z"/><path d="m92 62h18v-18h-18c-9.9411 0-18 8.0589-18 18v18h18z"/><path d="m92 18h18v-18h-18c-9.9411 0-18 8.05888-18 18v18h18z"/><path d="m136 62v-18h-18v18c0 9.9411 8.059 18 18 18h18v-18z"/></g><path d="m154 18c0 9.9411-8.059 18-18 18s-18-8.0589-18-18c0-9.94113 8.059-18 18-18s18 8.05887 18 18z" fill="#f35"/></svg>
-          <span class="emptyVersion" id="emptyVersion"></span>
           <span class="emptyText" id="emptyText">Run an audit to see results</span>
-          <span class="emptyHint" id="emptyHint">Choose a mode above and click the button to start scanning</span>
+          <span class="emptyHint" id="emptyHint">Choose a mode above and run it</span>
           <button class="btn" id="emptyRetry" type="button" hidden>Retry</button>
         </section>
 
@@ -193,7 +191,6 @@
               <div class="toolbarActions">
                 <label class="groupToggle"><input type="checkbox" id="groupByComponent" /> <span>Group by component</span></label>
                 <span class="findingsCount" id="findingsCount" aria-live="polite"></span>
-                <span class="highlightHint">Click row to expand</span>
                 <button class="btn xs clearHighlightBtn" type="button" title="Remove the highlight ring from the inspected page">Clear highlight</button>
               </div>
             </div>
@@ -202,7 +199,7 @@
                 <caption class="sr-only">All findings</caption>
                 <thead>
                   <tr>
-                    <th scope="col" title="Severity">Severity</th><th scope="col" title="WCAG criterion">WCAG</th><th scope="col" title="Element name">Name</th><th scope="col" title="Issue type">Type</th>
+                    <th scope="col" title="Severity">Severity</th><th scope="col" title="Finding — element name and grouped count">Finding</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -220,7 +217,6 @@
                 <button id="contrastSearchClear" class="searchClear" type="button" aria-label="Clear search">&times;</button>
               </div>
               <div class="toolbarActions">
-                <span class="highlightHint">Click a row to highlight</span>
                 <button class="btn xs clearHighlightBtn" type="button" title="Remove the highlight ring from the inspected page">Clear highlight</button>
               </div>
             </div>
@@ -246,7 +242,6 @@
                 <input id="tabWalkQ" type="text" autocomplete="off" aria-label="Search tab walk events" placeholder="Search" />
               </div>
               <div class="toolbarActions">
-                <span class="highlightHint">Click a row to highlight</span>
                 <button class="btn xs clearHighlightBtn" type="button" title="Remove the highlight ring from the inspected page">Clear highlight</button>
                 <button class="btn xs" id="showTabPathBtn" type="button" title="Draw numbered tab stops and their path on the inspected page">Show tab path on page</button>
                 <button class="btn xs" id="clearTabPathBtn" type="button" title="Remove the tab path overlay from the inspected page">Clear</button>
@@ -636,6 +631,8 @@
               </section>
             </details>
           </details>
+
+          <p class="settingsVersion" id="settingsVersion"></p>
         </section>
 
       </div><!-- /settingsContent -->
