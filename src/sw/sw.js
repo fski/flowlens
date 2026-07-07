@@ -17,7 +17,8 @@ const TAB_BLOCKING_EVENT_TYPES = new Set([
   "focus_on_body",
   "focus_failed",
 ]);
-const MESSAGE_TYPES = new Set(["LIST_FRAMES", "HIGHLIGHT", "RUN_AUDIT", "CAPTURE_STEP"]);
+const MESSAGE_TYPES = new Set(["LIST_FRAMES", "HIGHLIGHT", "RUN_AUDIT", "CAPTURE_STEP", "SHOW_TAB_PATH"]);
+const MAX_TAB_PATH_EVENTS = 400;
 const AUDIT_ACTIONS = new Set(["run", "observe", "watch", "tabWalk", "contrast"]);
 const WCAG_LEVELS = new Set(["2.1-AA", "2.1-AAA", "2.2-AA", "2.2-AAA"]);
 
@@ -40,7 +41,7 @@ function validateIncomingMessage(msg, sender) {
   if (!isPlainObject(msg)) return { ok: false, error: "BAD_MESSAGE_SCHEMA" };
   if (!MESSAGE_TYPES.has(msg.type)) return { ok: false, error: "UNKNOWN_MESSAGE" };
 
-  if ((msg.type === "LIST_FRAMES" || msg.type === "RUN_AUDIT" || msg.type === "CAPTURE_STEP" || msg.type === "HIGHLIGHT")
+  if ((msg.type === "LIST_FRAMES" || msg.type === "RUN_AUDIT" || msg.type === "CAPTURE_STEP" || msg.type === "HIGHLIGHT" || msg.type === "SHOW_TAB_PATH")
       && !isNonNegativeInt(msg.tabId)) {
     return { ok: false, error: "BAD_TAB_ID" };
   }
@@ -48,6 +49,15 @@ function validateIncomingMessage(msg, sender) {
   if (msg.type === "HIGHLIGHT") {
     if (!isNonNegativeInt(msg.frameId)) return { ok: false, error: "BAD_FRAME_ID" };
     if (msg.finding != null && !isPlainObject(msg.finding)) return { ok: false, error: "BAD_FINDING" };
+  }
+
+  if (msg.type === "SHOW_TAB_PATH") {
+    if (!isNonNegativeInt(msg.frameId)) return { ok: false, error: "BAD_FRAME_ID" };
+    if (msg.clear != null && typeof msg.clear !== "boolean") return { ok: false, error: "BAD_CLEAR" };
+    if (msg.events != null) {
+      if (!Array.isArray(msg.events) || msg.events.length > MAX_TAB_PATH_EVENTS) return { ok: false, error: "BAD_EVENTS" };
+      if (!msg.events.every(isPlainObject)) return { ok: false, error: "BAD_EVENTS" };
+    }
   }
 
   if (msg.type === "RUN_AUDIT") {
@@ -1045,6 +1055,79 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       r.frameIdUsed = frameId;
       if (r.found === undefined) r.found = false;
       sendResponse({ ok: true, ...r });
+      return;
+    }
+
+    if (msg.type === "SHOW_TAB_PATH") {
+      const tabId = Number(msg.tabId);
+      const frameId = Number(msg.frameId);
+
+      // Clear mode: remove overlays without (re)injecting the snippet.
+      if (msg.clear === true) {
+        let clearResults;
+        try {
+          clearResults = await chrome.scripting.executeScript({
+            target: { tabId, frameIds: [frameId] },
+            world: "MAIN",
+            func: () => {
+              const api = window.A11YFlowAudit;
+              if (api && typeof api.clearAnnotations === "function") {
+                try { api.clearAnnotations(); } catch {}
+              }
+              // Direct removal covers pages where the snippet is gone (e.g. after reload)
+              try { document.getElementById("__flowlens_tab_path__")?.remove(); } catch {}
+              try { document.getElementById("__flowlens_annotations__")?.remove(); } catch {}
+              return { ok: true, cleared: true };
+            },
+          });
+        } catch {
+          sendResponse({ ok: false, error: "FRAME_INACCESSIBLE", frameIdUsed: frameId });
+          return;
+        }
+        sendResponse({ ...(clearResults?.[0]?.result || { ok: false, error: "NO_RESULT" }), frameIdUsed: frameId });
+        return;
+      }
+
+      // Sanitize events: only the fields showTabPath consumes cross the boundary.
+      const events = (Array.isArray(msg.events) ? msg.events : [])
+        .slice(0, MAX_TAB_PATH_EVENTS)
+        .filter(isPlainObject)
+        .map(e => ({
+          i: Number.isInteger(Number(e.i)) ? Number(e.i) : null,
+          type: typeof e.type === "string" ? e.type.slice(0, 64) : "",
+          path: typeof e.path === "string" ? e.path.slice(0, 512) : null,
+        }));
+
+      // Ensure the snippet API exists in the target frame (idempotent, same as audits).
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId, frameIds: [frameId] },
+          files: [ACCNAME_FILE, SNIPPET_FILE],
+          world: "MAIN",
+        });
+      } catch (e) {
+        sendResponse({ ok: false, error: "INJECT_FAILED", frameIdUsed: frameId });
+        return;
+      }
+
+      let results;
+      try {
+        results = await chrome.scripting.executeScript({
+          target: { tabId, frameIds: [frameId] },
+          world: "MAIN",
+          func: (events) => {
+            const api = window.A11YFlowAudit;
+            if (!api || typeof api.showTabPath !== "function") return { ok: false, error: "SNIPPET_API_MISSING" };
+            try { return api.showTabPath(events); } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+          },
+          args: [events],
+        });
+      } catch {
+        sendResponse({ ok: false, error: "FRAME_INACCESSIBLE", frameIdUsed: frameId });
+        return;
+      }
+      const r = results?.[0]?.result || { ok: false, error: "NO_RESULT" };
+      sendResponse({ ...r, frameIdUsed: frameId });
       return;
     }
 

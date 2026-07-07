@@ -75,6 +75,8 @@ const els = {
   tabTbody: document.querySelector("#tabTable tbody"),
   contrastQ: document.getElementById("contrastQ"),
   tabWalkQ: document.getElementById("tabWalkQ"),
+  showTabPathBtn: document.getElementById("showTabPathBtn"),
+  clearTabPathBtn: document.getElementById("clearTabPathBtn"),
   pastRunsToggle: document.getElementById("pastRunsToggle"),
   pastRunsBody: document.getElementById("pastRunsBody"),
   pastRunsList: document.getElementById("pastRunsList"),
@@ -5958,6 +5960,46 @@ if (els.tabWalkQ) {
     __tabT = setTimeout(() => {
       renderTabWalk({ events: state.tabData });
     }, 120);
+  });
+}
+
+// Tab path overlay — draw numbered tab stops + connecting path on the inspected page
+if (els.showTabPathBtn) {
+  els.showTabPathBtn.addEventListener("click", async () => {
+    if (!state.hasRunMode.has("tabWalk")) {
+      toast("Run a Tab Walk first");
+      return;
+    }
+    // Only the fields showTabPath consumes cross the message boundary
+    const events = (Array.isArray(state.tabData) ? state.tabData : [])
+      .slice(0, 200)
+      .map(e => ({
+        i: Number.isInteger(e?.i) ? e.i : null,
+        type: typeof e?.type === "string" ? e.type : "",
+        path: typeof e?.path === "string" ? e.path : null,
+      }));
+    try {
+      const res = await send({ type: "SHOW_TAB_PATH", frameId: state.bestFrameId ?? 0, events });
+      if (res?.ok) {
+        const flagged = res.blocked ? `, ${res.blocked} flagged` : "";
+        toast(`Tab path shown: ${res.rendered ?? 0} stops${flagged}`);
+      } else {
+        toast(`Could not show tab path (${res?.error || "unknown"})`);
+      }
+    } catch {
+      toast("Could not show tab path (runtime unavailable)");
+    }
+  });
+}
+
+if (els.clearTabPathBtn) {
+  els.clearTabPathBtn.addEventListener("click", async () => {
+    try {
+      const res = await send({ type: "SHOW_TAB_PATH", frameId: state.bestFrameId ?? 0, clear: true });
+      toast(res?.ok ? "Overlay cleared" : `Could not clear overlay (${res?.error || "unknown"})`);
+    } catch {
+      toast("Could not clear overlay (runtime unavailable)");
+    }
   });
 }
 

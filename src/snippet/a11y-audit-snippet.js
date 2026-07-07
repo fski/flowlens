@@ -55,6 +55,20 @@
   const ANNOTATION_CONTAINER_ID = "__flowlens_annotations__";
   const ANNOTATION_CLASS = "__flowlens_marker__";
   const MAX_TAG_CANDIDATES = 50;
+  // Tab-stops path overlay (inspired by Accessibility Insights' tab-stops visualization; native impl)
+  const TAB_PATH_CONTAINER_ID = "__flowlens_tab_path__";
+  const MAX_TAB_PATH_BADGES = 80;
+  const TAB_PATH_ACCENT = "#7BB85E";
+  const TAB_PATH_BLOCKED_COLOR = "#DB5A5A";
+  // Mirrors TAB_BLOCKING_EVENT_TYPES in src/sw/sw.js
+  const TAB_PATH_BLOCKING_TYPES = new Set([
+    "possible_focus_trap",
+    "non_dialog_focus_trap",
+    "roach_motel",
+    "dialog_focus_not_trapped",
+    "focus_on_body",
+    "focus_failed",
+  ]);
 
   // ---------------- utils ----------------
   const isEl = (x) => x && x.nodeType === 1;
@@ -1608,11 +1622,104 @@
   };
 
   /**
-   * Clear all FlowLens overlay annotations from the page.
+   * Clear the tab-stops path overlay (numbered badges + connecting SVG polyline).
+   */
+  const clearTabPath = () => {
+    const existing = doc.getElementById(TAB_PATH_CONTAINER_ID);
+    if (existing) existing.remove();
+  };
+
+  /**
+   * Clear all FlowLens overlay annotations from the page (also removes the tab path overlay).
    */
   const clearAnnotations = () => {
     const existing = doc.getElementById(ANNOTATION_CONTAINER_ID);
     if (existing) existing.remove();
+    clearTabPath();
+  };
+
+  /**
+   * Tab-stops path overlay — draws numbered badges (1..N, visit order) at each
+   * tab stop plus a single SVG polyline connecting stop centers, in one
+   * absolutely-positioned overlay container. Stops involved in trap/blocking
+   * events (see TAB_PATH_BLOCKING_TYPES) render red; others use the accent color.
+   *
+   * `events` — tabWalk events (used to flag blocked stops via `i` / `path`).
+   * `opts.elements` — optional live element list (used by tabWalk({overlay:true}));
+   *                   otherwise the current tab order is recomputed.
+   *
+   * Idempotent: re-running clears the previous overlay first; no listeners are
+   * attached (pointer-events: none everywhere); no external resources.
+   */
+  const showTabPath = (events, opts = {}) => {
+    clearTabPath();
+
+    const blockedIndices = new Set();
+    const blockedPaths = new Set();
+    for (const e of (Array.isArray(events) ? events : [])) {
+      if (!e || !TAB_PATH_BLOCKING_TYPES.has(e.type)) continue;
+      if (Number.isInteger(e.i) && e.i >= 0) blockedIndices.add(e.i);
+      if (typeof e.path === "string" && e.path) blockedPaths.add(e.path);
+    }
+
+    const stops = Array.isArray(opts.elements) && opts.elements.length
+      ? opts.elements.filter(isEl)
+      : computeTabOrder();
+    const max = Math.min(stops.length, MAX_TAB_PATH_BADGES);
+
+    const container = doc.createElement("div");
+    container.id = TAB_PATH_CONTAINER_ID;
+    container.setAttribute("aria-hidden", "true");
+    container.style.cssText = "position:fixed;top:0;left:0;width:0;height:0;overflow:visible;z-index:2147483646;pointer-events:none;";
+
+    const SVG_NS = "http://www.w3.org/2000/svg";
+    const vw = Math.max(doc.documentElement?.clientWidth || 0, w.innerWidth || 0);
+    const vh = Math.max(doc.documentElement?.clientHeight || 0, w.innerHeight || 0);
+    const svg = doc.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("width", String(vw));
+    svg.setAttribute("height", String(vh));
+    svg.setAttribute("viewBox", `0 0 ${vw} ${vh}`);
+    svg.style.cssText = "position:fixed;top:0;left:0;pointer-events:none;overflow:visible;z-index:2147483646;";
+
+    const polyline = doc.createElementNS(SVG_NS, "polyline");
+    polyline.setAttribute("fill", "none");
+    polyline.setAttribute("stroke", TAB_PATH_ACCENT);
+    polyline.setAttribute("stroke-width", "2");
+    polyline.setAttribute("stroke-opacity", "0.75");
+    polyline.setAttribute("stroke-linejoin", "round");
+    polyline.setAttribute("stroke-dasharray", "6 3");
+    svg.appendChild(polyline);
+    container.appendChild(svg);
+
+    const points = [];
+    let rendered = 0;
+    let blocked = 0;
+    for (let idx = 0; idx < max; idx++) {
+      const el = stops[idx];
+      if (!isEl(el) || !el.isConnected) continue;
+      let rect;
+      try { rect = el.getBoundingClientRect(); } catch { continue; }
+      if (!rect || (rect.width === 0 && rect.height === 0)) continue;
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      points.push(`${cx.toFixed(1)},${cy.toFixed(1)}`);
+
+      const isBlocked = blockedIndices.has(idx) || blockedPaths.has(cssPath(el));
+      if (isBlocked) blocked++;
+      const color = isBlocked ? TAB_PATH_BLOCKED_COLOR : TAB_PATH_ACCENT;
+
+      const badge = doc.createElement("div");
+      badge.className = ANNOTATION_CLASS;
+      badge.textContent = String(idx + 1);
+      badge.title = isBlocked ? `Tab stop ${idx + 1} — involved in a focus trap/blocking event` : `Tab stop ${idx + 1}`;
+      badge.style.cssText = `position:fixed;top:${(cy - 9).toFixed(1)}px;left:${(cx - 9).toFixed(1)}px;width:18px;height:18px;border-radius:50%;background:${color};color:#fff;font:bold 10px/15px system-ui;text-align:center;pointer-events:none;z-index:2147483646;box-sizing:border-box;border:1.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);`;
+      container.appendChild(badge);
+      rendered++;
+    }
+
+    polyline.setAttribute("points", points.join(" "));
+    doc.body.appendChild(container);
+    return { ok: true, totalStops: stops.length, rendered, blocked };
   };
 
   /**
@@ -3543,6 +3650,26 @@
       const MAX_LOADER_CANDIDATES = 280;
       let settled = false;
 
+      // Focus history log (inspired by NerdeFocus; native impl) — document-level
+      // capturing focusin listener active only during the watch window.
+      const MAX_FOCUS_HISTORY_EVENTS = 100;
+      let focusHistoryCount = 0;
+      const onWatchFocusIn = (ev) => {
+        if (settled) return;
+        if (focusHistoryCount >= MAX_FOCUS_HISTORY_EVENTS) return;
+        const t = +(performance.now() - start).toFixed(0);
+        const target = ev?.target;
+        focusHistoryCount++;
+        if (target === doc.body || target === doc.documentElement) {
+          events.push({ t, type: "focus_reset_body", note: "focus reset to body" });
+        } else if (isEl(target)) {
+          events.push({ t, type: "focus_change", note: txt(cssPath(target), 140) });
+        } else {
+          events.push({ t, type: "focus_change", note: "(non-element focus target)" });
+        }
+      };
+      try { doc.addEventListener("focusin", onWatchFocusIn, true); } catch {}
+
       // State Transition Engine — watch mode
       let prevWatchTransitionState = null;
       const watchEmittedSet = new Set();
@@ -3705,6 +3832,7 @@
         if (pendingLoaderRecalc) clearTimeout(pendingLoaderRecalc);
         try { observer.disconnect(); } catch {}
         try { liveRegionObserver.disconnect(); } catch {}
+        try { doc.removeEventListener("focusin", onWatchFocusIn, true); } catch {}
         watchInFlight = null;
 
         const verdicts = [];
@@ -3824,7 +3952,7 @@
   };
 
   // ---------------- tabWalk (heuristic keyboard order) ----------------
-  const tabWalk = ({ steps = 60, includePositiveTabindex = true } = {}) => {
+  const tabWalk = ({ steps = 60, includePositiveTabindex = true, overlay = false } = {}) => {
     const order = computeTabOrder();
     const filtered = includePositiveTabindex ? order : order.filter(el => getTabIndex(el) === 0);
     const max = Math.min(steps, filtered.length);
@@ -3957,6 +4085,11 @@
     };
     api.lastTabWalk = summary;
 
+    // Auto-show the tab-stops path overlay when requested via config
+    if (overlay) {
+      try { summary.overlay = showTabPath(events, { elements: filtered.slice(0, max) }); } catch {}
+    }
+
     console.groupCollapsed(`⌨️ A11YFlowAudit.tabWalk — walked=${max}/${order.length} — events=${events.length}`);
     console.table(events.slice(0, 140));
     console.log("Raw:", summary);
@@ -4052,6 +4185,8 @@
     contrastScan,
     annotate: annotateFindings,
     clearAnnotations,
+    showTabPath,
+    clearTabPath,
     get modeHints() { return modeHints; },
     set modeHints(v) { modeHints = v && typeof v === "object" ? v : defaultModeHints; },
     last: null,
@@ -4065,6 +4200,9 @@
       console.log("A11YFlowAudit.observe({ seconds: 12 })  // loaders/remounts");
       console.log("A11YFlowAudit.watch({ seconds: 40 })     // loader chain + focus loss + silent loading budgets");
       console.log("A11YFlowAudit.tabWalk({ steps: 80 })     // heuristic keyboard order");
+      console.log("A11YFlowAudit.tabWalk({ steps: 80, overlay: true }) // + tab path overlay");
+      console.log("A11YFlowAudit.showTabPath(events)         // numbered tab-stop badges + path");
+      console.log("A11YFlowAudit.clearTabPath()              // remove tab path overlay");
       console.log("A11YFlowAudit.contrastScan({ limit: 250 }) // approx contrast");
       console.log("A11YFlowAudit.annotate(findings)          // overlay annotations");
       console.log("A11YFlowAudit.clearAnnotations()          // remove overlays");
