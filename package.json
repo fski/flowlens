@@ -12,6 +12,7 @@
     "release:guard": "node scripts/release-guard.mjs",
     "audit:vendor": "node scripts/audit-vendor.mjs",
     "vendor:accname": "node scripts/vendor-accname.mjs",
+    "vendor:aria": "node scripts/vendor-aria-data.mjs",
     "audit:vendor:all": "node scripts/audit-vendor-all.mjs",
     "release:check": "npm run build && npm run package && npm run package:audit && npm run release:guard",
     "ci": "npm test && npm run build && npm run package && npm run package:audit && npm run audit:vendor && npm run audit:vendor:all && npm run release:guard"

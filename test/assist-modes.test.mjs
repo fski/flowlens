@@ -240,7 +240,7 @@ describe('APPLY_ASSIST message validation', () => {
     assert.ok(handlerStart > -1, 'APPLY_ASSIST handler should exist');
     const handlerEnd = sw.indexOf('if (msg.type === "RUN_AUDIT")', handlerStart);
     const body = sw.slice(handlerStart, handlerEnd);
-    assert.ok(body.includes('files: [ACCNAME_FILE, SNIPPET_FILE]'), 'handler injects snippet files');
+    assert.ok(body.includes('files: [ACCNAME_FILE, ARIA_DATA_FILE, SNIPPET_FILE]'), 'handler injects snippet files');
     assert.ok(body.includes('api.applyAssist'), 'handler calls applyAssist in the frame');
     assert.ok(body.includes('api.clearAssist'), 'handler supports clear via clearAssist');
     assert.ok(body.includes('__flowlens_assist_style__'), 'clear falls back to direct style removal');

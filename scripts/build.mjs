@@ -226,6 +226,7 @@ function buildFileMap() {
     { src: "sw/sw.js",                     dist: "sw.js",                  type: "js" },
     { src: "snippet/a11y-audit-snippet.js", dist: "a11y-audit-snippet.js", type: "js" },
     { src: "vendor/accname.js",            dist: "accname.js",             type: "js" },
+    { src: "vendor/aria-data.js",          dist: "aria-data.js",           type: "js" },
     { src: "devtools/devtools.js",         dist: "devtools.js",            type: "js" },
     { src: "shared/en301549-map.js",       dist: "en301549-map.js",        type: "js" },
     { src: "shared/flow-profiles.js",      dist: "flow-profiles.js",       type: "js" },

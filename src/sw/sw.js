@@ -3,6 +3,10 @@ const SNIPPET_FILE = "a11y-audit-snippet.js";
 // Injected BEFORE the snippet so window.__FlowLensAccName is available;
 // the snippet falls back to its own heuristic if it is missing.
 const ACCNAME_FILE = "accname.js";
+// Vendored WAI-ARIA 1.2 role dataset (generated from aria-query).
+// Injected BEFORE the snippet so window.__FlowLensAriaData is available;
+// the snippet falls back to its hand-maintained ARIA tables if it is missing.
+const ARIA_DATA_FILE = "aria-data.js";
 const SESSION_SCHEMA_VERSION = 4;
 const SESSION_SIGNATURE_VERSION = 2;
 const EN_MAPPING_VERSION = 1;
@@ -639,7 +643,7 @@ async function execAuditActionInFrame({ tabId, frameId, action, alsoConsole, wca
   try {
     await chrome.scripting.executeScript({
       target: { tabId, frameIds: [frameId] },
-      files: [ACCNAME_FILE, SNIPPET_FILE],
+      files: [ACCNAME_FILE, ARIA_DATA_FILE, SNIPPET_FILE],
       world: "MAIN"
     });
   } catch (e) {
@@ -1110,7 +1114,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         await chrome.scripting.executeScript({
           target: { tabId, frameIds: [frameId] },
-          files: [ACCNAME_FILE, SNIPPET_FILE],
+          files: [ACCNAME_FILE, ARIA_DATA_FILE, SNIPPET_FILE],
           world: "MAIN",
         });
       } catch (e) {
@@ -1174,7 +1178,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         await chrome.scripting.executeScript({
           target: { tabId, frameIds: [frameId] },
-          files: [ACCNAME_FILE, SNIPPET_FILE],
+          files: [ACCNAME_FILE, ARIA_DATA_FILE, SNIPPET_FILE],
           world: "MAIN",
         });
       } catch (e) {

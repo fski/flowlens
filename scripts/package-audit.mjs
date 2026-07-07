@@ -65,6 +65,7 @@ const REQUIRED = [
   "sw.js",
   "a11y-audit-snippet.js",
   "accname.js",
+  "aria-data.js",
   "devtools.html",
   "devtools.js",
   "en301549-map.js",

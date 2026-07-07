@@ -1161,6 +1161,56 @@
     cell: ["row"], gridcell: ["row"], columnheader: ["row"], rowheader: ["row"]
   };
 
+  // Required ARIA states/properties by role (hand-maintained fallback)
+  const REQUIRED_ARIA_PROPS = {
+    checkbox: ["aria-checked"], switch: ["aria-checked"], radio: ["aria-checked"],
+    combobox: ["aria-expanded"], slider: ["aria-valuenow"],
+    scrollbar: ["aria-valuenow"], menuitemcheckbox: ["aria-checked"],
+    menuitemradio: ["aria-checked"], tab: ["aria-selected"]
+  };
+
+  // Vendored WAI-ARIA 1.2 role dataset (window.__FlowLensAriaData, generated
+  // from aria-query and injected as aria-data.js before this snippet). When
+  // present, the generated dataset supersedes the hand-maintained tables
+  // above; when it is missing or malformed, the tables above remain in force
+  // (same graceful-fallback pattern as getAccName / __FlowLensAccName).
+  const ARIA_DATA_ROLES = (() => {
+    try {
+      const d = typeof window !== "undefined" ? window.__FlowLensAriaData : null;
+      const roles = d && d.roles;
+      if (roles && typeof roles === "object" && Object.keys(roles).length > 0) return roles;
+    } catch { /* fall back to hand-maintained tables */ }
+    return null;
+  })();
+  const ariaDataTable = (pick, fallback) => {
+    if (!ARIA_DATA_ROLES) return fallback;
+    const out = {};
+    for (const [role, def] of Object.entries(ARIA_DATA_ROLES)) {
+      try {
+        const v = pick(def);
+        if (Array.isArray(v) && v.length) out[role] = v;
+      } catch { /* skip malformed role entries */ }
+    }
+    return Object.keys(out).length ? out : fallback;
+  };
+  // Valid role values: every role name in the dataset (abstract roles kept,
+  // matching the permissiveness of the hand-maintained VALID_ROLES table).
+  const EFFECTIVE_VALID_ROLES = ARIA_DATA_ROLES
+    ? new Set(Object.keys(ARIA_DATA_ROLES))
+    : VALID_ROLES;
+  const EFFECTIVE_REQUIRED_CHILDREN = ariaDataTable(
+    def => (Array.isArray(def?.requiredOwned) && def.requiredOwned.length) ? [def.requiredOwned.slice()] : null,
+    REQUIRED_CHILDREN
+  );
+  const EFFECTIVE_REQUIRED_PARENT = ariaDataTable(
+    def => Array.isArray(def?.requiredContext) ? def.requiredContext.slice() : null,
+    REQUIRED_PARENT
+  );
+  const EFFECTIVE_REQUIRED_ARIA_PROPS = ariaDataTable(
+    def => Array.isArray(def?.requiredProps) ? def.requiredProps.slice() : null,
+    REQUIRED_ARIA_PROPS
+  );
+
   // WCAG 1.3.5 valid autocomplete tokens (HTML spec)
   const VALID_AUTOCOMPLETE = new Set([
     "off","on","name","honorific-prefix","given-name","additional-name","family-name",
@@ -1436,6 +1486,7 @@
     return { r, g, b, a };
   };
 
+  // ──────── Contrast Math & Suggestion Helpers ────
   const srgbToLin = (v) => {
     v /= 255;
     return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
@@ -1453,6 +1504,81 @@
     const lo = Math.min(L1, L2);
     return (hi + 0.05) / (lo + 0.05);
   };
+
+  // RGB ↔ HSL helpers for the contrast fix suggestion (channels 0-255, h/s/l 0-1).
+  const rgbToHsl = ({ r, g, b }) => {
+    const rn = r / 255, gn = g / 255, bn = b / 255;
+    const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn);
+    const l = (max + min) / 2;
+    if (max === min) return { h: 0, s: 0, l };
+    const d = max - min;
+    const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    let h;
+    if (max === rn) h = (gn - bn) / d + (gn < bn ? 6 : 0);
+    else if (max === gn) h = (bn - rn) / d + 2;
+    else h = (rn - gn) / d + 4;
+    return { h: h / 6, s, l };
+  };
+
+  const hslToRgb = ({ h, s, l }) => {
+    if (s === 0) {
+      const v = Math.round(l * 255);
+      return { r: v, g: v, b: v };
+    }
+    const hue2rgb = (p, q, t) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    return {
+      r: Math.round(hue2rgb(p, q, h + 1 / 3) * 255),
+      g: Math.round(hue2rgb(p, q, h) * 255),
+      b: Math.round(hue2rgb(p, q, h - 1 / 3) * 255),
+    };
+  };
+
+  const rgbToHex = ({ r, g, b }) =>
+    "#" + [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0")).join("");
+
+  // Contrast fix suggestion (Stark/WAVE pattern): keep the hue/saturation of
+  // the failing foreground and move its HSL lightness toward the pole (black
+  // or white) with the higher contrast against the effective background.
+  // Along that path the pass predicate is a suffix (true from the crossing
+  // point through the pole), so a ≤20-iteration binary search finds the
+  // smallest shift whose ratio meets `required`. Returns { hex, ratio }
+  // (ratio rounded to 2 decimals) or null when even the pole cannot pass.
+  const suggestContrastColor = (fg, bg, required) => {
+    try {
+      if (!fg || !bg || !Number.isFinite(required)) return null;
+      const { h, s, l } = rgbToHsl(fg);
+      const poleL = contrastRatio({ r: 0, g: 0, b: 0 }, bg) >= contrastRatio({ r: 255, g: 255, b: 255 }, bg) ? 0 : 1;
+      const colorAt = (t) => hslToRgb({ h, s, l: l + (poleL - l) * t });
+      const passes = (c) => contrastRatio(c, bg) + 1e-6 >= required;
+      if (!passes(colorAt(1))) return null; // even the pole fails (e.g. mid-gray bg)
+      let lo = 0, hi = 1;
+      if (passes(colorAt(0))) hi = 0;
+      for (let i = 0; i < 20 && hi - lo > 1e-4; i++) {
+        const mid = (lo + hi) / 2;
+        if (passes(colorAt(mid))) hi = mid; else lo = mid;
+      }
+      // 8-bit channel rounding can land just under the threshold — nudge
+      // further toward the pole until the emitted color itself passes.
+      let t = hi;
+      let rgb = colorAt(t);
+      for (let guard = 0; !passes(rgb) && t < 1 && guard < 20; guard++) {
+        t = Math.min(1, t + 0.02);
+        rgb = colorAt(t);
+      }
+      if (!passes(rgb)) return null;
+      return { hex: rgbToHex(rgb), ratio: +contrastRatio(rgb, bg).toFixed(2) };
+    } catch { return null; }
+  };
+  // ──────── End Contrast Math & Suggestion Helpers ────
 
   const getEffectiveBg = (el) => {
     const layers = [];
@@ -2682,14 +2808,9 @@
       });
     });
 
-    // 4.1.2: ARIA required properties missing
-    const ariaRequired = {
-      checkbox: ["aria-checked"], switch: ["aria-checked"], radio: ["aria-checked"],
-      combobox: ["aria-expanded"], slider: ["aria-valuenow"],
-      scrollbar: ["aria-valuenow"], menuitemcheckbox: ["aria-checked"],
-      menuitemradio: ["aria-checked"], tab: ["aria-selected"]
-    };
-    Object.entries(ariaRequired).forEach(([role, attrs]) => {
+    // 4.1.2: ARIA required properties missing (aria-query data when vendored,
+    // hand-maintained REQUIRED_ARIA_PROPS fallback otherwise)
+    Object.entries(EFFECTIVE_REQUIRED_ARIA_PROPS).forEach(([role, attrs]) => {
       _qa(`[role="${role}"]`).forEach(el => {
         if (isHidden(el)) return;
         for (const attr of attrs) {
@@ -2862,7 +2983,7 @@
       const roleRaw = (el.getAttribute("role") || "").trim().toLowerCase();
       if (!roleRaw) return;
       const rolePrimary = roleRaw.split(/\s+/)[0];
-      if (!VALID_ROLES.has(rolePrimary)) {
+      if (!EFFECTIVE_VALID_ROLES.has(rolePrimary)) {
         add(findings, { type: "ARIA_VALID_ROLE", severity: "high", wcag: "4.1.2", el,
           note: `role="${rolePrimary}" is not a valid WAI-ARIA role.`, extra: { role: rolePrimary } });
       }
@@ -2891,7 +3012,7 @@
     }
 
     // 1.3.1: ARIA required children missing
-    for (const [parentRole, childRoleSets] of Object.entries(REQUIRED_CHILDREN)) {
+    for (const [parentRole, childRoleSets] of Object.entries(EFFECTIVE_REQUIRED_CHILDREN)) {
       _qa(`[role="${parentRole}"]`).forEach(el => {
         if (isHidden(el)) return;
         const children = el.querySelectorAll("[role]");
@@ -2911,7 +3032,7 @@
     }
 
     // 1.3.1: ARIA required parent context missing
-    for (const [childRole, parentRoles] of Object.entries(REQUIRED_PARENT)) {
+    for (const [childRole, parentRoles] of Object.entries(EFFECTIVE_REQUIRED_PARENT)) {
       _qa(`[role="${childRole}"]`).forEach(el => {
         if (isHidden(el)) return;
         let parent = el.parentElement;
@@ -4253,10 +4374,16 @@
 
       samples.push(item);
       if (ratio + 1e-6 < req) {
+        const baseNote = item.note || "Approx contrast check (may be off with gradients/images). Verify manually for blockers.";
+        // Suggested passing foreground (same hue, lightness shifted toward
+        // the higher-contrast pole); null when no same-hue color can pass.
+        const suggestion = suggestContrastColor(effectiveFg, bg, req);
         failures.push({
           ...item,
           wcag: "1.4.3",
-          note: item.note || "Approx contrast check (may be off with gradients/images). Verify manually for blockers."
+          suggestedColor: suggestion ? suggestion.hex : null,
+          suggestedRatio: suggestion ? suggestion.ratio : null,
+          note: suggestion ? `${baseNote} → try ${suggestion.hex} (${suggestion.ratio}:1)` : baseNote
         });
       }
     }
