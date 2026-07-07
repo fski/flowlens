@@ -116,6 +116,24 @@
           </div>
         </details>
 
+        <!-- Guided checks: wizard-style semi-automated tests for undecidable rules -->
+        <details class="assistBar guidedBar" id="guidedSection">
+          <summary class="assistSummary">Guided checks</summary>
+          <div class="guidedBody">
+            <div class="guidedStarters" role="group" aria-label="Guided checks">
+              <button class="btn xs" id="guidedStartImages" type="button" title="Review each visible image: does its description convey its purpose?">Images</button>
+              <button class="btn xs" id="guidedStartControls" type="button" title="Review buttons and links with short or generic labels: is the label clear out of context?">Buttons &amp; links</button>
+              <button class="btn xs" id="guidedCancel" type="button" hidden title="Stop the guided check without adding findings">Cancel</button>
+            </div>
+            <div class="guidedWizard" id="guidedWizard" hidden>
+              <p class="guidedStatus mono" id="guidedStatus" role="status" aria-live="polite" aria-atomic="true"></p>
+              <div class="guidedCandidate" id="guidedCandidate"></div>
+              <p class="guidedQuestion" id="guidedQuestion"></p>
+              <div class="guidedAnswers" id="guidedAnswers" role="group" aria-label="Guided check answers"></div>
+            </div>
+          </div>
+        </details>
+
         <!-- Severity filter tabs -->
         <div class="sevTabs" id="sevTabs" role="tablist" aria-label="Filter by severity"></div>
 

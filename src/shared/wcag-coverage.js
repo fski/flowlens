@@ -2,7 +2,7 @@
 // Versioned: bump WCAG_COVERAGE_VERSION when criteria list or rule mappings change.
 // Local-only, no network. Consumed by panel.js coverage functions.
 
-const WCAG_COVERAGE_VERSION = 4;
+const WCAG_COVERAGE_VERSION = 5;
 
 const WCAG_TARGET = { version: "2.2", level: "AA" };
 
@@ -148,6 +148,11 @@ const RULE_TO_WCAG = {
   FORM_CONTROL_DUPLICATE_NAME:             { criterion: "4.1.2", level: "A", confidence: "heuristic", depthLevel: 2 },
   FORM_CONTROL_NO_LABEL:                   { criterion: "1.3.1", level: "A", confidence: null, also: ["3.3.2", "4.1.2"], depthLevel: 1 },
   FORM_FIELD_MULTIPLE_LABELS:              { criterion: "1.3.1", level: "A", confidence: null, depthLevel: 2 },
+  // GUIDED_*: guided-check (wizard) findings confirmed by a human reviewer.
+  // Confidence "strict" (user-confirmed); depthLevel 1 so depth filtering never hides them.
+  GUIDED_CONTROL_LABEL_VAGUE:              { criterion: "2.4.4", level: "A", confidence: "strict", depthLevel: 1 },
+  GUIDED_IMG_DECORATIVE_NAMED:             { criterion: "1.1.1", level: "A", confidence: "strict", depthLevel: 1 },
+  GUIDED_IMG_NAME_POOR:                    { criterion: "1.1.1", level: "A", confidence: "strict", depthLevel: 1 },
   HC_ACCORDION_NO_STATE:                   { criterion: "4.1.2", level: "A", confidence: null, depthLevel: 2, conversationalTag: "helpcenter" },
   HC_ARTICLE_NO_HEADING:                   { criterion: "1.3.1", level: "A", confidence: null, also: ["2.4.6"], depthLevel: 1, conversationalTag: "helpcenter" },
   HC_BREADCRUMB_NO_LABEL:                  { criterion: "1.3.1", level: "A", confidence: null, depthLevel: 2, conversationalTag: "helpcenter" },

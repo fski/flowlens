@@ -2211,6 +2211,77 @@
     return res;
   };
 
+  // ---------------- Guided checks (candidate collection) ----------------
+
+  // Guided-check candidate kinds — mirrors GUIDED_KINDS in src/sw/sw.js.
+  const GUIDED_KINDS = new Set(["images", "controls"]);
+  const MAX_GUIDED_CANDIDATES = 100;
+  // Generic / non-descriptive control labels (compared lowercase, trimmed).
+  const GUIDED_GENERIC_LABELS = new Set([
+    "click", "here", "more", "read more", "learn more", "click here", "go", "link", "button",
+  ]);
+  const GUIDED_IMAGE_SELECTOR = "img,[role='img'],svg[aria-label]";
+  const GUIDED_CONTROL_SELECTOR =
+    "a[href],button,input[type='button'],input[type='submit'],input[type='reset']," +
+    "[role='button'],[role='link']";
+
+  /**
+   * True when a button/link accessible name is short (<= 3 chars) or in the
+   * generic list — i.e. undecidable by automation and worth a human check.
+   * Empty names are excluded (already covered by automated name rules).
+   */
+  const isGuidedGenericName = (name) => {
+    const n = txt(name, 80).toLowerCase();
+    if (!n) return false;
+    return n.length <= 3 || GUIDED_GENERIC_LABELS.has(n);
+  };
+
+  /**
+   * Guided-check candidates — elements whose accessibility cannot be decided
+   * automatically and needs a human answer (IGT-lite pattern).
+   * kind "images":   every visible <img>, [role=img] and svg[aria-label]
+   *                  with its computed accessible name (may be empty).
+   * kind "controls": visible buttons/links whose accessible name is short or
+   *                  generic (see isGuidedGenericName).
+   * Hidden nodes (display:none / zero-rect / aria-hidden self or ancestor)
+   * are skipped; traverses open shadow roots via collectScopesWithCoverage
+   * (read-only). Serializable; capped at MAX_GUIDED_CANDIDATES.
+   *
+   * @returns {{ok: boolean, kind?: string, error?: string,
+   *   candidates?: Array<{name: string, path: string,
+   *   extra: {tag: string, role: string|null}}>, truncated?: boolean, count?: number}}
+   */
+  const getGuidedCandidates = (kind) => {
+    if (!GUIDED_KINDS.has(kind)) return { ok: false, error: "UNKNOWN_GUIDED_KIND" };
+    const selector = kind === "images" ? GUIDED_IMAGE_SELECTOR : GUIDED_CONTROL_SELECTOR;
+    const { scopes } = collectScopesWithCoverage(doc.documentElement);
+    const candidates = [];
+    let truncated = false;
+    for (const { root } of scopes) {
+      if (truncated) break;
+      let found;
+      try { found = [...root.querySelectorAll(selector)]; } catch { found = []; }
+      for (const node of found) {
+        if (isHidden(node)) continue;
+        try { if (node.closest && node.closest("[aria-hidden='true']")) continue; } catch {}
+        const name = txt(getAccName(node), 120);
+        if (kind === "controls" && !isGuidedGenericName(name)) continue;
+        if (candidates.length >= MAX_GUIDED_CANDIDATES) { truncated = true; break; }
+        candidates.push({
+          name,
+          path: cssPath(node),
+          extra: {
+            tag: (node.tagName || "").toLowerCase(),
+            role: (node.getAttribute && node.getAttribute("role")) || null,
+          },
+        });
+      }
+    }
+    const res = { ok: true, kind, candidates, truncated, count: candidates.length };
+    api.lastGuided = res;
+    return res;
+  };
+
   /**
    * Tab-stops path overlay — draws numbered badges (1..N, visit order) at each
    * tab stop plus a single SVG polyline connecting stop centers, in one
@@ -4765,6 +4836,7 @@
     clearAssist,
     getPageStructure,
     getA11yOutline,
+    getGuidedCandidates,
     showStructureOverlay,
     clearStructureOverlay,
     get modeHints() { return modeHints; },
@@ -4776,6 +4848,7 @@
     lastContrast: null,
     lastStructure: null,
     lastA11yOutline: null,
+    lastGuided: null,
     help() {
       console.log("A11YFlowAudit.run({ strict:true })");
       console.log("A11YFlowAudit.run({ rootSelector: '#my-component' })  // subtree scan");
@@ -4793,6 +4866,7 @@
       console.log("A11YFlowAudit.clearAssist()               // remove active assist mode");
       console.log("A11YFlowAudit.getPageStructure()          // headings outline + landmarks");
       console.log("A11YFlowAudit.getA11yOutline()            // linearized screen-reader view snapshot");
+      console.log("A11YFlowAudit.getGuidedCandidates('images') // guided-check candidates (also: 'controls')");
       console.log("A11YFlowAudit.showStructureOverlay('headings') // labeled outline boxes (also: 'landmarks')");
       console.log("A11YFlowAudit.clearStructureOverlay()     // remove structure overlay");
     }

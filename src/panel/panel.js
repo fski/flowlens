@@ -93,6 +93,15 @@ const els = {
   structureClearHeadings: document.getElementById("structureClearHeadings"),
   structureShowLandmarks: document.getElementById("structureShowLandmarks"),
   structureClearLandmarks: document.getElementById("structureClearLandmarks"),
+  guidedSection: document.getElementById("guidedSection"),
+  guidedStartImages: document.getElementById("guidedStartImages"),
+  guidedStartControls: document.getElementById("guidedStartControls"),
+  guidedCancel: document.getElementById("guidedCancel"),
+  guidedWizard: document.getElementById("guidedWizard"),
+  guidedStatus: document.getElementById("guidedStatus"),
+  guidedCandidate: document.getElementById("guidedCandidate"),
+  guidedQuestion: document.getElementById("guidedQuestion"),
+  guidedAnswers: document.getElementById("guidedAnswers"),
   scoreChip: document.getElementById("scoreChip"),
   manualChecksSection: document.getElementById("manualChecksSection"),
   manualChecksList: document.getElementById("manualChecksList"),
@@ -3334,6 +3343,186 @@ function renderPageStructure(structure) {
   }
 }
 
+// ═══ GUIDED CHECKS (Snap tab wizard) ═══
+// Wizard-style semi-automated tests for undecidable rules (IGT-lite pattern).
+// Candidates come from the snippet (GET_GUIDED_CANDIDATES); each answer is
+// turned into a finding via buildGuidedFinding (signature-engine.js) and the
+// collected findings are merged into the run explorer view at the end.
+
+// Question + answer sets per guided kind ("Skip" is always appended).
+const GUIDED_CHECK_QUESTIONS = {
+  images: "Does this description convey the image's purpose?",
+  controls: "Out of context, does this label tell the user what will happen?",
+};
+const GUIDED_CHECK_ANSWERS = {
+  images: [
+    { value: "yes", label: "Yes" },
+    { value: "no", label: "No" },
+    { value: "decorative", label: "It's decorative" },
+  ],
+  controls: [
+    { value: "yes", label: "Yes" },
+    { value: "no", label: "No" },
+  ],
+};
+
+// Wizard state — in memory only; re-runnable; nothing persisted beyond the
+// findings merged into the run explorer view.
+const guidedState = { active: false, kind: null, candidates: [], index: 0, findings: [] };
+
+function setGuidedStartersDisabled(disabled) {
+  if (els.guidedStartImages) els.guidedStartImages.disabled = !!disabled;
+  if (els.guidedStartControls) els.guidedStartControls.disabled = !!disabled;
+}
+
+/** Reset wizard state + UI. Safe to call at any time; makes the wizard re-runnable. */
+function resetGuidedWizard() {
+  guidedState.active = false;
+  guidedState.kind = null;
+  guidedState.candidates = [];
+  guidedState.index = 0;
+  guidedState.findings = [];
+  if (els.guidedWizard) els.guidedWizard.hidden = true;
+  if (els.guidedCancel) els.guidedCancel.hidden = true;
+  if (els.guidedStatus) els.guidedStatus.textContent = "";
+  if (els.guidedCandidate) els.guidedCandidate.textContent = "";
+  if (els.guidedQuestion) els.guidedQuestion.textContent = "";
+  if (els.guidedAnswers) els.guidedAnswers.textContent = "";
+  setGuidedStartersDisabled(false);
+}
+
+/** Real <button type="button"> answers (keyboard accessible); no inline handlers. */
+function renderGuidedAnswerButtons() {
+  if (!els.guidedAnswers) return;
+  els.guidedAnswers.textContent = "";
+  const answers = (GUIDED_CHECK_ANSWERS[guidedState.kind] || []).concat([{ value: "skip", label: "Skip" }]);
+  for (const a of answers) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn xs";
+    btn.dataset.guidedAnswer = a.value;
+    btn.textContent = a.label;
+    els.guidedAnswers.appendChild(btn);
+  }
+}
+
+/** Render the current candidate. Page-derived strings only via textContent. */
+function renderGuidedStep() {
+  if (!guidedState.active) return;
+  const total = guidedState.candidates.length;
+  const c = guidedState.candidates[guidedState.index] || {};
+  if (els.guidedStatus) els.guidedStatus.textContent = `Candidate ${guidedState.index + 1} of ${total}`;
+  if (els.guidedQuestion) els.guidedQuestion.textContent = GUIDED_CHECK_QUESTIONS[guidedState.kind] || "";
+  if (els.guidedCandidate) {
+    els.guidedCandidate.textContent = "";
+    const nameEl = document.createElement("div");
+    nameEl.className = "guidedName";
+    nameEl.textContent = c.name ? `Name: “${txt(c.name, 120)}”` : "Name: (empty)";
+    const pathEl = document.createElement("div");
+    pathEl.className = "guidedPath";
+    pathEl.textContent = txt(c.path || "", 160);
+    els.guidedCandidate.appendChild(nameEl);
+    els.guidedCandidate.appendChild(pathEl);
+  }
+}
+
+function buildGuidedHighlightPayload(candidate) {
+  const c = candidate || {};
+  return {
+    path: c.path || null,
+    name: c.name || null,
+    tag: (c.extra && c.extra.tag) || null,
+    role: (c.extra && c.extra.role) || null,
+  };
+}
+
+/** Show the current candidate in the panel and highlight it on the page. */
+async function showGuidedCandidate() {
+  renderGuidedStep();
+  const c = guidedState.candidates[guidedState.index];
+  if (c && c.path) {
+    try {
+      await highlightFinding(buildGuidedHighlightPayload(c), state._activeHighlightCtx);
+    } catch { /* highlight is best-effort during guided checks */ }
+  }
+}
+
+/** Fetch candidates for a kind ("images" | "controls") and start the wizard. */
+async function startGuidedWizard(kind) {
+  if (guidedState.active || state.running) return;
+  let res;
+  try {
+    res = await send({ type: "GET_GUIDED_CANDIDATES", frameId: state.bestFrameId ?? 0, kind });
+  } catch {
+    toast("Guided check failed (runtime unavailable)");
+    return;
+  }
+  if (!res?.ok || !Array.isArray(res.candidates)) {
+    toast(`Guided check failed (${res?.error || "unknown"})`);
+    return;
+  }
+  if (!res.candidates.length) {
+    toast(kind === "images" ? "No visible images found" : "No short/generic control labels found");
+    return;
+  }
+  resetGuidedWizard();
+  guidedState.active = true;
+  guidedState.kind = kind;
+  guidedState.candidates = res.candidates;
+  if (els.guidedSection) els.guidedSection.open = true;
+  if (els.guidedWizard) els.guidedWizard.hidden = false;
+  if (els.guidedCancel) els.guidedCancel.hidden = false;
+  setGuidedStartersDisabled(true);
+  renderGuidedAnswerButtons();
+  if (res.truncated) toast(`Reviewing the first ${res.candidates.length} candidates (list capped)`);
+  await showGuidedCandidate();
+}
+
+/** Record one answer ("skip" records nothing) and advance the wizard. */
+async function answerGuidedCandidate(answer) {
+  if (!guidedState.active) return;
+  const candidate = guidedState.candidates[guidedState.index];
+  if (candidate && answer && answer !== "skip") {
+    const finding = buildGuidedFinding(guidedState.kind, answer, candidate);
+    if (finding) guidedState.findings.push(finding);
+  }
+  guidedState.index += 1;
+  if (guidedState.index >= guidedState.candidates.length) {
+    finishGuidedWizard();
+  } else {
+    await showGuidedCandidate();
+  }
+}
+
+/** Merge collected findings into the run explorer view and reset the wizard. */
+function finishGuidedWizard() {
+  const findings = applyFixSuggestions(guidedState.findings.slice());
+  resetGuidedWizard();
+  if (findings.length) {
+    mergeGuidedFindings(findings);
+    toast(`Guided check done — ${findings.length} finding${findings.length === 1 ? "" : "s"} added`);
+  } else {
+    toast("Guided check done — no findings");
+  }
+}
+
+/**
+ * Append guided findings to the current run view (state.findingsByMode.run,
+ * created if absent) and rerender via the existing pipeline so severity tabs,
+ * counts and the explorer include them. In-memory only.
+ */
+function mergeGuidedFindings(findings) {
+  if (!Array.isArray(findings) || !findings.length) return;
+  const existing = Array.isArray(state.findingsByMode.run) ? state.findingsByMode.run : [];
+  state.findingsByMode.run = existing.concat(findings);
+  state.currentFindings = applyAllFindingFilters(state.findingsByMode.run);
+  state.hasRunMode.add("run");
+  setPressed("run");
+  updateResultsVisibility(true);
+  showMode("run");
+  rerenderFindings("guided_checks");
+}
+
 // ═══ WEIGHTED SCORE CHIP + MANUAL CHECKS ═══
 
 /**
@@ -3649,6 +3838,9 @@ const FIX_SUGGESTIONS = {
   HC_SEARCH_NO_LABEL: 'Add visible <label> or aria-label to search input.',
   HC_BREADCRUMB_NO_LABEL: 'Add aria-label="Breadcrumb" to <nav>.',
   HC_ACCORDION_NO_STATE: 'Add aria-expanded to accordion trigger button.',
+  GUIDED_IMG_NAME_POOR: 'Rewrite alt/aria-label so it conveys the image purpose, not its appearance or filename.',
+  GUIDED_IMG_DECORATIVE_NAMED: 'Decorative image: set alt="" (or role="presentation") and remove aria-label/title.',
+  GUIDED_CONTROL_LABEL_VAGUE: f => `Label "${txt(f.name || '', 40)}" is vague out of context. Use text that describes the action or destination.`,
 };
 
 function applyFixSuggestions(findings) {
@@ -6539,6 +6731,30 @@ if (els.structureClearHeadings) {
 }
 if (els.structureClearLandmarks) {
   els.structureClearLandmarks.addEventListener("click", () => sendShowStructure("clear"));
+}
+
+// Guided checks — wizard-style semi-automated tests. Starter buttons fetch
+// candidates via GET_GUIDED_CANDIDATES; answers are delegated on the answer
+// group (real <button>s rendered by renderGuidedAnswerButtons).
+if (els.guidedStartImages) {
+  els.guidedStartImages.addEventListener("click", () => { startGuidedWizard("images"); });
+}
+if (els.guidedStartControls) {
+  els.guidedStartControls.addEventListener("click", () => { startGuidedWizard("controls"); });
+}
+if (els.guidedCancel) {
+  els.guidedCancel.addEventListener("click", () => {
+    if (!guidedState.active) return;
+    resetGuidedWizard();
+    toast("Guided check cancelled");
+  });
+}
+if (els.guidedAnswers) {
+  els.guidedAnswers.addEventListener("click", (e) => {
+    const btn = e.target.closest ? e.target.closest("button[data-guided-answer]") : null;
+    if (!btn || !els.guidedAnswers.contains(btn)) return;
+    answerGuidedCandidate(btn.dataset.guidedAnswer);
+  });
 }
 
 // Manual checks — purely informational; checkbox state lives in memory only.

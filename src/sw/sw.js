@@ -21,7 +21,7 @@ const TAB_BLOCKING_EVENT_TYPES = new Set([
   "focus_on_body",
   "focus_failed",
 ]);
-const MESSAGE_TYPES = new Set(["LIST_FRAMES", "HIGHLIGHT", "RUN_AUDIT", "CAPTURE_STEP", "SHOW_TAB_PATH", "APPLY_ASSIST", "GET_PAGE_STRUCTURE", "GET_A11Y_OUTLINE", "SHOW_STRUCTURE"]);
+const MESSAGE_TYPES = new Set(["LIST_FRAMES", "HIGHLIGHT", "RUN_AUDIT", "CAPTURE_STEP", "SHOW_TAB_PATH", "APPLY_ASSIST", "GET_PAGE_STRUCTURE", "GET_A11Y_OUTLINE", "GET_GUIDED_CANDIDATES", "SHOW_STRUCTURE"]);
 const MAX_TAB_PATH_EVENTS = 400;
 // Assist toolbox kinds ("clear" removes the active assist mode).
 // Mirrors ASSIST_KINDS in src/snippet/a11y-audit-snippet.js.
@@ -29,6 +29,9 @@ const ASSIST_KINDS = new Set(["textSpacing", "grayscale", "protanopia", "deutera
 // Page-structure overlay kinds ("clear" removes the overlay).
 // Mirrors STRUCTURE_KINDS in src/snippet/a11y-audit-snippet.js.
 const STRUCTURE_KINDS = new Set(["headings", "landmarks", "clear"]);
+// Guided-check candidate kinds.
+// Mirrors GUIDED_KINDS in src/snippet/a11y-audit-snippet.js.
+const GUIDED_KINDS = new Set(["images", "controls"]);
 const AUDIT_ACTIONS = new Set(["run", "observe", "watch", "tabWalk", "contrast"]);
 const WCAG_LEVELS = new Set(["2.1-AA", "2.1-AAA", "2.2-AA", "2.2-AAA"]);
 
@@ -51,7 +54,7 @@ function validateIncomingMessage(msg, sender) {
   if (!isPlainObject(msg)) return { ok: false, error: "BAD_MESSAGE_SCHEMA" };
   if (!MESSAGE_TYPES.has(msg.type)) return { ok: false, error: "UNKNOWN_MESSAGE" };
 
-  if ((msg.type === "LIST_FRAMES" || msg.type === "RUN_AUDIT" || msg.type === "CAPTURE_STEP" || msg.type === "HIGHLIGHT" || msg.type === "SHOW_TAB_PATH" || msg.type === "APPLY_ASSIST" || msg.type === "GET_PAGE_STRUCTURE" || msg.type === "GET_A11Y_OUTLINE" || msg.type === "SHOW_STRUCTURE")
+  if ((msg.type === "LIST_FRAMES" || msg.type === "RUN_AUDIT" || msg.type === "CAPTURE_STEP" || msg.type === "HIGHLIGHT" || msg.type === "SHOW_TAB_PATH" || msg.type === "APPLY_ASSIST" || msg.type === "GET_PAGE_STRUCTURE" || msg.type === "GET_A11Y_OUTLINE" || msg.type === "GET_GUIDED_CANDIDATES" || msg.type === "SHOW_STRUCTURE")
       && !isNonNegativeInt(msg.tabId)) {
     return { ok: false, error: "BAD_TAB_ID" };
   }
@@ -81,6 +84,11 @@ function validateIncomingMessage(msg, sender) {
 
   if (msg.type === "GET_A11Y_OUTLINE") {
     if (!isNonNegativeInt(msg.frameId)) return { ok: false, error: "BAD_FRAME_ID" };
+  }
+
+  if (msg.type === "GET_GUIDED_CANDIDATES") {
+    if (!isNonNegativeInt(msg.frameId)) return { ok: false, error: "BAD_FRAME_ID" };
+    if (typeof msg.kind !== "string" || !GUIDED_KINDS.has(msg.kind)) return { ok: false, error: "BAD_KIND" };
   }
 
   if (msg.type === "SHOW_STRUCTURE") {
@@ -1285,6 +1293,44 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             if (!api || typeof api.getA11yOutline !== "function") return { ok: false, error: "SNIPPET_API_MISSING" };
             try { return { ok: true, outline: api.getA11yOutline() }; } catch (e) { return { ok: false, error: String(e?.message || e) }; }
           },
+        });
+      } catch {
+        sendResponse({ ok: false, error: "FRAME_INACCESSIBLE", frameIdUsed: frameId });
+        return;
+      }
+      const r = results?.[0]?.result || { ok: false, error: "NO_RESULT" };
+      sendResponse({ ...r, frameIdUsed: frameId });
+      return;
+    }
+
+    if (msg.type === "GET_GUIDED_CANDIDATES") {
+      const tabId = Number(msg.tabId);
+      const frameId = Number(msg.frameId);
+      const kind = String(msg.kind);
+
+      // Ensure the snippet API exists in the target frame (idempotent, same as audits).
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId, frameIds: [frameId] },
+          files: [ACCNAME_FILE, ARIA_DATA_FILE, SNIPPET_FILE],
+          world: "MAIN",
+        });
+      } catch (e) {
+        sendResponse({ ok: false, error: "INJECT_FAILED", frameIdUsed: frameId });
+        return;
+      }
+
+      let results;
+      try {
+        results = await chrome.scripting.executeScript({
+          target: { tabId, frameIds: [frameId] },
+          world: "MAIN",
+          func: (kind) => {
+            const api = window.A11YFlowAudit;
+            if (!api || typeof api.getGuidedCandidates !== "function") return { ok: false, error: "SNIPPET_API_MISSING" };
+            try { return api.getGuidedCandidates(kind); } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+          },
+          args: [kind],
         });
       } catch {
         sendResponse({ ok: false, error: "FRAME_INACCESSIBLE", frameIdUsed: frameId });

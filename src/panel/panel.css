@@ -1157,6 +1157,62 @@ kbd {
   font-style: italic;
 }
 
+/* ═══ GUIDED CHECKS ═══ */
+.guidedBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.guidedStarters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.guidedWizard {
+  border: 1px solid var(--brd0);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.guidedStatus {
+  margin: 0;
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.guidedCandidate {
+  font-size: 12px;
+  color: var(--tx2);
+  word-break: break-word;
+}
+
+.guidedCandidate .guidedPath {
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.guidedQuestion {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tx);
+}
+
+.guidedAnswers {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 /* ═══ WEIGHTED SCORE CHIP + MANUAL CHECKS ═══ */
 .statusRow {
   display: flex;

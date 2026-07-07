@@ -1048,8 +1048,8 @@ describe("v2 expansion coverage delta", () => {
 // ══════════════════════════════════════════════════════
 
 describe("Conversational ruleset — WCAG_COVERAGE_VERSION", () => {
-  it("WCAG_COVERAGE_VERSION is 4", () => {
-    assert.equal(ctx.__WCAG_COVERAGE_VERSION, 4);
+  it("WCAG_COVERAGE_VERSION is 5 (bumped for guided-check rule mappings)", () => {
+    assert.equal(ctx.__WCAG_COVERAGE_VERSION, 5);
   });
 });
 

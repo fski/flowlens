@@ -907,3 +907,75 @@ function diffA11yOutlines(prevNodes, currNodes) {
 
   return { added, removed, addedCount, removedCount };
 }
+
+// ---- Guided checks (wizard) — pure finding builder ----
+
+/**
+ * Build a finding from one guided-check answer. Pure and unit-testable —
+ * panel.js merges the returned findings into the run explorer view.
+ *
+ * kind "images":
+ *   answer "no"         → GUIDED_IMG_NAME_POOR (medium / strict / 1.1.1)
+ *   answer "decorative" → GUIDED_IMG_DECORATIVE_NAMED (low / strict / 1.1.1),
+ *                         only when the candidate has a non-empty accessible name
+ * kind "controls":
+ *   answer "no"         → GUIDED_CONTROL_LABEL_VAGUE (medium / strict / 2.4.4)
+ *
+ * Every other (kind, answer) combination returns null (no finding).
+ * Candidate fields are copied as plain strings — escaping happens at the
+ * render boundary (escapeHtml/cellHtml), exactly like audit findings.
+ *
+ * @param {string} kind - "images" | "controls"
+ * @param {string} answer - "yes" | "no" | "decorative"
+ * @param {{name?: string, path?: string, extra?: {tag?: string, role?: string}}} candidate
+ * @returns {object|null} finding in the audit-finding shape, or null
+ */
+function buildGuidedFinding(kind, answer, candidate) {
+  const c = candidate && typeof candidate === "object" ? candidate : {};
+  const name = typeof c.name === "string" ? c.name : "";
+  const cExtra = c.extra && typeof c.extra === "object" ? c.extra : {};
+  const base = {
+    severity: "medium",
+    wcag: null,
+    level: "A",
+    confidence: "strict",
+    product: null,
+    name: name || null,
+    role: typeof cExtra.role === "string" ? cExtra.role : null,
+    tag: typeof cExtra.tag === "string" ? cExtra.tag : null,
+    testId: null,
+    path: typeof c.path === "string" ? c.path : null,
+    note: null,
+    extra: { guided: true, kind: String(kind || ""), answer: String(answer || "") },
+    fix: null,
+  };
+  if (kind === "images") {
+    if (answer === "no") {
+      return Object.assign({}, base, {
+        type: "GUIDED_IMG_NAME_POOR",
+        wcag: "1.1.1",
+        note: "Guided check: reviewer judged that the accessible name does not convey the image's purpose.",
+      });
+    }
+    if (answer === "decorative" && name.trim()) {
+      return Object.assign({}, base, {
+        type: "GUIDED_IMG_DECORATIVE_NAMED",
+        severity: "low",
+        wcag: "1.1.1",
+        note: 'Guided check: image is decorative but exposes a non-empty accessible name. Use alt="" (or role="presentation") so assistive tech skips it.',
+      });
+    }
+    return null;
+  }
+  if (kind === "controls") {
+    if (answer === "no") {
+      return Object.assign({}, base, {
+        type: "GUIDED_CONTROL_LABEL_VAGUE",
+        wcag: "2.4.4",
+        note: "Guided check: out of context, this button/link label does not tell the user what will happen.",
+      });
+    }
+    return null;
+  }
+  return null;
+}
