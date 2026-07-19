@@ -179,7 +179,7 @@ body {
   border: 0;
   background: transparent;
   color: var(--tx2);
-  font: 400 13px/1 var(--font-mono);
+  font: 400 11px/1 var(--font-mono);
   cursor: pointer;
   transition: color .15s;
 }
@@ -607,7 +607,7 @@ kbd {
   margin-top: 8px;
   background: var(--bg);
   border-bottom: 2px solid var(--brd);
-  padding: 0 16px;
+  padding: 0 8px;
   gap: 8px;
 }
 
@@ -678,7 +678,7 @@ kbd {
   flex-shrink: 0;
 }
 
-.topTab .tabLabel { font-size: 15px; }
+.topTab .tabLabel { font-size: 14px; font-weight: 500; }
 
 .topTab--settings { flex: 0 0 auto; }
 
@@ -726,7 +726,7 @@ kbd {
 .subTabBar {
   display: flex;
   align-items: stretch;
-  gap: 4px;
+  gap: 8px;
   padding: 8px 8px 0;
   border-bottom: 2px solid var(--brd);
   background: var(--surface);
@@ -838,14 +838,14 @@ kbd {
 .subTab--observe[aria-selected="true"] { --tab-grad: linear-gradient(180deg, #5AADDB, var(--brd)); }
 .subTab--watch[aria-selected="true"]   { --tab-grad: linear-gradient(180deg, #8B8EDB, var(--brd)); }
 
-.subTab .tabLabel { font-size: 15px; }
+.subTab .tabLabel { font-size: 14px; font-weight: 500; }
 
 .subTab:focus-visible {
   outline: 2px solid var(--cyan);
   outline-offset: -2px;
 }
 
-@media (max-width: 319px) {
+@media (max-width: 479px) {
   .subTab .tabLabel { display: none; }
   .subTab .keycap { display: none; }
   .topTab .tabLabel { display: none; }
@@ -863,13 +863,13 @@ kbd {
   border: none;
   background: rgba(51, 51, 51, 0.4);
   color: var(--tx4);
-  font: 500 11px/1 var(--font-mono);
+  font: 500 10px/1 var(--font-mono);
   text-transform: lowercase;
 }
 
 /* ═══ CTA BUTTONS ═══ */
 .ctaSlot {
-  padding: 16px;
+  padding: 16px 8px;
   background: var(--raised);
 }
 
@@ -882,8 +882,8 @@ kbd {
   min-height: 48px;
   padding: 12px 8px;
   border: 0;
-  border-radius: var(--radius-sm);
-  font: 700 15px/1 var(--font-mono);
+  border-radius: var(--radius-xs);
+  font: 700 14px/1 var(--font-mono);
   cursor: pointer;
   transition: filter .15s, opacity .15s;
 }
@@ -964,7 +964,7 @@ kbd {
 .helperText {
   text-align: center;
   color: var(--tx2);
-  font: 400 12px/1.4 var(--font-mono);
+  font: 400 10px/1.4 var(--font-mono);
   padding: 8px 0 0;
   margin: 0;
 }
@@ -996,14 +996,14 @@ kbd {
 }
 
 .sevTab .sevCount {
-  font-size: 15px;
+  font-size: 12px;
   font-weight: 800;
   line-height: 1.32;
   color: var(--tx2);
 }
 
 .sevTab .sevLabel {
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 400;
   line-height: 1.32;
   color: var(--tx2);
@@ -1599,7 +1599,7 @@ kbd {
 }
 
 .pLabel {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -1610,18 +1610,27 @@ kbd {
 
 .pFill {
   height: 100%;
-  border-radius: 2px;
-  background: linear-gradient(90deg, var(--pri), var(--cyan));
+  border-radius: 4px 4px 0 0;
+  background: rgba(255, 255, 255, 0.08);
   width: 0%;
   transition: width .3s ease;
 }
 
 .pTrack {
   width: 100%;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--emphasis);
+  height: 8px;
+  border-radius: 4px 4px 0 0;
+  background: var(--brd);
   overflow: hidden;
+}
+
+/* Rainbow underline while a timed mode runs (Figma: 4px gradient bottom border) */
+.progress.active::after {
+  content: "";
+  display: block;
+  height: 4px;
+  border-radius: 0 0 4px 4px;
+  background: linear-gradient(90deg, #7BB85E 0%, #54B8A6 20%, #5AADDB 40%, #8B8EDB 60%, #D4A054 80%, #DB6B6B 100%);
 }
 
 /* Legacy out toggle (removed — kept for reference) */
@@ -1712,7 +1721,7 @@ kbd {
   min-width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 10px;
   font-family: var(--font-mono);
 }
 
@@ -1725,7 +1734,7 @@ kbd {
   border-bottom: 2px solid var(--brd);
   background: var(--raised);
   color: var(--tx2);
-  font: 700 12px/1.2 var(--font-mono);
+  font: 500 10px/1.2 var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1768,13 +1777,13 @@ kbd {
   padding: 6px 8px;
   border-bottom: 1px solid var(--brd0);
   color: var(--tx);
-  font-weight: 500;
+  font-weight: 400;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tbl tbody tr:nth-child(even) { background: var(--stripe); }
+.tbl tbody tr:nth-child(even) { background: #1F1F1F; }
 .tbl tbody tr { transition: background .15s; }
 .tbl tbody tr:hover { background: var(--raised); }
 .tbl tbody tr.isSelected {
@@ -1792,7 +1801,7 @@ kbd {
 #allTable thead { display: block; position: sticky; top: 0; z-index: 2; background: var(--raised); border-bottom: 2px solid var(--brd); }
 #allTable thead tr { display: grid; grid-template-columns: minmax(48px, 70px) minmax(48px, 70px) 1fr minmax(80px, 140px); }
 #allTable tbody { display: block; }
-#allTable .trow { display: grid; grid-template-columns: minmax(48px, 70px) minmax(48px, 70px) 1fr minmax(80px, 140px); border-left: 3px solid var(--row-sev, transparent); }
+#allTable .trow { display: grid; grid-template-columns: minmax(48px, 70px) minmax(48px, 70px) 1fr minmax(80px, 140px); border-left: 4px solid var(--row-sev, transparent); }
 #allTable th, #allTable .trow td { display: block; min-width: 0; }
 #allTable .vt-spacer, #allTable .vt-spacer td { display: block; }
 #allTable .detailRow, #allTable .detailRow td { display: block; }
@@ -1903,7 +1912,7 @@ kbd {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  padding: 4px 8px;
+  padding: 8px;
   background: var(--surface);
   border-bottom: 1px solid var(--brd);
 }
@@ -1927,7 +1936,8 @@ kbd {
   border: none;
   background: transparent;
   padding: 4px 0;
-  font-size: 13px;
+  font-size: 9px;
+  text-transform: uppercase;
   color: var(--tx);
   flex: 1;
   min-width: 0;
@@ -1942,7 +1952,7 @@ kbd {
 
 .searchToolbar #q::placeholder,
 .searchToolbar input[type="text"]::placeholder {
-  color: var(--tx3);
+  color: #666666;
 }
 
 /* Search clear button */
