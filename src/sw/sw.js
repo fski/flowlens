@@ -1448,8 +1448,10 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
 
   if (normalized.scope === FRAME_SCOPE.EMBEDDED) {
     if (manualOverride) {
+      // Strict: EVERY pinned frame must still exist in scope — auditing a
+      // silent subset would claim coverage of frames that were never run.
       const presentEmbedded = manualFrameIds.filter(id => embeddedFrameIds.includes(id));
-      if (!presentEmbedded.length) {
+      if (presentEmbedded.length !== manualFrameIds.length) {
         return _resolve({
           ok: false,
           frameIds: [],
@@ -1494,8 +1496,9 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
 
   // PRIMARY scope (default): exactly one frame, auto-selected from all candidates.
   if (manualOverride) {
+    // Strict: every pinned frame must be present (see EMBEDDED branch).
     const presentManual = manualFrameIds.filter(id => allFrameIds.includes(id));
-    if (!presentManual.length) {
+    if (presentManual.length !== manualFrameIds.length) {
       return _resolve({
         ok: false,
         frameIds: [],

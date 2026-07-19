@@ -59,8 +59,7 @@ describe('updateUiPrefs — serialized writes', () => {
 });
 
 describe('buildCIReportFromState — blocking count', () => {
-  it('reports blocking > 0 when the last run has blocking findings', () => {
-    const ctx = createContext();
+  function withLastResult(ctx, findings) {
     ctx.state.lastResult = {
       ok: true,
       action: 'run',
@@ -69,18 +68,48 @@ describe('buildCIReportFromState — blocking count', () => {
         frameId: 0,
         frameKey: 'fk::v1::x::root::00000000',
         frameKeyStable: 'fk::v1::x::root',
-        result: {
-          ok: true,
-          findings: [
-            { type: 'ARIA_HIDDEN_FOCUSABLE', severity: 'high', wcag: '4.1.2', name: 'x', path: 'p' },
-            { type: 'IMG_NO_ALT', severity: 'medium', wcag: '1.1.1', name: 'y', path: 'q' },
-          ],
-        },
+        result: { ok: true, findings },
       },
     };
+  }
+
+  it('reports blocking > 0 when the last run has blocking findings', () => {
+    const ctx = createContext();
+    withLastResult(ctx, [
+      { type: 'ARIA_HIDDEN_FOCUSABLE', severity: 'high', wcag: '4.1.2', name: 'x', path: 'p', confidence: 'strict' },
+      { type: 'IMG_NO_ALT', severity: 'medium', wcag: '1.1.1', name: 'y', path: 'q', confidence: 'strict' },
+    ]);
     const report = ctx.buildCIReportFromState();
     assert.ok(report, 'report should build');
-    const blocking = report?.summary?.blockingCurrent ?? report?.summary?.blocking ?? null;
-    assert.ok(Number(blocking) >= 2, `blocking should count high+medium findings, got ${blocking}`);
+    assert.equal(Number(report?.summary?.blockingCurrent), 2);
+  });
+
+  it('follows panel confidence rules — heuristic medium and advisory never block (Codex P1)', () => {
+    const ctx = createContext();
+    withLastResult(ctx, [
+      { type: 'CHAT_FEED_MISSING_ROLE', severity: 'medium', wcag: '1.3.1', name: 'feed', path: 'p', confidence: 'heuristic' },
+      { type: 'FOCUS_MAY_BE_OBSCURED', severity: 'high', wcag: '2.4.11', name: 'x', path: 'q', confidence: 'advisory' },
+      { type: 'ARIA_HIDDEN_FOCUSABLE', severity: 'high', wcag: '4.1.2', name: 'y', path: 'r', confidence: 'heuristic' },
+    ]);
+    const report = ctx.buildCIReportFromState();
+    // heuristic medium: no; advisory high: no; heuristic high: yes
+    assert.equal(Number(report?.summary?.blockingCurrent), 1);
+  });
+
+  it('blocking count respects the same filtered scope as totalCount (Codex P1)', () => {
+    const ctx = createContext();
+    withLastResult(ctx, [
+      { type: 'ARIA_HIDDEN_FOCUSABLE', severity: 'high', wcag: '4.1.2', name: 'x', path: 'p', confidence: 'strict' },
+    ]);
+    // Rule pack that excludes the only finding — report scope is empty
+    ctx.setActiveRulePack?.({ disabledRuleIds: ['ARIA_HIDDEN_FOCUSABLE'] });
+    const report = ctx.buildCIReportFromState();
+    if (report?.summary?.totalCount === 0) {
+      assert.equal(Number(report.summary.blockingCurrent), 0,
+        'blockingCurrent must not exceed the report’s own filtered scope');
+    } else {
+      // rule-pack API unavailable in harness — invariant still must hold
+      assert.ok(Number(report.summary.blockingCurrent) <= Number(report.summary.totalCount));
+    }
   });
 });
