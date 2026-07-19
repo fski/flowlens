@@ -818,6 +818,49 @@ function mergeSignatureBundles(bundles) {
   return out;
 }
 
+// Cross-step rollup: for every blocking signature, in how many steps it appears
+// (occurrences increments once per step — bundle.blockingSet is a Set).
+// Pure + deterministic; consumed by the session Markdown export and the Flow
+// verdict's "systemic issues" line (IBM Equal Access multi-scan pattern).
+function computeFlowBlockingRollup(steps, rawAppendix) {
+  const flowMap = new Map();
+  for (const step of (Array.isArray(steps) ? steps : [])) {
+    const bundle = mergeSignatureBundles([
+      buildModeSignatureBundle(step?.snapshots?.run, rawAppendix),
+      buildModeSignatureBundle(step?.snapshots?.active, rawAppendix),
+    ]);
+    for (const sig of bundle.blockingSet) {
+      const meta = bundle.metaBySig.get(sig) || {};
+      const existing = flowMap.get(sig) || {
+        sig,
+        firstSeenStep: step.index,
+        lastSeenStep: step.index,
+        occurrences: 0,
+        wcag: meta.wcag || "",
+        level: meta.level || "",
+        confidence: meta.confidence || "",
+        signatureQuality: meta.signatureQuality || "medium",
+        label: meta.label || "",
+        blockingWeight: severityWeight(meta.severity),
+      };
+      existing.lastSeenStep = step.index;
+      existing.occurrences += 1;
+      existing.blockingWeight = Math.max(existing.blockingWeight, severityWeight(meta.severity));
+      if (qualityWeight(meta.signatureQuality) > qualityWeight(existing.signatureQuality)) {
+        existing.signatureQuality = meta.signatureQuality;
+      }
+      flowMap.set(sig, existing);
+    }
+  }
+  return [...flowMap.values()].sort((a, b) =>
+    (b.blockingWeight - a.blockingWeight)
+    || (qualityWeight(b.signatureQuality) - qualityWeight(a.signatureQuality))
+    || (b.occurrences - a.occurrences)
+    || (a.firstSeenStep - b.firstSeenStep)
+    || a.sig.localeCompare(b.sig)
+  );
+}
+
 function computeCountsDelta(currentCounts = {}, prevCounts = {}) {
   const keys = [...new Set([...Object.keys(currentCounts || {}), ...Object.keys(prevCounts || {})])];
   const out = {};

@@ -1338,7 +1338,10 @@ function renderFlowVerdict() {
     totalBlockingAdded += ba;
     if (ba > 0) blockingSteps.push(s.index);
   }
-  const hash = `${steps.length},${totalBlockingAdded},${blockingSteps.join(";")}`;
+  // Systemic issues: blocking signatures recurring across steps (cross-step rollup)
+  const rawAppendix = sess?.rawAppendix && typeof sess.rawAppendix === "object" ? sess.rawAppendix : {};
+  const systemic = computeFlowBlockingRollup(steps, rawAppendix).filter(x => x.occurrences >= 2).slice(0, 3);
+  const hash = `${steps.length},${totalBlockingAdded},${blockingSteps.join(";")},${systemic.map(x => x.sig + ":" + x.occurrences).join(";")}`;
   if (hash === _verdictHash) return;
   _verdictHash = hash;
   const pass = totalBlockingAdded === 0;
@@ -1364,8 +1367,15 @@ function renderFlowVerdict() {
     const tooltip = reasons.length ? reasons.join("; ") : "reduced confidence";
     diffConfNote = ` <span class="diffConfidenceReduced" title="${escapeHtml(tooltip)}">Diff confidence: reduced</span>`;
   }
+  let systemicNote = "";
+  if (systemic.length) {
+    const items = systemic
+      .map(x => `${x.label || x.wcag || "issue"} in ${x.occurrences}/${steps.length} steps`)
+      .join(" · ");
+    systemicNote = `<div class="flowSystemic" title="Blocking issues recurring across steps — likely systemic, not one-off">Systemic: ${escapeHtml(items)}</div>`;
+  }
   el.className = `flowVerdict ${wrapCls}`;
-  el.innerHTML = `<span class="flowVerdictBadge ${badgeCls}">${badge}</span><span class="flowVerdictText">${escapeHtml(summary)}</span>${diffConfNote}`;
+  el.innerHTML = `<span class="flowVerdictBadge ${badgeCls}">${badge}</span><span class="flowVerdictText">${escapeHtml(summary)}</span>${diffConfNote}${systemicNote}`;
   el.hidden = false;
 }
 

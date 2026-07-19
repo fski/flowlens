@@ -1394,6 +1394,33 @@ kbd {
 .wcagLink { color: var(--teal); text-decoration: none; }
 .wcagLink:hover, .wcagLink:focus-visible { text-decoration: underline; }
 
+/* Systemic (cross-step) issues line under the Flow verdict */
+.flowSystemic {
+  flex-basis: 100%;
+  margin-top: 4px;
+  color: var(--tx3);
+  font: 400 10px/1.5 var(--font-mono);
+}
+
+/* Needs-review filter chip in the findings toolbar */
+.reviewFilterChip {
+  padding: 2px 6px;
+  border: 1px solid var(--brd2);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--tx3);
+  font: 400 9px/1.4 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .02em;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.reviewFilterChip:hover { color: var(--tx); }
+.reviewFilterChip.isActive {
+  border-color: var(--sev-info);
+  color: var(--sev-info);
+}
+
 /* Needs-review badge (axe-style violations / needs-review split) */
 .badge.needsReview {
   display: inline-flex;

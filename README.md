@@ -77,7 +77,7 @@ Five modes, each injected into the inspected page:
 - **Run** — one-shot WCAG check (labels, ARIA, headings, landmarks, tab indexes, roles)
 - **Observe** — re-runs checks every ~900ms for 12 seconds to catch dynamically rendered content
 - **Watch** — monitors loader chains, silent loading, and focus loss for 40 seconds
-- **TabWalk** — tabs through up to 80 focusable elements to detect focus traps and order issues
+- **TabWalk** — tabs through up to 80 focusable elements to detect focus traps and order issues, drawing numbered tab-stop markers and the focus path on the page
 - **Contrast** — scans up to 250 text nodes for approximate color contrast ratios (AA/AAA)
 
 Presets combine modes: Quick (Run + Contrast), Release (Watch + Observe + Run), Focus (TabWalk + Run).

@@ -56,6 +56,7 @@ const els = {
   // explorer
   q: document.getElementById("q"),
   findingsCount: document.getElementById("findingsCount"),
+  reviewFilterChip: document.getElementById("reviewFilterChip"),
   allTableBody: document.querySelector("#allTable tbody"),
 
   toast: document.getElementById("toast"),
@@ -193,6 +194,7 @@ const state = {
   tabData: [],
   activeMode: "run",
   sevFilter: new Set(),
+  reviewFilter: false, // true = show only needs-review findings
   findingsByMode: {},
   contrastFilter: "all",
   hasRunMode: new Set(),

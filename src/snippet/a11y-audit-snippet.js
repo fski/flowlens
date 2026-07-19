@@ -1665,6 +1665,60 @@
     return { ok: true, requested, rendered, skipped, skippedReasons };
   };
 
+  /**
+   * Visualize keyboard tab order: numbered badges + a connecting focus path
+   * (Accessibility Insights "tab stops" pattern). Purely visual — never
+   * contributes to findings, events, or signatures. Auto-clears after
+   * TAB_STOP_OVERLAY_MS or on the next annotate/clear call.
+   */
+  const TAB_STOP_OVERLAY_MS = 8000;
+  const annotateTabStops = (elements) => {
+    clearAnnotations();
+
+    const container = doc.createElement("div");
+    container.id = ANNOTATION_CONTAINER_ID;
+    container.setAttribute("aria-hidden", "true");
+    container.style.cssText = "position:fixed;top:0;left:0;width:0;height:0;overflow:visible;z-index:2147483646;pointer-events:none;";
+    doc.body.appendChild(container);
+
+    const pts = [];
+    let rendered = 0;
+    for (let i = 0; i < elements.length && rendered < MAX_ANNOTATIONS; i++) {
+      const rect = elements[i].getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) continue;
+      const badge = doc.createElement("div");
+      badge.className = ANNOTATION_CLASS;
+      badge.textContent = String(i + 1);
+      badge.title = getAccName(elements[i]) || cssPath(elements[i]);
+      badge.style.cssText = `position:fixed;top:${rect.top - 9}px;left:${rect.left - 9}px;min-width:18px;height:18px;background:#7BB85E;color:#141414;font:bold 10px/18px system-ui;text-align:center;border-radius:50%;padding:0 2px;box-sizing:border-box;z-index:2147483647;pointer-events:none;`;
+      container.appendChild(badge);
+      pts.push([rect.left + rect.width / 2, rect.top + rect.height / 2]);
+      rendered++;
+    }
+
+    if (pts.length > 1) {
+      const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("aria-hidden", "true");
+      svg.style.cssText = "position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:2147483645;";
+      const poly = doc.createElementNS("http://www.w3.org/2000/svg", "polyline");
+      poly.setAttribute("points", pts.map(p => p.map(Math.round).join(",")).join(" "));
+      poly.setAttribute("fill", "none");
+      poly.setAttribute("stroke", "#7BB85E");
+      poly.setAttribute("stroke-width", "2");
+      poly.setAttribute("stroke-dasharray", "4 3");
+      poly.setAttribute("opacity", "0.7");
+      svg.appendChild(poly);
+      container.appendChild(svg);
+    }
+
+    w.setTimeout(() => {
+      const c = doc.getElementById(ANNOTATION_CONTAINER_ID);
+      if (c === container) c.remove();
+    }, TAB_STOP_OVERLAY_MS);
+
+    return { rendered };
+  };
+
   // ---------------- main checks ----------------
   const run = (cfg = {}) => {
     // Apply runtime mode hints if provided (from panel profiles)
@@ -3837,7 +3891,7 @@
   };
 
   // ---------------- tabWalk (heuristic keyboard order) ----------------
-  const tabWalk = ({ steps = 60, includePositiveTabindex = true } = {}) => {
+  const tabWalk = ({ steps = 60, includePositiveTabindex = true, visualize = true } = {}) => {
     const order = computeTabOrder();
     const filtered = includePositiveTabindex ? order : order.filter(el => getTabIndex(el) === 0);
     const max = Math.min(steps, filtered.length);
@@ -3959,6 +4013,12 @@
 
     if (original && original !== doc.body) {
       try { original.focus({ preventScroll: true }); } catch (_) {}
+    }
+
+    // Visual tab-stop overlay (numbered badges + focus path); side-effect only —
+    // the returned result shape stays untouched so signatures are unaffected.
+    if (visualize) {
+      try { annotateTabStops(filtered.slice(0, max)); } catch (_) {}
     }
 
     const summary = {

@@ -124,45 +124,7 @@ function buildSessionMarkdown(session) {
   lines.push(`Coverage (engine): ${_secs.coveredCount}/${_secs.totalCount} WCAG ${_secs.target.version} ${_secs.target.level} criteria`);
   lines.push("");
 
-  const flowMap = new Map();
-  for (const step of steps) {
-    const bundle = mergeSignatureBundles([
-      buildModeSignatureBundle(step?.snapshots?.run, rawAppendix),
-      buildModeSignatureBundle(step?.snapshots?.active, rawAppendix),
-    ]);
-    for (const sig of bundle.blockingSet) {
-      const meta = bundle.metaBySig.get(sig) || {};
-      const existing = flowMap.get(sig) || {
-        sig,
-        firstSeenStep: step.index,
-        lastSeenStep: step.index,
-        occurrences: 0,
-        wcag: meta.wcag || "",
-        level: meta.level || "",
-        confidence: meta.confidence || "",
-        signatureQuality: meta.signatureQuality || "medium",
-        label: meta.label || "",
-        blockingWeight: severityWeight(meta.severity),
-      };
-      existing.lastSeenStep = step.index;
-      existing.occurrences += 1;
-      existing.blockingWeight = Math.max(existing.blockingWeight, severityWeight(meta.severity));
-      if (qualityWeight(meta.signatureQuality) > qualityWeight(existing.signatureQuality)) {
-        existing.signatureQuality = meta.signatureQuality;
-      }
-      flowMap.set(sig, existing);
-    }
-  }
-
-  const topBlocking = [...flowMap.values()]
-    .sort((a, b) =>
-      (b.blockingWeight - a.blockingWeight)
-      || (qualityWeight(b.signatureQuality) - qualityWeight(a.signatureQuality))
-      || (b.occurrences - a.occurrences)
-      || (a.firstSeenStep - b.firstSeenStep)
-      || a.sig.localeCompare(b.sig)
-    )
-    .slice(0, 24);
+  const topBlocking = computeFlowBlockingRollup(steps, rawAppendix).slice(0, 24);
   lines.push("Flow summary (blocking signatures):");
   if (!topBlocking.length) {
     lines.push("- none");
@@ -369,6 +331,7 @@ function applyExplorerFilters(findings) {
 
   let list = Array.isArray(findings) ? findings : [];
   if (sevSet.size > 0) list = list.filter(f => sevSet.has(f.severity));
+  if (state.reviewFilter) list = list.filter(f => classifyReviewStatus(f) === "needs_review");
 
   if (q) {
     list = list.filter(f => {

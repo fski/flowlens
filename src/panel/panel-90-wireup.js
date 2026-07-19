@@ -607,6 +607,16 @@ function scheduleExplorerRender() {
 
 els.q.addEventListener("input", scheduleExplorerRender);
 
+// Needs-review filter chip (axe-style violations / needs-review split)
+if (els.reviewFilterChip) {
+  els.reviewFilterChip.addEventListener("click", () => {
+    state.reviewFilter = !state.reviewFilter;
+    els.reviewFilterChip.setAttribute("aria-pressed", String(state.reviewFilter));
+    els.reviewFilterChip.classList.toggle("isActive", state.reviewFilter);
+    scheduleExplorerRender();
+  });
+}
+
 // Search clear button
 const searchClearBtn = document.getElementById("searchClear");
 if (searchClearBtn) {
