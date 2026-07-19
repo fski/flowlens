@@ -645,6 +645,11 @@ const FIX_SUGGESTIONS = {
 function applyFixSuggestions(findings) {
   if (!Array.isArray(findings)) return findings;
   for (const f of findings) {
+    // EN 301 549 clause post-processing (the snippet ships en301549Clauses: null)
+    if (f.en301549Clauses == null && f.wcag && typeof en301549ForWcag === "function") {
+      const clauses = en301549ForWcag(f.wcag);
+      if (Array.isArray(clauses) && clauses.length) f.en301549Clauses = clauses;
+    }
     if (f.fix) continue;
     const s = FIX_SUGGESTIONS[f.type];
     if (s) f.fix = typeof s === "function" ? s(f) : s;

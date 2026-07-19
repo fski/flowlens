@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "FlowLens",
+  "description": "Inspect accessibility integrity across multi-step flows — chats, wizards, checkouts, help centers.",
   "version": "__VERSION__",
+  "minimum_chrome_version": "111",
   "permissions": [
     "scripting",
-    "tabs",
     "webNavigation",
     "storage"
   ],

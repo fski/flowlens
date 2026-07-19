@@ -17,6 +17,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const LIMITS_JS = join(__dirname, '..', 'src', 'shared', 'limits.js');
 const FLOW_PROFILES_JS = join(__dirname, '..', 'src', 'shared', 'flow-profiles.js');
 const WCAG_COVERAGE_JS = join(__dirname, '..', 'src', 'shared', 'wcag-coverage.js');
+const EN_MAP_JS = join(__dirname, '..', 'src', 'shared', 'en301549-map.js');
 const D3AGG_JS = join(__dirname, '..', 'src', 'engine', 'depth3Aggregates.js');
 const CI_EXPORTER_JS = join(__dirname, '..', 'src', 'engine', 'ciExporter.js');
 const PANEL_DIR = join(__dirname, '..', 'src', 'panel');
@@ -256,6 +257,10 @@ export function createContext(opts = {}) {
   const wcagCoverageSource = readFileSync(WCAG_COVERAGE_JS, 'utf8');
   const wcagScript = new Script(wcagCoverageSource, { filename: 'wcag-coverage.js' });
   wcagScript.runInContext(ctx);
+
+  const enMapSource = readFileSync(EN_MAP_JS, 'utf8');
+  const enMapScript = new Script(enMapSource, { filename: 'en301549-map.js' });
+  enMapScript.runInContext(ctx);
 
   const d3aggSource = readFileSync(D3AGG_JS, 'utf8');
   const d3aggScript = new Script(d3aggSource, { filename: 'depth3Aggregates.js' });
