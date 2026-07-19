@@ -58,6 +58,9 @@
 
   // ---------------- utils ----------------
   const isEl = (x) => x && x.nodeType === 1;
+  // el.className is an SVGAnimatedString on SVG elements — toString() yields
+  // "[object SVGAnimatedString]" and regex heuristics silently never match.
+  const elClass = (el) => el?.getAttribute?.("class") || "";
   const txt = (s, n = 140) => (s || "").replace(/\s+/g, " ").trim().slice(0, n);
   const html = (el, n = 240) => (el?.outerHTML || "").replace(/\s+/g, " ").trim().slice(0, n);
   const nowIso = () => new Date().toISOString();
@@ -973,7 +976,7 @@
     const role = el.getAttribute("role");
     if (role === "progressbar" || role === "status") return true;
     if (el.getAttribute("aria-busy") === "true") return true;
-    const s = `${(el.className || "").toString()} ${el.id || ""} ${testId(el) || ""}`.toLowerCase();
+    const s = `${elClass(el)} ${el.id || ""} ${testId(el) || ""}`.toLowerCase();
     if (/(loader|loading|spinner|skeleton|progress|shimmer)/.test(s)) return true;
     const t = txt(el.textContent, 50).toLowerCase();
     if (/(loading|please wait|connecting|fetching)/.test(t)) return true;
@@ -1245,7 +1248,7 @@
 
   const isLikelyFocusSentinel = (el) => {
     if (!isEl(el)) return false;
-    const attrSig = `${el.id || ""} ${(el.className || "").toString()} ${el.getAttribute("data-testid") || ""}`.toLowerCase();
+    const attrSig = `${el.id || ""} ${elClass(el)} ${el.getAttribute("data-testid") || ""}`.toLowerCase();
     if (el.hasAttribute("data-focus-guard")) return true;
     if (/(focus-guard|focusguard|sentinel|focus-trap-guard|trap-focus)/.test(attrSig)) return true;
     const r = el.getBoundingClientRect();
@@ -1356,6 +1359,38 @@
     return { r, g, b, a };
   };
 
+  // Canvas-based fallback for modern color syntax: Chrome may compute colors
+  // as oklch()/lab()/color(srgb …) (Tailwind v4 emits oklch for everything),
+  // which parseRGBA can't read — without this the contrast scan silently
+  // skips those elements and reports zero failures on modern design systems.
+  let _colorCanvasCtx;
+  const _colorCache = new Map();
+  const parseColorAny = (c) => {
+    const direct = parseRGBA(c);
+    if (direct) return direct;
+    if (!c || typeof c !== "string") return null;
+    if (_colorCache.has(c)) return _colorCache.get(c);
+    let out = null;
+    try {
+      if (_colorCanvasCtx === undefined) {
+        const canvas = doc.createElement("canvas");
+        canvas.width = 1; canvas.height = 1;
+        _colorCanvasCtx = canvas.getContext("2d", { willReadFrequently: true }) || null;
+      }
+      if (_colorCanvasCtx) {
+        const ctx = _colorCanvasCtx;
+        ctx.clearRect(0, 0, 1, 1);
+        ctx.fillStyle = "#000";
+        ctx.fillStyle = c; // invalid values leave previous fillStyle
+        ctx.fillRect(0, 0, 1, 1);
+        const d = ctx.getImageData(0, 0, 1, 1).data;
+        out = { r: d[0], g: d[1], b: d[2], a: d[3] / 255 };
+      }
+    } catch { out = null; }
+    if (_colorCache.size < 256) _colorCache.set(c, out);
+    return out;
+  };
+
   const blend = (fg, bg) => {
     const a = fg.a + bg.a * (1 - fg.a);
     if (a === 0) return { r: 0, g: 0, b: 0, a: 0 };
@@ -1387,7 +1422,7 @@
     const layers = [];
     let node = el;
     while (node && node !== doc.documentElement) {
-      const c = parseRGBA(w.getComputedStyle(node).backgroundColor);
+      const c = parseColorAny(w.getComputedStyle(node).backgroundColor);
       if (c && c.a > 0) {
         layers.push(c);
         if (c.a >= 1) break;
@@ -1395,7 +1430,7 @@
       node = node.parentElement;
     }
     let bg = { r: 255, g: 255, b: 255, a: 1 };
-    const bodyBg = parseRGBA(w.getComputedStyle(doc.body).backgroundColor);
+    const bodyBg = doc.body ? parseColorAny(w.getComputedStyle(doc.body).backgroundColor) : null;
     if (bodyBg && bodyBg.a > 0) bg = bodyBg.a >= 1 ? bodyBg : blend(bodyBg, bg);
     for (let i = layers.length - 1; i >= 0; i--) bg = blend(layers[i], bg);
     return bg;
@@ -1552,11 +1587,21 @@
   const resolveTarget = (targetRef) => {
     if (!targetRef) return null;
 
-    // 1. Try CSS selector
+    // A selector hit must still look like the audited element — after DOM
+    // churn an :nth-of-type path can resolve to a DIFFERENT node, and a
+    // shadow-DOM-shaped path can collide with an unrelated light-DOM subtree.
+    const looksLikeRef = (el) => {
+      if (!el) return false;
+      if (targetRef.tag && el.tagName && el.tagName.toLowerCase() !== String(targetRef.tag).toLowerCase()) return false;
+      if (targetRef.role && el.getAttribute("role") !== targetRef.role) return false;
+      return true;
+    };
+
+    // 1. Try CSS selector (identity-validated)
     if (targetRef.cssSelector) {
       try {
         const el = doc.querySelector(targetRef.cssSelector);
-        if (el) return el;
+        if (el && looksLikeRef(el)) return el;
       } catch {}
     }
 
@@ -1603,19 +1648,27 @@
    * Returns stats: { ok, requested, rendered, skipped, skippedReasons }.
    */
   // Single source of the overlay root's stacking/isolation contract.
+  // Positioned ABSOLUTE (not fixed): markers are placed at document
+  // coordinates (rect + scroll offset), so they stay glued to their
+  // elements when the user scrolls instead of freezing in the viewport.
   const createAnnotationContainer = () => {
     clearAnnotations();
+    const host = doc.body || doc.documentElement;
+    if (!host) return null;
     const container = doc.createElement("div");
     container.id = ANNOTATION_CONTAINER_ID;
     container.setAttribute("aria-hidden", "true");
-    container.style.cssText = "position:fixed;top:0;left:0;width:0;height:0;overflow:visible;z-index:2147483646;pointer-events:none;";
-    doc.body.appendChild(container);
+    container.style.cssText = "position:absolute;top:0;left:0;width:0;height:0;overflow:visible;z-index:2147483646;pointer-events:none;";
+    host.appendChild(container);
     return container;
   };
 
   const annotateFindings = (findingsData) => {
     const container = createAnnotationContainer();
+    if (!container) return { ok: false, requested: 0, rendered: 0, skipped: 0, skippedReasons: { noBody: true } };
 
+    const sx = w.scrollX || 0;
+    const sy = w.scrollY || 0;
     const requested = Math.min((findingsData || []).length, MAX_ANNOTATIONS);
     let rendered = 0;
     const skippedReasons = { notFound: 0, tooManyCandidates: 0, zeroSize: 0 };
@@ -1639,7 +1692,7 @@
       }
 
       const rect = el.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) {
+      if (rect.width === 0 || rect.height === 0) {
         skippedReasons.zeroSize++;
         continue;
       }
@@ -1648,7 +1701,7 @@
       marker.className = ANNOTATION_CLASS;
       marker.dataset.findingType = f.type || "";
       const color = SEV_COLORS[f.severity] || SEV_COLORS.info;
-      marker.style.cssText = `position:fixed;top:${rect.top - 2}px;left:${rect.left - 2}px;width:${rect.width + 4}px;height:${rect.height + 4}px;border:2px solid ${color};border-radius:3px;pointer-events:auto;cursor:pointer;z-index:2147483646;box-sizing:border-box;`;
+      marker.style.cssText = `position:absolute;top:${rect.top + sy - 2}px;left:${rect.left + sx - 2}px;width:${rect.width + 4}px;height:${rect.height + 4}px;border:2px solid ${color};border-radius:3px;pointer-events:auto;cursor:pointer;z-index:2147483646;box-sizing:border-box;`;
 
       const badge = doc.createElement("span");
       badge.style.cssText = `position:absolute;top:-10px;left:-2px;background:${color};color:#fff;font:bold 10px/12px system-ui;padding:1px 4px;border-radius:2px;white-space:nowrap;pointer-events:auto;cursor:pointer;max-width:160px;overflow:hidden;text-overflow:ellipsis;`;
@@ -1679,17 +1732,21 @@
   const TAB_STOP_OVERLAY_MS = 8000;
   const annotateTabStops = (elements) => {
     const container = createAnnotationContainer();
+    if (!container) return { rendered: 0 };
+    const sx = w.scrollX || 0;
+    const sy = w.scrollY || 0;
 
     // Phase 1: read all rects (single layout flush) — interleaving reads with
     // appends into the attached container would force one reflow per element.
     const rects = [];
     for (let i = 0; i < elements.length && rects.length < MAX_ANNOTATIONS; i++) {
       const rect = elements[i].getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) continue;
+      if (rect.width === 0 || rect.height === 0) continue;
       rects.push({ i, el: elements[i], rect });
     }
 
     // Phase 2: build everything into a fragment, append once.
+    // Document coordinates (rect + scroll) — markers track the page on scroll.
     const frag = doc.createDocumentFragment();
     const pts = [];
     for (const { i, el, rect } of rects) {
@@ -1697,15 +1754,17 @@
       badge.className = ANNOTATION_CLASS;
       badge.textContent = String(i + 1);
       badge.title = getAccName(el) || cssPath(el);
-      badge.style.cssText = `position:fixed;top:${rect.top - 9}px;left:${rect.left - 9}px;min-width:18px;height:18px;background:#7BB85E;color:#141414;font:bold 10px/18px system-ui;text-align:center;border-radius:50%;padding:0 2px;box-sizing:border-box;z-index:2147483647;pointer-events:none;`;
+      badge.style.cssText = `position:absolute;top:${rect.top + sy - 9}px;left:${rect.left + sx - 9}px;min-width:18px;height:18px;background:#7BB85E;color:#141414;font:bold 10px/18px system-ui;text-align:center;border-radius:50%;padding:0 2px;box-sizing:border-box;z-index:2147483647;pointer-events:none;`;
       frag.appendChild(badge);
-      pts.push([rect.left + rect.width / 2, rect.top + rect.height / 2]);
+      pts.push([rect.left + sx + rect.width / 2, rect.top + sy + rect.height / 2]);
     }
 
     if (pts.length > 1) {
+      const docW = Math.max(doc.documentElement?.scrollWidth || 0, w.innerWidth || 0);
+      const docH = Math.max(doc.documentElement?.scrollHeight || 0, w.innerHeight || 0);
       const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
       svg.setAttribute("aria-hidden", "true");
-      svg.style.cssText = "position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:2147483645;";
+      svg.style.cssText = `position:absolute;top:0;left:0;width:${docW}px;height:${docH}px;pointer-events:none;z-index:2147483645;`;
       const poly = doc.createElementNS("http://www.w3.org/2000/svg", "polyline");
       poly.setAttribute("points", pts.map(p => p.map(Math.round).join(",")).join(" "));
       poly.setAttribute("fill", "none");
@@ -2231,7 +2290,7 @@
         const links = nav.querySelectorAll("a[href]");
         if (links.length < 2) return;
         const hasSep = nav.textContent.match(/[›»>\/]/);
-        const hasBreadcrumbClass = /breadcrumb/i.test(nav.className || "");
+        const hasBreadcrumbClass = /breadcrumb/i.test(elClass(nav));
         if ((hasSep || hasBreadcrumbClass) && !nav.hasAttribute("aria-label") && !nav.hasAttribute("aria-labelledby")) {
           add(findings, { type: "HC_BREADCRUMB_NO_LABEL", el: nav, severity: "low", wcag: "1.3.1",
             product: "helpcenter",
@@ -2246,9 +2305,9 @@
         const next = btn.nextElementSibling;
         const parent = btn.parentElement;
         const isAccordionLike =
-          /accordion|faq|collaps|expand/i.test(btn.className || "") ||
-          /accordion|faq|collaps|expand/i.test(parent?.className || "") ||
-          (next && (next.hasAttribute("hidden") || /accordion|panel|collaps/i.test(next.className || "")));
+          /accordion|faq|collaps|expand/i.test(elClass(btn)) ||
+          /accordion|faq|collaps|expand/i.test(elClass(parent)) ||
+          (next && (next.hasAttribute("hidden") || /accordion|panel|collaps/i.test(elClass(next))));
         if (isAccordionLike) {
           add(findings, { type: "HC_ACCORDION_NO_STATE", el: btn, severity: "medium", wcag: "4.1.2",
             product: "helpcenter",
@@ -3642,7 +3701,7 @@
         if (el.getAttribute("aria-busy") === "true") return true;
         const role = (el.getAttribute("role") || "").toLowerCase();
         if (role === "progressbar" || role === "status") return true;
-        const attrs = `${(el.className || "").toString()} ${el.id || ""} ${testId(el) || ""}`.toLowerCase();
+        const attrs = `${elClass(el)} ${el.id || ""} ${testId(el) || ""}`.toLowerCase();
         return /(loader|loading|spinner|skeleton|progress|shimmer)/.test(attrs);
       };
 
@@ -3904,6 +3963,10 @@
     const max = Math.min(steps, filtered.length);
 
     const original = doc.activeElement;
+    // Focus fallbacks without preventScroll can scroll the page; remember the
+    // position so the walk leaves the viewport where the user had it.
+    const originalScrollX = w.scrollX || 0;
+    const originalScrollY = w.scrollY || 0;
     const events = [];
     const seen = new Set();
 
@@ -4021,6 +4084,13 @@
     if (original && original !== doc.body) {
       try { original.focus({ preventScroll: true }); } catch (_) {}
     }
+    // If restore didn't take (nothing was focused, or the original element was
+    // removed mid-walk — focus() on a detached node is a silent no-op), don't
+    // leave focus parked on the last walked control firing its handlers.
+    if (doc.activeElement && doc.activeElement !== doc.body && doc.activeElement !== original) {
+      try { doc.activeElement.blur(); } catch (_) {}
+    }
+    try { w.scrollTo(originalScrollX, originalScrollY); } catch (_) {}
 
     // Visual tab-stop overlay (numbered badges + focus path); side-effect only —
     // the returned result shape stays untouched so signatures are unaffected.
@@ -4071,7 +4141,7 @@
       }
       if (cumulativeOpacity === 0) continue;
 
-      const fg = parseRGBA(s.color);
+      const fg = parseColorAny(s.color);
       if (!fg || fg.a === 0) continue;
 
       const bg = getEffectiveBg(el);

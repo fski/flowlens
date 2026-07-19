@@ -129,6 +129,21 @@ async function storageSet(obj) {
   }
 }
 
+// Serialized read-modify-write for the shared uiPrefs key. Five settings
+// handlers used to each do storageGet→mutate→storageSet independently; two
+// firing close together read the same stale object and the later write
+// silently dropped the earlier field. All writers go through this queue.
+let _uiPrefsWriteChain = Promise.resolve();
+function updateUiPrefs(patch) {
+  _uiPrefsWriteChain = _uiPrefsWriteChain
+    .then(async () => {
+      const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
+      await storageSet({ uiPrefs: { ...uiPrefs, ...patch } });
+    })
+    .catch((e) => { console.error("updateUiPrefs failed:", e); });
+  return _uiPrefsWriteChain;
+}
+
 
 function send(msg) {
   if (!hasRuntime()) {
@@ -460,9 +475,13 @@ function escapeHtml(s) {
 }
 
 function detectEnv(url) {
-  const u = (url || "").toLowerCase();
-  if (/(localhost|127\.0\.0\.1)/.test(u)) return "local";
-  if (/(staging|stage|preprod|preview|dev|test|qa)/.test(u)) return "staging";
+  // Match against the HOSTNAME only — a prod path like /latest or /developers
+  // must not flip the env (records/sessions are bucketed by origin+env, so a
+  // full-URL match scattered history across buckets as the user navigated).
+  let host = "";
+  try { host = new URL(url).hostname.toLowerCase(); } catch { host = (url || "").toLowerCase(); }
+  if (/(^|\.)(localhost)$|^127\.0\.0\.1$/.test(host)) return "local";
+  if (/(^|[.-])(staging|stage|preprod|preview|dev|test|qa)([.-]|$)/.test(host)) return "staging";
   return "prod";
 }
 
