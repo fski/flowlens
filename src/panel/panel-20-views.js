@@ -176,6 +176,26 @@ async function persistRecords(scopeKey) {
     return out;
   };
 
+  // Highlight-critical fields must stay usable after compaction: an appended
+  // '…' breaks querySelector (path/testId) and includes-matching (html), so
+  // restored records could never be highlighted again. Paths are cut at a
+  // segment boundary so the selector still parses (resolves to the parent).
+  const truncateSelectorPath = (v, maxLen) => {
+    if (typeof v !== "string" || v.length <= maxLen) return v;
+    const cut = v.slice(0, maxLen);
+    const idx = cut.lastIndexOf(" > ");
+    return idx > 0 ? cut.slice(0, idx) : cut;
+  };
+
+  const compactFindingRow = (row, maxLen) => {
+    if (!row || typeof row !== "object") return row;
+    const out = compactObjectStrings(row, maxLen);
+    if (typeof row.path === "string") out.path = truncateSelectorPath(row.path, Math.max(maxLen, 140));
+    if (typeof row.testId === "string") out.testId = row.testId.slice(0, 200);
+    if (typeof row.html === "string") out.html = row.html.slice(0, Math.max(maxLen, 120));
+    return out;
+  };
+
   const compactContrastRow = (row, maxLen) => {
     if (!row || typeof row !== "object") return row;
     return {
@@ -184,8 +204,8 @@ async function persistRecords(scopeKey) {
       largeText: !!row.largeText,
       text: truncateString(row.text ?? "", Math.min(maxLen, 120)),
       tag: truncateString(row.tag ?? "", 24),
-      testId: truncateString(row.testId ?? "", Math.min(maxLen, 96)),
-      path: truncateString(row.path ?? "", Math.min(maxLen, 140)),
+      testId: (row.testId ?? "").slice(0, 96),
+      path: truncateSelectorPath(row.path ?? "", Math.min(maxLen, 140)),
       note: row.note ? truncateString(row.note, Math.min(maxLen, 140)) : null,
       wcag: row.wcag ? truncateString(row.wcag, 24) : undefined,
     };
@@ -199,7 +219,7 @@ async function persistRecords(scopeKey) {
   const compactResult = (result, limits) => {
     if (!result || typeof result !== "object") return result;
     const out = { ...result };
-    if (Array.isArray(result.findings)) out.findings = compactRows(result.findings, limits.findings, limits.maxString);
+    if (Array.isArray(result.findings)) out.findings = compactRows(result.findings, limits.findings, limits.maxString, compactFindingRow);
     if (Array.isArray(result.failures)) out.failures = compactRows(result.failures, limits.failures, limits.maxString);
     if (Array.isArray(result.events)) out.events = compactRows(result.events, limits.events, limits.maxString);
     if (Array.isArray(result.samples)) out.samples = compactRows(result.samples, limits.samples, limits.maxString, compactContrastRow);

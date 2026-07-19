@@ -488,7 +488,7 @@ function renderWatch(res) {
     if (verdicts.length) {
       els.watchVerdicts.innerHTML = verdicts.map(v => {
         const over = v.value > v.budget;
-        return `<span class="watchVerdict ${over ? "watchVerdict--fail" : "watchVerdict--pass"}">${escapeHtml(v.metric)}: ${v.value}${over ? " \u26A0" : " \u2713"}</span>`;
+        return `<span class="watchVerdict ${over ? "watchVerdict--fail" : "watchVerdict--pass"}">${escapeHtml(v.metric)}: ${escapeHtml(String(v.value))}${over ? " \u26A0" : " \u2713"}</span>`;
       }).join("");
     } else {
       els.watchVerdicts.innerHTML = '<span class="watchVerdict watchVerdict--pass">All metrics within budget \u2713</span>';
@@ -1226,9 +1226,13 @@ async function _highlightFindingInner(finding, highlightCtx) {
     toast(approx ? `Highlighted closest match${via}${tag}${frameUsed}` : `Highlighted${via}${tag}${frameUsed}`);
   } else {
     const reason = res?.reason === "FRAME_INACCESSIBLE" ? "frame inaccessible" : "element not found — re-run the audit if the page changed";
+    // Manual retry advances to the first frame that has NOT been tried yet
+    // (auto loop covered bestFrameId + up to 3 others).
+    const autoTried = new Set([bestFrameId, ...usedFrameIds.filter(id => id !== bestFrameId).slice(0, 3)]);
+    const nextUntried = usedFrameIds.find(id => !autoTried.has(id));
     toast(`Not found (${reason})`, {
-      label: usedFrameIds.length > 1 ? "Try other frames" : undefined,
-      fn: usedFrameIds.length > 1 ? () => highlightFinding(finding, { bestFrameId: usedFrameIds[1], usedFrameIds }) : undefined,
+      label: nextUntried != null ? "Try other frames" : undefined,
+      fn: nextUntried != null ? () => highlightFinding(finding, { bestFrameId: nextUntried, usedFrameIds: usedFrameIds.filter(id => !autoTried.has(id)) }) : undefined,
     });
   }
   return res;
@@ -1374,11 +1378,15 @@ async function runAction(action, opts = {}) {
       });
       return false;
     }
-    setRunTelemetry({ usedFrames: "\u2014", diff: noScope ? "(no frame matches selected scope)" : "(run failed)" });
-    setPersistentStatus("FAILED", noScope ? "NO_SCOPE_MATCH" : "BACKEND", noScope ? "No frame matches selected scope" : "Run failed");
+    const notScriptable = r?.reason === "PAGE_NOT_SCRIPTABLE" || r?.error === "PAGE_NOT_SCRIPTABLE";
+    const failMsg = notScriptable
+      ? "This page can't be audited (browser-restricted URL)"
+      : noScope ? "No frame matches selected scope" : `${action} failed`;
+    setRunTelemetry({ usedFrames: "\u2014", diff: notScriptable ? "(page not scriptable)" : noScope ? "(no frame matches selected scope)" : "(run failed)" });
+    setPersistentStatus("FAILED", notScriptable ? "PAGE_NOT_SCRIPTABLE" : noScope ? "NO_SCOPE_MATCH" : "BACKEND", failMsg);
     console.error("RUN_AUDIT backend failure", r);
-    toast(noScope ? "No frame matches selected scope" : `${action} failed`);
-    if (!state.records.length) showErrorEmptyState(noScope ? "No frame matches selected scope" : `${action} failed`);
+    toast(failMsg);
+    if (!state.records.length) showErrorEmptyState(failMsg);
     return false;
   }
 
@@ -1487,9 +1495,11 @@ async function endSession() {
     return false;
   }
   hideStepLabelInput();
-  const exportableEndedSession = compactSessionForExport(normalizeLoadedSession(sessionState.current));
+  // Set endedAt BEFORE building the exportable snapshot — otherwise the
+  // "last ended session" export claims in-progress with a growing duration.
   const previousEndedAt = sessionState.current.endedAt || null;
   sessionState.current.endedAt = nowIso();
+  const exportableEndedSession = compactSessionForExport(normalizeLoadedSession(sessionState.current));
   const archived = await archiveSessionBestEffort(compactSessionForExport(sessionState.current));
   if (!archived) {
     // Keep active in-memory session so user can retry archive/export without data loss.

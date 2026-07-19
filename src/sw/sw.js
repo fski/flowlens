@@ -729,6 +729,22 @@ async function executeAuditAcrossFrames({
   const picked = chooseBestEntry({ action, perFrame: scoredFrames, target, probeByFrameId });
   const bestEntry = picked?.entry || null;
 
+  // Every frame failed to inject (chrome://, Web Store, file:// without access):
+  // surface it as a hard failure instead of ok:true with a failed bestEntry —
+  // the panel would otherwise render a "successful" audit with zero findings.
+  if (picked?.reason === "no_ok_frames_fallback"
+      && scoredFrames.length
+      && scoredFrames.every(f => f?.ok !== true && (f?.reason === "INJECT_FAILED" || f?.error === "INJECT_FAILED"))) {
+    return {
+      ok: false,
+      error: "PAGE_NOT_SCRIPTABLE",
+      reason: "PAGE_NOT_SCRIPTABLE",
+      bestEntry: null,
+      perFrame: scoredFrames.map(compactFramePayload),
+      usedFrameIds,
+    };
+  }
+
   // ── C4 cross-frame evaluation ──────────────────────────────────────────
   if (usedFrameIds.length > 1 && bestEntry?.ok && (action === "run" || action === "observe")) {
     const frameSummaries = scoredFrames.map(f => ({
@@ -1278,8 +1294,11 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
   const allFrameIds = allFrames.map(f => f.frameId);
   const normalized = normalizeScopeAndCompatibility(target);
   const manualFrameIds = getManualFrameIdsFromTarget(target);
-  const manualFrameId = manualFrameIds.length === 1 ? manualFrameIds[0] : null;
-  const manualOverride = hasManualOverride(target, normalized) && manualFrameId != null;
+  const manualFrameId = manualFrameIds.length >= 1 ? manualFrameIds[0] : null;
+  // 2+ pinned frames used to silently drop the pins here while chooseBestEntry
+  // still enforced them, yielding bestEntry:null on an ok:true response —
+  // manual override now honors ALL pinned frames.
+  const manualOverride = hasManualOverride(target, normalized) && manualFrameIds.length >= 1;
   const scores = await computeFrameScores({
     tabId,
     frames: allFrames,
@@ -1394,7 +1413,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
 
   if (normalized.scope === FRAME_SCOPE.HOST) {
     if (manualOverride) {
-      if (manualFrameId !== 0) {
+      if (!manualFrameIds.includes(0)) {
         return _resolve({
           ok: false,
           frameIds: [],
@@ -1429,7 +1448,8 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
 
   if (normalized.scope === FRAME_SCOPE.EMBEDDED) {
     if (manualOverride) {
-      if (!embeddedFrameIds.includes(manualFrameId)) {
+      const presentEmbedded = manualFrameIds.filter(id => embeddedFrameIds.includes(id));
+      if (!presentEmbedded.length) {
         return _resolve({
           ok: false,
           frameIds: [],
@@ -1440,7 +1460,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
       }
       return _resolve({
         ok: true,
-        frameIds: [manualFrameId],
+        frameIds: presentEmbedded,
         scope: FRAME_SCOPE.EMBEDDED,
         selectionReason: "scope_embedded_manual_override",
       });
@@ -1474,7 +1494,8 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
 
   // PRIMARY scope (default): exactly one frame, auto-selected from all candidates.
   if (manualOverride) {
-    if (!allFrameIds.includes(manualFrameId)) {
+    const presentManual = manualFrameIds.filter(id => allFrameIds.includes(id));
+    if (!presentManual.length) {
       return _resolve({
         ok: false,
         frameIds: [],
@@ -1485,7 +1506,7 @@ async function resolveTargetFrameIds({ tabId, target, frames, match }) {
     }
     return _resolve({
       ok: true,
-      frameIds: [manualFrameId],
+      frameIds: presentManual,
       scope: FRAME_SCOPE.PRIMARY,
       selectionReason: "scope_primary_manual_override",
     });

@@ -269,10 +269,22 @@ async function loadEsbuild() {
   }
 }
 
+// Define substitution is CORRECTNESS, not cosmetics: shipping literal
+// __HOST_CONFIG__ / __FLOWLENS_VERSION__ tokens is a runtime ReferenceError.
+// Applied manually when esbuild is unavailable (minification alone is safe
+// to skip; unreplaced defines are not).
+function applyDefinesManually(code, define) {
+  let out = code;
+  for (const [token, replacement] of Object.entries(define || {})) {
+    out = out.split(token).join(replacement);
+  }
+  return out;
+}
+
 async function processJS(code, { define } = {}) {
   if (isDev && !define) return code;
   const esbuild = await loadEsbuild();
-  if (!esbuild) return code;
+  if (!esbuild) return define ? applyDefinesManually(code, define) : code;
   const opts = { target: "es2022" };
   if (!isDev) opts.minify = true;
   if (define) opts.define = define;

@@ -496,17 +496,13 @@ if (els.tabTbody && !els.tabTbody.__bound) {
 
 if (els.wcagLevel) {
   els.wcagLevel.addEventListener("change", async () => {
-    const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
-    uiPrefs.wcagLevel = els.wcagLevel.value;
-    await storageSet({ uiPrefs });
+    await updateUiPrefs({ wcagLevel: els.wcagLevel.value });
   });
 }
 
 if (els.depthMax) {
   els.depthMax.addEventListener("change", async () => {
-    const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
-    uiPrefs.depthMax = Number(els.depthMax.value) || 3;
-    await storageSet({ uiPrefs });
+    await updateUiPrefs({ depthMax: Number(els.depthMax.value) || 3 });
     // Re-render current findings with new depth filter
     const currentRec = state.currentId ? state.byId[state.currentId] : state.records?.[0];
     const mode = currentRec?.action || "run";
@@ -524,18 +520,14 @@ if (els.recipeSelect) {
   els.recipeSelect.addEventListener("change", async () => {
     const recipeId = els.recipeSelect.value || "auto";
     applyRecipe(recipeId, { applyProfiles: true });
-    const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
-    uiPrefs.recipeId = recipeId;
-    await storageSet({ uiPrefs });
+    await updateUiPrefs({ recipeId });
     renderDiagnostics();
   });
 }
 
 if (els.alsoConsole) {
   els.alsoConsole.addEventListener("change", async () => {
-    const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
-    uiPrefs.alsoConsole = !!els.alsoConsole.checked;
-    await storageSet({ uiPrefs });
+    await updateUiPrefs({ alsoConsole: !!els.alsoConsole.checked });
   });
 }
 
@@ -548,9 +540,7 @@ function getJunitCiOptionsFromUi() {
   };
 }
 async function saveJunitCiOptions() {
-  const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
-  uiPrefs.junitCiOptions = getJunitCiOptionsFromUi();
-  await storageSet({ uiPrefs });
+  await updateUiPrefs({ junitCiOptions: getJunitCiOptionsFromUi() });
 }
 if (els.ciFailOnBlocking) els.ciFailOnBlocking.addEventListener("change", saveJunitCiOptions);
 if (els.ciTreatNeedsReview) els.ciTreatNeedsReview.addEventListener("change", saveJunitCiOptions);

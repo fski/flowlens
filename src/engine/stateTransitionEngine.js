@@ -390,9 +390,11 @@ function evaluateC3_1(delta, prevState, nextState, opts) {
 
   let severity = "medium";
   let noteSuffix = "";
-  if (quality.capped && !chat.feedLocator) {
+  // feedLocator is guaranteed truthy here (early return above) — downgrade on
+  // capped capture alone; the old `&& !chat.feedLocator` clause made this dead.
+  if (quality.capped) {
     severity = "low";
-    noteSuffix = " (reduced confidence: capture capped, evidence locator missing)";
+    noteSuffix = " (reduced confidence: capture capped)";
   }
 
   return {
@@ -434,9 +436,8 @@ function evaluateC3_2(delta, prevState, nextState, opts) {
 
   let severity = "low";
   let noteSuffix = "";
-  if (quality.capped && !chat.feedLocator) {
-    severity = "low";
-    noteSuffix = " (reduced confidence: capture capped, evidence locator missing)";
+  if (quality.capped) {
+    noteSuffix = " (reduced confidence: capture capped)";
   }
 
   return {

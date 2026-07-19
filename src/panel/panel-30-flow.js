@@ -157,14 +157,23 @@ function renderStepDrillDown(stepIndex) {
   detailRow.innerHTML = `<td colspan="7"><div class="stepDetail">${detailHtml}</div></td>`;
   targetRow.after(detailRow);
 
-  // Delegate highlight clicks on drill-down findings
+  // Delegate highlight clicks on drill-down findings. Use the STEP's own
+  // frame context — the global _activeHighlightCtx belongs to the last Snap
+  // audit and may point at a different frame than this captured step.
+  const stepTargeting = s?.snapshots?.run?.targeting || null;
+  const stepHighlightCtx = {
+    bestFrameId: s?.snapshots?.run?.best?.frameId ?? state._activeHighlightCtx?.bestFrameId ?? state.bestFrameId ?? 0,
+    usedFrameIds: Array.isArray(stepTargeting?.usedFrameIds) && stepTargeting.usedFrameIds.length
+      ? [...stepTargeting.usedFrameIds]
+      : (state._activeHighlightCtx?.usedFrameIds || []),
+  };
   detailRow.addEventListener("click", async (e) => {
     const btn = e.target.closest(".stepHighlight");
     if (!btn) return;
     e.stopPropagation();
     const fi = Number(btn.dataset.drillI);
     const finding = Number.isFinite(fi) ? _drillFindings[fi] : null;
-    if (finding) await highlightFinding(finding, state._activeHighlightCtx);
+    if (finding) await highlightFinding(finding, stepHighlightCtx);
   });
 }
 

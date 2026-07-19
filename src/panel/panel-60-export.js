@@ -637,8 +637,17 @@ function buildCIReportFromState() {
     if (sev in bySeverity) bySeverity[sev]++;
   }
 
-  // Blocking count from stable signatures
-  var sigSet = computeStableSignatureSet(state.lastResult);
+  // Blocking count from stable signatures. computeStableSignatureSet expects
+  // a mode snapshot ({ best, mode, ... }); state.lastResult is the raw audit
+  // response ({ bestEntry, ... }) — convert first, or blocking is always 0.
+  var _mode = state.lastResult?.action || state.activeMode || "run";
+  var _sigSnapshot = toModeSnapshot(state.lastResult, _mode, state._lastCapturedAt || "");
+  // resolveSnapshotRaw reads raw via rawAppendix[rawRef]; snapshots outside a
+  // session have no appendix, so hand it the snapshot's own raw inline.
+  var _sigAppendix = (_sigSnapshot?.best?.rawRef && _sigSnapshot?.best?.raw)
+    ? { [_sigSnapshot.best.rawRef]: _sigSnapshot.best.raw }
+    : null;
+  var sigSet = computeStableSignatureSet(_sigSnapshot, _sigAppendix);
   var blockingCount = sigSet.blockingSet?.length || 0;
 
   // Regressions from session diff (if available)

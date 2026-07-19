@@ -617,7 +617,7 @@ function computeStableSignatureSet(snapshot, rawAppendix = null) {
 /**
  * Compute diff using stable signature sets only — no rawAppendix dependency.
  */
-function computeStableDiff(prevSignatures, currSignatures) {
+function computeStableDiff(prevSignatures, currSignatures, prevBlocking = null, currBlocking = null) {
   const prevSet = new Set(Array.isArray(prevSignatures) ? prevSignatures : []);
   const currSet = new Set(Array.isArray(currSignatures) ? currSignatures : []);
 
@@ -631,6 +631,13 @@ function computeStableDiff(prevSignatures, currSignatures) {
   for (const sig of prevSet) {
     if (!currSet.has(sig)) fixed++;
   }
+
+  // Blocking deltas need the blocking sets — without them the fields were
+  // stuck at 0 and the shadow-mode parity check mismatched on every step.
+  const prevBlock = new Set(Array.isArray(prevBlocking) ? prevBlocking : []);
+  const currBlock = new Set(Array.isArray(currBlocking) ? currBlocking : []);
+  for (const sig of currBlock) if (!prevSet.has(sig)) blockingAdded++;
+  for (const sig of prevBlock) if (!currSet.has(sig)) blockingFixed++;
 
   return { added, fixed, persisting, blockingAdded, blockingFixed };
 }
@@ -646,7 +653,9 @@ function validateDiffParity(step, prevStep, rawAppendix, stableRun, stablePrev) 
     const legacyRun = legacy?.run || {};
     const stableDiff = computeStableDiff(
       stablePrev?.stableFindingSignatureSet || [],
-      stableRun?.stableFindingSignatureSet || []
+      stableRun?.stableFindingSignatureSet || [],
+      stablePrev?.blockingSet || [],
+      stableRun?.blockingSet || []
     );
 
     if (legacyRun.blockingAdded !== stableDiff.blockingAdded ||
