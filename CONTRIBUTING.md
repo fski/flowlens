@@ -38,7 +38,7 @@ FlowLens makes zero network requests. All processing happens in the browser. No 
 node --test
 ```
 
-All tests use `node:test` and `node:assert/strict` with zero npm dependencies. The test harness loads panel.js into a `node:vm` context with mocked browser globals.
+All tests use `node:test` and `node:assert/strict` with zero npm dependencies. The test harness concatenates the panel source parts (`src/panel/panel.parts.json`, everything except `panel-90-wireup.js`) into a `node:vm` context with mocked browser globals. Functions must live outside the wireup part to be testable.
 
 ### Building
 
@@ -59,6 +59,7 @@ The build must produce a bundle under 450K total. Check the build output for fil
 ### Code style
 
 - No external dependencies (zero npm packages)
-- ES5-compatible function syntax in panel.js (no arrow functions in top-level code)
-- `var` in panel.js; `const`/`let` in test files and build scripts
-- No `async`/`await` in panel.js function definitions (except in wire-up section event handlers)
+- Panel source is split into ordered parts under `src/panel/` (`panel.parts.json` defines the order); the build concatenates them into one `dist/panel.js`. New code goes into the thematically matching part; wiring goes into `panel-90-wireup.js`
+- ES5-compatible function syntax in panel parts (no arrow functions in top-level code)
+- `var` in panel parts; `const`/`let` in test files and build scripts
+- No `async`/`await` in panel function definitions (except event handlers in the wireup part)

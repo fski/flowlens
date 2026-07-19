@@ -54,17 +54,28 @@
 
 ## 2. Module Inventory
 
+> `panel.js` source lives as ordered parts under `src/panel/` (see `panel.parts.json`);
+> the build concatenates them into a single `dist/panel.js`. `panel.js:NNNN` line
+> references elsewhere in this document predate the split — locate code by symbol/grep.
+
 | File | Lines | Role |
 |------|------:|------|
-| `manifest.json` | 25 | MV3 config: permissions (`scripting`, `tabs`, `webNavigation`, `storage`), `host_permissions` (`http://*/*`, `https://*/*`), service worker, devtools page |
-| `devtools.html` / `devtools.js` | ~10 | DevTools panel registration (`chrome.devtools.panels.create`) |
-| `panel.html` | 272 | Panel HTML structure: header, scope/targeting, settings, modes, action bar, progress, results, export |
-| `panel.js` | 4265 | UI logic: state, virtual table rendering, Flow sessions, signatures, exports, persistence, accessibility |
-| `panel.css` | 1918 | Styles: Ayu Dark theme, light theme, compact mode, severity colors, responsive layout |
-| `sw.js` | ~1100 | Service worker: message validation, frame scope resolution, frame scoring, script injection, result normalization, frame key generation |
-| `a11y-audit-snippet.js` | ~2200 | WCAG audit engine: ~50 rule types, `run()`, `observe()`, `watch()`, `tabWalk()`, `contrastScan()`, profile-aware checks |
-| `fixtures/a11y-rule-fixtures.html` | ~130 | Test page with fixtures for FP verification |
-| `icons/` | — | Extension icons (16, 32, 48, 128px) |
+| `src/manifest/manifest.base.json` | 25 | MV3 config: permissions (`scripting`, `tabs`, `webNavigation`, `storage`), `host_permissions` (`http://*/*`, `https://*/*`), service worker, devtools page |
+| `src/devtools/` | ~10 | DevTools panel registration (`chrome.devtools.panels.create`) |
+| `src/panel/panel.html` | 533 | Panel HTML: 3 top tabs (Snap/Flow/Settings), mode toolbar, severity filters, findings, bottom sheets |
+| `src/panel/panel-00-core.js` | 483 | Globals, `els`, state, HostConfig, profiles, recipes, sorting |
+| `src/panel/panel-10-tables.js` | 562 | Virtualized tables, JSON syntax highlighting |
+| `src/panel/panel-20-views.js` | 1371 | View routing, severity tabs, past runs sheet |
+| `src/panel/panel-30-flow.js` | 1025 | Flow steps: labels, drill-down, delete, session comparison |
+| `src/panel/panel-40-engine.js` | 663 | Review status, deterministic export sort, JUnit export, shadow coverage, stable signature engine |
+| `src/panel/panel-50-overlay.js` | 1863 | Overlay/highlight, determinism metadata, fix suggestions, diagnostics |
+| `src/panel/panel-60-export.js` | 705 | Presets, exports, WCAG coverage summary |
+| `src/panel/panel-90-wireup.js` | 1099 | Event wiring, delegated table clicks, keyboard shortcuts (excluded from the test harness) |
+| `src/panel/panel.css` | 2442 | Styles: dark theme only (per Figma), severity colors, responsive layout |
+| `src/sw/sw.js` | 1464 | Service worker: message validation, frame scope resolution, frame scoring, script injection, result normalization, frame key generation |
+| `src/snippet/a11y-audit-snippet.js` | 4089 | WCAG audit engine: ~50 rule types, `run()`, `observe()`, `watch()`, `tabWalk()`, `contrastScan()`, profile-aware checks |
+| `fixtures/a11y-rule-fixtures.html` | 178 | Test page with fixtures for FP verification |
+| `src/assets/icons/` | — | Extension icons (16, 32, 48, 128px) |
 
 ---
 
@@ -183,7 +194,7 @@ Profiles are rendered as pill toggles in the Settings section (`panel.js:3473-35
 | `pinnedFrames` | Global | `{ [origin]: { frameId: number } }` — pinned frames per origin | Manual: disable pin or clear storage |
 | `session::active::{origin}::{env}` | Per origin + env | Active session — full object with steps, rawAppendix | Auto: moved to archive on End session. Manual: clear storage |
 | `session::archive::{origin}::{env}::{sessionId}` | Per origin + env + session | Archived (ended) session | Manual: clear storage |
-| `uiPrefs` | Global | `{ theme, compact, wcagLevel, alsoConsole }` | Manual: change in settings UI |
+| `uiPrefs` | Global | `{ wcagLevel, alsoConsole, depthMax, recipeId, junitCiOptions }` | Manual: change in settings UI |
 | `customProfiles` | Global | Custom MFE profile definitions | Manual: change in settings UI |
 | `activeProfiles` | Global | Array of active profile IDs (e.g., `["helpcenter"]`) | Manual: toggle pill in settings |
 | `colPrefs` | Global | `{ [tableId]: { [colIdx]: boolean } }` — column visibility per table | Manual: toggle in Columns dropdown |

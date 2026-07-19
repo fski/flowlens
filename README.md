@@ -126,7 +126,9 @@ Results can be copied as JSON, downloaded as a `.json` file, copied as Markdown,
 src/
   manifest/manifest.base.json   MV3 extension config (version injected at build)
   devtools/                     registers the DevTools panel
-  panel/                        panel.html + panel.css + panel.js (UI logic, state, virtual scrolling)
+  panel/                        panel.html + panel.css + panel-*.js source parts
+                                (panel.parts.json defines order; build concatenates
+                                them into a single dist/panel.js)
   sw/sw.js                      service worker, message routing, script injection
   snippet/a11y-audit-snippet.js the actual audit code injected into pages
   engine/
