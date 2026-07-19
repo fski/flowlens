@@ -64,8 +64,28 @@ function buildCIReport(input) {
       blockingAdded: sanitizeRegressionEntries(regressions.blockingAdded),
       blockingFixed: sanitizeRegressionEntries(regressions.blockingFixed),
     },
-    depth3Aggregates: i.depth3Aggregates || null,
+    depth3Aggregates: sanitizeDepth3Aggregates(i.depth3Aggregates),
   };
+}
+
+/**
+ * Whitelist depth3Aggregates fields — the only branch that used to pass its
+ * input through by reference, letting arbitrary caller data (locators, raw
+ * text) bypass the no-raw-text contract of the CI report.
+ */
+function sanitizeDepth3Aggregates(agg) {
+  if (!agg || typeof agg !== "object") return null;
+  var AXES = ["announcementIntegrity", "focusStability", "chatSemantics", "multiFrameIntegrity"];
+  var COUNT_KEYS = ["announcements", "focus", "semantics", "multiframe"];
+  var out = { counts: {} };
+  for (var a = 0; a < AXES.length; a++) {
+    if (typeof agg[AXES[a]] === "string") out[AXES[a]] = agg[AXES[a]].slice(0, 24);
+  }
+  for (var k = 0; k < COUNT_KEYS.length; k++) {
+    var c = agg.counts ? Number(agg.counts[COUNT_KEYS[k]]) : 0;
+    out.counts[COUNT_KEYS[k]] = Number.isFinite(c) ? c : 0;
+  }
+  return out;
 }
 
 /**

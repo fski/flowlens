@@ -67,9 +67,21 @@ const REQUIRED = [
   "en301549-map.js",
   "flow-profiles.js",
   "wcag-coverage.js",
+  "limits.js",
+  "stateTransitionEngine.js",
+  "depth3Aggregates.js",
+  "ciExporter.js",
   "icons/icon16.png",
+  "icons/icon32.png",
   "icons/icon48.png",
   "icons/icon128.png",
+];
+
+// Positive allowlist: every zip entry must be REQUIRED or match one of these.
+// A stray file that slips past FORBIDDEN_PATTERNS (leftover config, mock,
+// sourcemap with odd name) fails the audit instead of shipping silently.
+const ALLOWED_EXTRA_PATTERNS = [
+  /^icons\/[A-Za-z0-9 _-]+\.svg$/,
 ];
 
 // ── Forbidden patterns ──────────────────────────────────────────────────────
@@ -118,6 +130,16 @@ for (const req of REQUIRED) {
   if (!found) {
     errors.push(`MISSING required file: ${req}`);
   }
+}
+
+// Positive allowlist: reject anything that is neither required nor expected
+const requiredSet = new Set(REQUIRED);
+for (const file of files) {
+  const normalized = file.replace(/^\.\//, "");
+  if (!normalized || normalized.endsWith("/")) continue; // directory entries
+  if (requiredSet.has(normalized)) continue;
+  if (ALLOWED_EXTRA_PATTERNS.some(p => p.test(normalized))) continue;
+  errors.push(`UNEXPECTED file in zip: ${normalized} — add to REQUIRED/ALLOWED_EXTRA_PATTERNS if intentional`);
 }
 
 // Check forbidden patterns

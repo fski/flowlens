@@ -48,9 +48,12 @@ const zipPath = join(ARTIFACTS, zipName);
 // Remove stale zip first so zip -r doesn't merge into an existing archive
 if (existsSync(zipPath)) rmSync(zipPath);
 
-// Use system zip — cd into dist so zip root = dist contents
+// Use system zip — cd into dist so zip root = dist contents.
+// Reproducible: fixed mtimes (touch), sorted entry order (find|sort), no
+// platform extra fields (-X) — identical dist/ yields a byte-identical zip.
 try {
-  execSync(`cd "${DIST}" && zip -r "${zipPath}" .`, { stdio: "pipe" });
+  execSync(`find "${DIST}" -exec touch -t 202001010000 {} +`, { stdio: "pipe" });
+  execSync(`cd "${DIST}" && find . -type f | sort | zip -X "${zipPath}" -@`, { stdio: "pipe" });
 } catch (err) {
   console.error("ERROR: zip command failed. Ensure `zip` is installed.");
   console.error(err.stderr?.toString() || err.message);

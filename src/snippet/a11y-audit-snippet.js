@@ -1419,6 +1419,24 @@
     return (hi + 0.05) / (lo + 0.05);
   };
 
+  // APCA-W3 (0.0.98G-4g base algorithm) lightness contrast Lc — reported as an
+  // INFORMATIONAL metric only; WCAG 2.x ratio stays the normative pass/fail.
+  const apcaLc = (fg, bg) => {
+    const toY = ({ r, g, b }) => {
+      const ch = (v) => Math.pow(v / 255, 2.4);
+      return 0.2126729 * ch(r) + 0.7151522 * ch(g) + 0.0721750 * ch(b);
+    };
+    const softClamp = (Y) => (Y > 0.022 ? Y : Y + Math.pow(0.022 - Y, 1.414));
+    const Ytx = softClamp(toY(fg));
+    const Ybg = softClamp(toY(bg));
+    const S = Ybg > Ytx
+      ? (Math.pow(Ybg, 0.56) - Math.pow(Ytx, 0.57)) * 1.14   // dark text on light
+      : (Math.pow(Ybg, 0.65) - Math.pow(Ytx, 0.62)) * 1.14;  // light text on dark
+    if (Math.abs(S) < 0.1) return 0;
+    const Lc = (S > 0 ? S - 0.027 : S + 0.027) * 100;
+    return Math.round(Lc * 10) / 10;
+  };
+
   const getEffectiveBg = (el) => {
     const layers = [];
     let node = el;
@@ -4190,6 +4208,7 @@
 
       const item = {
         ratio: +ratio.toFixed(2),
+        apcaLc: apcaLc(effectiveFg, bg),
         required: req,
         largeText: large,
         text: txt(el.textContent, 60),
