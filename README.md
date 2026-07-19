@@ -1,14 +1,14 @@
 # FlowLens
 
-A deterministic conversational accessibility inspector for dynamic support flows — chat widgets, help centers, hybrid portals, and AI bots.
+A deterministic accessibility inspector for dynamic multi-step flows — chat widgets, wizards, checkouts, onboarding, help centers, and AI bots.
 
-FlowLens goes beyond static WCAG checks. It captures step-based state transitions across conversation turns and frame boundaries to evaluate whether dynamic support experiences are actually accessible to screen reader and keyboard users.
+FlowLens goes beyond static WCAG checks. It captures step-based state transitions across flow steps and frame boundaries to evaluate whether dynamic experiences are actually accessible to screen reader and keyboard users.
 
 By [fski](https://fski.app)
 
 ## What makes FlowLens different
 
-Traditional accessibility scanners check a static DOM snapshot. FlowLens inspects conversation integrity across time and across frames.
+Traditional accessibility scanners check a static DOM snapshot. FlowLens inspects flow integrity across time and across frames.
 
 | | Traditional Scanner | FlowLens |
 |---|---|---|
@@ -80,13 +80,14 @@ Five modes, each injected into the inspected page:
 
 Presets combine modes: Quick (Run + Contrast), Release (Watch + Observe + Run), Focus (TabWalk + Run).
 
-## Conversational Profiles
+## Flow Profiles
 
-FlowLens includes generic profiles that tune depth settings and frame targeting for common conversational UI patterns:
+FlowLens includes generic profiles that tune depth settings and frame targeting for common flow patterns:
 
 - **Chat Widget** — embedded iframe chat, recommends Depth 3
 - **Help Center + Bot Hybrid** — portal with integrated bot, recommends Depth 3
 - **Help Center (Static)** — article-based help center, recommends Depth 2
+- **Wizard / Multi-step Form** — checkouts, onboarding, multi-page forms, recommends Depth 2
 
 Profiles are vendor-agnostic. Targeting uses ARIA roles and DOM structure, not product-specific selectors.
 
@@ -196,7 +197,7 @@ Scans `src/` for company-specific references (excluding `src/host/`). Fails if a
 ## Chrome Web Store
 
 **Short description** (132 chars):
-> Inspect conversational accessibility integrity across chat and help center flows.
+> Inspect accessibility integrity across multi-step flows — chats, wizards, checkouts, help centers.
 
 **Long description**:
-> FlowLens is a deterministic conversational accessibility inspector. It evaluates chat widgets, help centers, and hybrid portals across conversation steps and frame boundaries — checking announcement integrity, focus stability, feed semantics, and cross-frame linkage. Multi-frame aware. No telemetry. CI-ready export.
+> FlowLens is a deterministic accessibility inspector for dynamic flows. It evaluates chat widgets, wizards, checkouts, onboarding, and help centers across flow steps and frame boundaries — checking announcement integrity, focus stability, feed semantics, and cross-frame linkage. Multi-frame aware. No telemetry. CI-ready export.

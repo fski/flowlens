@@ -16,9 +16,17 @@ describe("RECIPES registry", () => {
   const recipes = ctx.RECIPES;
   const keys = Object.keys(recipes);
 
-  it("has exactly 4 entries", () => {
-    assert.equal(keys.length, 4);
-    assert.deepEqual(keys.sort(), ["auto", "chat_widget", "helpcenter", "hybrid"]);
+  it("has exactly 5 entries", () => {
+    assert.equal(keys.length, 5);
+    assert.deepEqual(keys.sort(), ["auto", "chat_widget", "helpcenter", "hybrid", "wizard"]);
+  });
+
+  it("wizard recipe targets host scope with balanced depth in run mode", () => {
+    const wizard = recipes.wizard;
+    assert.equal(wizard.frameScope, "host");
+    assert.equal(wizard.depthMax, 2);
+    assert.equal(wizard.activeMode, "run");
+    assert.equal(wizard.profileAllowlist, null);
   });
 
   it("auto recipe has all null overrides", () => {

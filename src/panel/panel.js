@@ -46,7 +46,7 @@ const els = {
 
   json: document.getElementById("json"),
   inspectedUrl: document.getElementById("inspectedUrl"),
-  brandEnv: document.getElementById("brandEnv"),
+  envBadge: document.getElementById("envBadge"),
   usedFrames: document.getElementById("usedFrames"),
   diff: document.getElementById("diff"),
 
@@ -401,6 +401,14 @@ const RECIPES = {
     frameScope: "all",
     depthMax: 3,
     activeMode: "observe",
+    profileAllowlist: null,
+  },
+  wizard: {
+    label: "Wizard / Form",
+    description: "Step-based flow (wizard, checkout, onboarding) — host scope, balanced depth, run mode",
+    frameScope: "host",
+    depthMax: 2,
+    activeMode: "run",
     profileAllowlist: null,
   },
 };
@@ -4637,7 +4645,7 @@ const FIX_SUGGESTIONS = {
   DISABLED_INPUT_NO_EXPLANATION: 'Add aria-describedby explaining why disabled, or add a title.',
   LOADER_WITHOUT_ANNOUNCEMENT_HOOK: 'Add aria-live="polite" region, update text on load start/end.',
   DUPLICATE_ID: f => {
-    const base = `Make id="${f.extra?.id}" unique. In MFE contexts, add a scope prefix.`;
+    const base = `Make id="${f.extra?.id}" unique. When multiple apps share the page, add a scope prefix.`;
     return f.extra?.ariaReferenced ? `${base} Referenced by ARIA — duplicates break name resolution.` : base;
   },
   FOCUS_VISIBLE_SUPPRESSED: 'Add visible :focus-visible style (outline or box-shadow).',
@@ -4658,8 +4666,8 @@ const FIX_SUGGESTIONS = {
   DUPLICATE_NAV_NO_LABEL: 'Add unique aria-label to each <nav>.',
   DUPLICATE_BANNER: 'Only one top-level <header>. Scope extras inside <article>/<section>.',
   DUPLICATE_CONTENTINFO: 'Only one top-level <footer>. Scope extras inside <article>/<section>.',
-  HEADING_HIERARCHY_FRAGMENTED: 'Shared heading hierarchy: host provides H1, MFEs start at H2+.',
-  COMPETING_SKIP_NAV: 'Use one skip link from host page. Remove MFE skip links.',
+  HEADING_HIERARCHY_FRAGMENTED: 'Shared heading hierarchy: host provides H1, embedded apps start at H2+.',
+  COMPETING_SKIP_NAV: 'Use one skip link from host page. Remove skip links from embedded apps.',
   SHADOW_DOM_FOCUS_ISSUE: 'Add delegatesFocus:true to shadow root, or set tabindex on focusable elements.',
   IFRAME_MISSING_TITLE: 'Add title="Description" to the <iframe>.',
   IFRAME_CROSS_ORIGIN: 'Verify parent page has a title attribute on this iframe.',
@@ -4925,9 +4933,9 @@ function refreshInspectedUrl(retries = 3) {
     const env = detectEnv(url);
     const origin = originFrom(url);
     const detected = `${origin || "—"} • env=${env}`;
-    els.brandEnv.textContent = detected;
-    els.brandEnv.title = detected;
-    els.brandEnv.dataset.full = detected;
+    els.envBadge.textContent = detected;
+    els.envBadge.title = detected;
+    els.envBadge.dataset.full = detected;
 
     // load stored records for this origin/env
     const scopeKey = `records::${origin || ""}::${env}`;
