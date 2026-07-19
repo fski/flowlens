@@ -10,6 +10,8 @@ By [fski](https://fski.app)
 
 Traditional accessibility scanners check a static DOM snapshot. FlowLens inspects flow integrity across time and across frames.
 
+Automated tooling catches roughly 30–40% of WCAG issues — FlowLens catches that share *across your whole flow, not just one frozen page*. The flow-aware tools that exist (axe DevTools Pro, Evinced, Assistiv Labs) are all paid; FlowLens is the free, local-first option in that tier. See [docs/COMPETITIVE_LANDSCAPE.md](docs/COMPETITIVE_LANDSCAPE.md) for the full comparison.
+
 | | Traditional Scanner | FlowLens |
 |---|---|---|
 | Analysis model | Static DOM checks | Step-based state transitions |
