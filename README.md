@@ -93,9 +93,10 @@ Profiles are vendor-agnostic. Targeting uses ARIA roles and DOM structure, not p
 ## Install
 
 1. Clone or download this repo
-2. Go to `chrome://extensions/`, enable Developer mode
-3. Click "Load unpacked", select this folder
-4. Open DevTools (F12), go to the **FlowLens** tab
+2. Run `npm ci && npm run build` — this produces the loadable extension in `dist/`
+3. Go to `chrome://extensions/`, enable Developer mode
+4. Click "Load unpacked", select the `dist/` folder
+5. Open DevTools (F12), go to the **FlowLens** tab
 
 ## Frame targeting
 
@@ -119,20 +120,27 @@ Results can be copied as JSON, downloaded as a `.json` file, copied as Markdown,
 ## Files
 
 ```
-manifest.json              MV3 extension config
-devtools.html/js           registers the DevTools panel
-panel.html                 UI
-panel.css                  styles (Ayu Dark theme)
-panel.js                   UI logic, state, virtual scrolling
-sw.js                      service worker, message routing, script injection
-a11y-audit-snippet.js      the actual audit code injected into pages
-stateTransitionEngine.js   C1–C4 conversation integrity evaluators
-depth3Aggregates.js        integrity axis aggregation
-ciExporter.js              CI JSON report builder
-flow-profiles.js           conversational profiles (v1 + v2)
-wcag-coverage.js           rule → WCAG criterion mapping
-limits.js                  capture bounds
-icons/                     extension icons
+src/
+  manifest/manifest.base.json   MV3 extension config (version injected at build)
+  devtools/                     registers the DevTools panel
+  panel/                        panel.html + panel.css + panel.js (UI logic, state, virtual scrolling)
+  sw/sw.js                      service worker, message routing, script injection
+  snippet/a11y-audit-snippet.js the actual audit code injected into pages
+  engine/
+    stateTransitionEngine.js    C1–C4 conversation integrity evaluators
+    depth3Aggregates.js         integrity axis aggregation
+    ciExporter.js               CI JSON report builder
+  shared/
+    flow-profiles.js            flow profiles
+    wcag-coverage.js            rule → WCAG criterion mapping
+    en301549-map.js             WCAG → EN 301 549 mapping
+    limits.js                   capture bounds
+    version.js                  single source of truth for the version
+  host/default.config.json     generic HostConfig (build variants)
+  assets/icons/                extension icons
+scripts/                       build, package, release-guard, vendor audits
+test/                          node:test suites (zero npm deps)
+dist/                          build output — load this in Chrome (gitignored)
 ```
 
 ## How it works
