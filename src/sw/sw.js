@@ -805,6 +805,32 @@ async function acquireAuditLock(tabId) {
   return () => { _auditLockByTab.delete(tabId); release(); };
 }
 
+// MV3 keepalive: Chrome may reap an idle service worker after ~30s, killing
+// long captures (watch runs 40s; CAPTURE_STEP chains baseline+active) and
+// closing the sendResponse channel mid-flight. Any extension API call resets
+// the idle timer, so while work is in flight we ping a cheap API every 20s.
+// Refcounted — concurrent handlers share one interval.
+let _keepaliveCount = 0;
+let _keepaliveTimer = null;
+function acquireKeepalive() {
+  _keepaliveCount++;
+  if (!_keepaliveTimer) {
+    _keepaliveTimer = setInterval(() => {
+      try { chrome.runtime.getPlatformInfo(() => {}); } catch { /* SW shutting down */ }
+    }, 20000);
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    _keepaliveCount = Math.max(0, _keepaliveCount - 1);
+    if (_keepaliveCount === 0 && _keepaliveTimer) {
+      clearInterval(_keepaliveTimer);
+      _keepaliveTimer = null;
+    }
+  };
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     const validation = validateIncomingMessage(msg, sender);
@@ -1075,6 +1101,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     if (msg.type === "RUN_AUDIT") {
       const tabId = Number(msg.tabId);
+      const releaseKeepalive = acquireKeepalive();
       const release = await acquireAuditLock(tabId);
       try {
         const action = String(msg.action);
@@ -1104,12 +1131,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           frameProbeById,
         });
         sendResponse(out);
-      } finally { release(); }
+      } finally { release(); releaseKeepalive(); }
       return;
     }
 
     if (msg.type === "CAPTURE_STEP") {
       const tabId = Number(msg.tabId);
+      const releaseKeepalive = acquireKeepalive();
       const release = await acquireAuditLock(tabId);
       try {
       const startedAt = Date.now();
@@ -1191,7 +1219,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         active,
         frameKeyByFrameId: mergedFrameKeyByFrameId,
       });
-      } finally { release(); }
+      } finally { release(); releaseKeepalive(); }
       return;
     }
 
