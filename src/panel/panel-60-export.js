@@ -637,18 +637,11 @@ function buildCIReportFromState() {
     if (sev in bySeverity) bySeverity[sev]++;
   }
 
-  // Blocking count from stable signatures. computeStableSignatureSet expects
-  // a mode snapshot ({ best, mode, ... }); state.lastResult is the raw audit
-  // response ({ bestEntry, ... }) — convert first, or blocking is always 0.
-  var _mode = state.lastResult?.action || state.activeMode || "run";
-  var _sigSnapshot = toModeSnapshot(state.lastResult, _mode, state._lastCapturedAt || "");
-  // resolveSnapshotRaw reads raw via rawAppendix[rawRef]; snapshots outside a
-  // session have no appendix, so hand it the snapshot's own raw inline.
-  var _sigAppendix = (_sigSnapshot?.best?.rawRef && _sigSnapshot?.best?.raw)
-    ? { [_sigSnapshot.best.rawRef]: _sigSnapshot.best.raw }
-    : null;
-  var sigSet = computeStableSignatureSet(_sigSnapshot, _sigAppendix);
-  var blockingCount = sigSet.blockingSet?.length || 0;
+  // Blocking count follows the panel's own classification (isRunFindingBlocking:
+  // high blocks, medium only with strict confidence, advisory never) and the
+  // SAME filtered scope as totalCount/bySeverity — the signature-set path both
+  // over-counted heuristic mediums and ignored active depth/rule-pack filters.
+  var blockingCount = filteredFindings.filter(isRunFindingBlocking).length;
 
   // Regressions from session diff (if available)
   var regressions = { blockingAdded: [], blockingFixed: [] };
@@ -699,7 +692,7 @@ function buildCIReportFromState() {
       rulePackHash: null,
     },
     quality: {
-      signatureQuality: sigSet.stableFindingSignatureSet?.length > 0 ? "available" : "none",
+      signatureQuality: rawFindings.length > 0 ? "available" : "none",
       diffConfidence: reducedDiff ? "reduced" : "normal",
     },
     summary: {
