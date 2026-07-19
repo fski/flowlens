@@ -803,11 +803,13 @@ function renderExplorer(findings) {
   const filtered = applySortState(applyExplorerFilters(findings), 'explorer');
   state.explorer = filtered;
 
-  // Update findings count
+  // Update findings count (with the axe-style violations / needs-review split)
   if (els.findingsCount) {
     const total = all.length;
     const shown = filtered.length;
-    els.findingsCount.textContent = shown === total ? `${total} findings` : `${shown} of ${total}`;
+    const review = all.filter(f => classifyReviewStatus(f) === "needs_review").length;
+    const base = shown === total ? `${total} findings` : `${shown} of ${total}`;
+    els.findingsCount.textContent = review > 0 ? `${base} · ${review} need review` : base;
   }
 
   if (!VT.all) initVirtualTables();

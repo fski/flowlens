@@ -380,8 +380,11 @@ function buildDetailRow(finding, colCount) {
   const wcagCell = wcagRef
     ? `<a class="wcagLink" href="${escapeHtml(wcagRef.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(finding.wcag)} — ${escapeHtml(wcagRef.title)}</a>`
     : escapeHtml(finding.wcag ?? '');
+  const reviewBadge = classifyReviewStatus(finding) === 'needs_review'
+    ? ' <span class="badge needsReview" title="Heuristic finding — verify manually">needs review</span>'
+    : '';
   const fields = [
-    ['Severity', `<span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span>`],
+    ['Severity', `<span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span>${reviewBadge}`],
     ['WCAG', wcagCell],
     ['Name', escapeHtml(finding.name ?? '')],
     ['Type', escapeHtml(finding.type ?? '')],

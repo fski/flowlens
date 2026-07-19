@@ -1394,6 +1394,20 @@ kbd {
 .wcagLink { color: var(--teal); text-decoration: none; }
 .wcagLink:hover, .wcagLink:focus-visible { text-decoration: underline; }
 
+/* Needs-review badge (axe-style violations / needs-review split) */
+.badge.needsReview {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  padding: 1px 5px;
+  border: 1px solid var(--sev-info);
+  border-radius: var(--radius-xs);
+  color: var(--sev-info);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .02em;
+}
+
 /* Reason chip on uncovered WCAG criteria (Settings → WCAG Coverage) */
 .coverageReason {
   color: var(--tx3);
