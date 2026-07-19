@@ -217,10 +217,17 @@ async function readHostConfig() {
 
 // ── File map: source path → dist path ───────────────────────────────────────
 
+// panel.js source is split into ordered parts (src/panel/panel.parts.json);
+// they are concatenated into a single dist/panel.js at build time.
+function readPanelParts() {
+  const manifest = JSON.parse(readFileSync(join(SRC, "panel", "panel.parts.json"), "utf8"));
+  return manifest.parts.map(name => readFileSync(join(SRC, "panel", name), "utf8")).join("");
+}
+
 function buildFileMap() {
   return [
     // JS entrypoints
-    { src: "panel/panel.js",               dist: "panel.js",               type: "js" },
+    { src: "panel/panel.parts.json",       dist: "panel.js",               type: "js", concatPanel: true },
     { src: "sw/sw.js",                     dist: "sw.js",                  type: "js" },
     { src: "snippet/a11y-audit-snippet.js", dist: "a11y-audit-snippet.js", type: "js" },
     { src: "devtools/devtools.js",         dist: "devtools.js",            type: "js" },
@@ -353,7 +360,7 @@ async function main() {
 
   for (const entry of fileMap) {
     const srcPath = join(SRC, entry.src);
-    let raw = readFileSync(srcPath, "utf8");
+    let raw = entry.concatPanel ? readPanelParts() : readFileSync(srcPath, "utf8");
     let output;
 
     if (entry.type === "js") {

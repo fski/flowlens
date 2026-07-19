@@ -1,0 +1,14 @@
+{
+  "comment": "Ordered source parts concatenated into a single panel.js at build time. Tests load every part except the wireup part (see test/harness.mjs).",
+  "parts": [
+    "panel-00-core.js",
+    "panel-10-tables.js",
+    "panel-20-views.js",
+    "panel-30-flow.js",
+    "panel-40-engine.js",
+    "panel-50-overlay.js",
+    "panel-60-export.js",
+    "panel-90-wireup.js"
+  ],
+  "wireup": "panel-90-wireup.js"
+}

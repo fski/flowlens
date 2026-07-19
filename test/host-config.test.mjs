@@ -472,9 +472,13 @@ describe('HostConfig — shared cap constants', () => {
       'build.mjs should no longer hardcode HOSTCONFIG_MAX_ARRAY = 200');
   });
 
-  it('panel.js buildMatch uses shared constant with fallback', () => {
-    const panelSource = readFileSync(join(__dirname, '..', 'src', 'panel', 'panel.js'), 'utf8');
+  it('panel source buildMatch uses shared constant with fallback', () => {
+    // panel.js is split into parts (src/panel/panel.parts.json) — scan the concatenation
+    const manifest = JSON.parse(readFileSync(join(__dirname, '..', 'src', 'panel', 'panel.parts.json'), 'utf8'));
+    const panelSource = manifest.parts
+      .map(name => readFileSync(join(__dirname, '..', 'src', 'panel', name), 'utf8'))
+      .join('');
     assert.ok(panelSource.includes('MAX_MATCH_ARRAY'),
-      'panel.js should reference MAX_MATCH_ARRAY from limits.js');
+      'panel source should reference MAX_MATCH_ARRAY from limits.js');
   });
 });

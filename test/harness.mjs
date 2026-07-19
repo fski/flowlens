@@ -19,10 +19,22 @@ const FLOW_PROFILES_JS = join(__dirname, '..', 'src', 'shared', 'flow-profiles.j
 const WCAG_COVERAGE_JS = join(__dirname, '..', 'src', 'shared', 'wcag-coverage.js');
 const D3AGG_JS = join(__dirname, '..', 'src', 'engine', 'depth3Aggregates.js');
 const CI_EXPORTER_JS = join(__dirname, '..', 'src', 'engine', 'ciExporter.js');
-const PANEL_JS = join(__dirname, '..', 'src', 'panel', 'panel.js');
+const PANEL_DIR = join(__dirname, '..', 'src', 'panel');
+const PANEL_PARTS = join(PANEL_DIR, 'panel.parts.json');
 
 // Cut source before the "wire up" section where imperative DOM binding code begins.
+// The wireup part is excluded via the manifest; the marker cut stays as a belt-and-braces
+// guard in case wiring code ever creeps into an earlier part.
 const INIT_MARKER = '\n// --- wire up ---\n';
+
+/** Concatenated panel source minus the wireup part (function definitions only). */
+function readPanelSource() {
+  const manifest = JSON.parse(readFileSync(PANEL_PARTS, 'utf8'));
+  return manifest.parts
+    .filter(name => name !== manifest.wireup)
+    .map(name => readFileSync(join(PANEL_DIR, name), 'utf8'))
+    .join('');
+}
 
 function buildMockEls() {
   const noop = () => {};
@@ -165,7 +177,7 @@ function buildMockDocument() {
  * @returns {object} The vm context with all functions as properties
  */
 export function createContext(opts = {}) {
-  const source = readFileSync(PANEL_JS, 'utf8');
+  const source = readPanelSource();
   const markerIdx = source.indexOf(INIT_MARKER);
   const safeSource = markerIdx !== -1 ? source.slice(0, markerIdx) : source;
 
