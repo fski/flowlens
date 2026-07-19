@@ -81,57 +81,6 @@
   50% { opacity: .4; }
 }
 
-[data-theme="light"] {
-  --bg: #F5F5F7;
-  --surface: #FFFFFF;
-  --raised: #F0F0F2;
-  --overlay: #E8E8EC;
-  --emphasis: #DCDCE0;
-  --stripe: rgba(0, 0, 0, 0.02);
-
-  --tx: #1D1D1F;
-  --tx2: #6E6E73;
-  --tx3: #767680;
-  --tx4: #C7C7CC;
-
-  --brd0: rgba(0, 0, 0, 0.04);
-  --brd: rgba(0, 0, 0, 0.1);
-  --brd2: rgba(0, 0, 0, 0.16);
-  --brd3: rgba(0, 0, 0, 0.22);
-
-  --orange: #B8842E;
-  --yellow: #8A8A28;
-  --cyan: #1A8A9E;
-  --green: #4A7A20;
-  --red: #D02040;
-  --teal: #1A9A9A;
-  --mint: #28A85A;
-  --coral: #C03838;
-
-  /* Severity colors tuned for white bg readability */
-  --sev-critical: #C43A3A;
-  --sev-high: #B0683A;
-  --sev-medium: #9A8530;
-  --sev-low: #2E8A6A;
-  --sev-info: #5A7090;
-
-  --pri: #B8842E;
-  --priS: rgba(184, 132, 46, 0.08);
-  --priB: rgba(184, 132, 46, 0.2);
-  --okS: rgba(74, 122, 32, 0.08);
-  --okB: rgba(74, 122, 32, 0.2);
-  --infoS: rgba(26, 138, 158, 0.08);
-  --infoB: rgba(26, 138, 158, 0.25);
-  --warnS: rgba(154, 133, 48, 0.08);
-  --warnB: rgba(154, 133, 48, 0.2);
-  --dangerS: rgba(208, 32, 64, 0.08);
-  --dangerB: rgba(208, 32, 64, 0.2);
-
-  --shSm: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shMd: 0 4px 6px rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.04);
-  --shLg: 0 8px 16px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.04);
-}
-
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
@@ -450,8 +399,6 @@ body {
   font-family: var(--font-mono);
 }
 
-
-
 .exportAnchor {
   position: relative;
 }
@@ -586,10 +533,6 @@ select {
   background-repeat: no-repeat;
   background-position: right 10px center;
   background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%235C677A' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
-}
-
-[data-theme="light"] select {
-  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236E6E73' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
 }
 
 select:hover,
@@ -1016,7 +959,6 @@ kbd {
   display: inline;
   font-weight: 600;
 }
-
 
 /* ═══ HELPER TEXT ═══ */
 .helperText {
@@ -1535,7 +1477,6 @@ kbd {
   background: var(--dangerS);
 }
 
-
 .inlineHint {
   min-width: 72px;
   visibility: hidden;
@@ -1599,10 +1540,6 @@ kbd {
 .switch input:checked + .slider::before {
   transform: translateX(16px);
   background: linear-gradient(135deg, var(--green), #C7E96A);
-}
-
-[data-theme="light"] .switch input:checked + .slider::before {
-  background: linear-gradient(135deg, var(--green), #42B562);
 }
 
 .switch input:focus-visible + .slider {
@@ -1676,9 +1613,7 @@ kbd {
   overflow: hidden;
 }
 
-
 /* Legacy out toggle (removed — kept for reference) */
-
 
 .pill {
   display: inline-flex;
@@ -1753,10 +1688,6 @@ kbd {
   background: linear-gradient(to right, transparent, rgba(0,0,0,0.12));
   pointer-events: none;
   z-index: 3;
-}
-
-[data-theme="light"] .tableWrap.scrollRight::after {
-  background: linear-gradient(to right, transparent, rgba(0,0,0,0.06));
 }
 
 .tableWrap.vscroll {
@@ -2106,7 +2037,6 @@ kbd {
   padding: 0;
 }
 
-
 .settingsGroup { display: flex; flex-direction: column; gap: 10px; }
 .settingsLabel {
   font-size: 12px;
@@ -2130,7 +2060,6 @@ kbd {
   bottom: calc(100% + 6px);
   right: 0;
 }
-
 
 .emptyState {
   display: flex;
@@ -2182,7 +2111,6 @@ kbd {
   margin-top: 2px;
 }
 
-
 /* Section empty states (inside findingsCard) */
 .sectionEmpty {
   display: flex;
@@ -2207,7 +2135,6 @@ kbd {
   width: 100%;
   animation: fadeUp .2s ease-out;
 }
-
 
 .cellWrap {
   position: relative;
@@ -2364,33 +2291,6 @@ kbd {
 #frameSelect { min-width: 120px; flex: 1; }
 
 /* ═══ LIGHT THEME COMPONENT OVERRIDES ═══ */
-[data-theme="light"] .sheetBody { background: rgba(0, 0, 0, 0.03); }
-[data-theme="light"] .pastRunItem:hover { background: rgba(0, 0, 0, 0.04); }
-[data-theme="light"] .pastRunItem.isActive { background: rgba(0, 0, 0, 0.06); }
-[data-theme="light"] .keycap { background: rgba(0, 0, 0, 0.06); color: var(--tx3); border: 1px solid var(--brd); }
-[data-theme="light"] .flowCounterValue { background: rgba(0, 0, 0, 0.05); }
-[data-theme="light"] .watchMetric { background: rgba(0, 0, 0, 0.04); }
-[data-theme="light"] .compareTable td { border-bottom-color: rgba(0, 0, 0, 0.06); }
-[data-theme="light"] .stepDetail { background: rgba(0, 0, 0, 0.02); }
-[data-theme="light"] .pill.critical { background: rgba(196, 58, 58, 0.12); border-color: rgba(196, 58, 58, 0.25); }
-[data-theme="light"] .pill.high { background: rgba(176, 104, 58, 0.12); border-color: rgba(176, 104, 58, 0.25); }
-[data-theme="light"] .pill.medium { background: rgba(154, 133, 48, 0.12); border-color: rgba(154, 133, 48, 0.25); }
-[data-theme="light"] .pill.low { background: rgba(46, 138, 106, 0.12); border-color: rgba(46, 138, 106, 0.25); }
-[data-theme="light"] .pill.info { background: rgba(90, 112, 144, 0.12); border-color: rgba(90, 112, 144, 0.25); }
-[data-theme="light"] .slider { box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1); }
-[data-theme="light"] .slider::before { background: linear-gradient(135deg, var(--tx3), var(--tx4)); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15); }
-[data-theme="light"] .topTab[aria-selected="true"]::before { background: linear-gradient(180deg, rgba(100,100,100,0.6), var(--brd)) border-box; }
-[data-theme="light"] .subTab[aria-selected="true"] { background: var(--surface); }
-[data-theme="light"] .emptyLogo { filter: invert(1); }
-[data-theme="light"] .tbl th:first-child,
-[data-theme="light"] .tbl td:first-child { background: var(--surface); }
-[data-theme="light"] .tbl thead th:first-child { background: var(--raised); }
-[data-theme="light"] .tbl tbody tr:hover td:first-child { background: var(--raised); }
-[data-theme="light"] .detailInner { background: var(--raised); }
-[data-theme="light"] .exportMenu { background: var(--surface); border-color: var(--brd2); }
-[data-theme="light"] .colDropdown { background: var(--surface); border-color: var(--brd2); }
-[data-theme="light"] .toast { background: var(--surface); border-color: var(--brd2); }
-[data-theme="light"] .ctaBtn .tabSvg { filter: brightness(0) invert(0.95); }
 
 @media (max-width: 640px) {
   .settingsGrid { grid-template-columns: 1fr; gap: 12px; }
@@ -2472,10 +2372,6 @@ kbd {
   :root {
     --brd: rgba(255, 255, 255, 0.18);
     --brd2: rgba(255, 255, 255, 0.28);
-  }
-  [data-theme="light"] {
-    --brd: rgba(0, 0, 0, 0.28);
-    --brd2: rgba(0, 0, 0, 0.38);
   }
 }
 

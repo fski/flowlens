@@ -15,7 +15,6 @@ const els = {
   profileSelect: document.getElementById("profileSelect"),
   alsoConsole: document.getElementById("alsoConsole"),
   pinFrame: document.getElementById("pinFrame"),
-  themeToggle: document.getElementById("themeToggle"),
   wcagLevel: document.getElementById("wcagLevel"),
   targetingSummary: document.getElementById("targetingSummary"),
 
@@ -5983,9 +5982,6 @@ async function copyMarkdown() {
 }
 
 
-function applyTheme(light) {
-  document.documentElement.setAttribute("data-theme", light ? "light" : "dark");
-}
 
 function setVersionBadge() {
   try {
@@ -6260,9 +6256,6 @@ function renderProfileSelect() {
 
 async function loadUiPrefs() {
   const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
-  const light = uiPrefs.theme === "light" || (uiPrefs.theme == null && window.matchMedia("(prefers-color-scheme: light)").matches);
-  if (els.themeToggle) els.themeToggle.checked = light;
-  applyTheme(light);
   if (els.alsoConsole) els.alsoConsole.checked = !!uiPrefs.alsoConsole;
   if (els.wcagLevel && uiPrefs.wcagLevel) els.wcagLevel.value = uiPrefs.wcagLevel;
   if (els.depthMax && uiPrefs.depthMax) els.depthMax.value = String(uiPrefs.depthMax);
@@ -7155,16 +7148,6 @@ if (els.tabTbody && !els.tabTbody.__bound) {
       console.warn("Tab walk table click failed", err);
       toast("Could not highlight element");
     }
-  });
-}
-
-if (els.themeToggle) {
-  els.themeToggle.addEventListener("change", async () => {
-    const light = !!els.themeToggle.checked;
-    applyTheme(light);
-    const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
-    uiPrefs.theme = light ? "light" : "dark";
-    await storageSet({ uiPrefs });
   });
 }
 
