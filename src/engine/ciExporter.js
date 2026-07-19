@@ -136,6 +136,19 @@ function validateCIReport(report) {
         if (val.indexOf("http") !== -1) {
           violations.push("suspicious value (contains 'http'): " + fullPath);
         }
+        // Prose/PII heuristics: contract strings are identifiers (versions,
+        // ids, signatures, enum labels) — none contain sentences, emails,
+        // or free text. 4+ whitespace-separated words, '@', or >120 chars
+        // means page text leaked into the report.
+        if (val.indexOf("@") !== -1) {
+          violations.push("suspicious value (contains '@'): " + fullPath);
+        }
+        if (val.length > 120) {
+          violations.push("suspicious value (length > 120): " + fullPath);
+        }
+        if (val.trim().split(/\s+/).length >= 4) {
+          violations.push("suspicious value (4+ words, looks like prose): " + fullPath);
+        }
       } else if (val != null && typeof val === "object") {
         walk(val, fullPath);
       }

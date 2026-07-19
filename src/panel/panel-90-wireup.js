@@ -951,7 +951,7 @@ function initVirtualTables() {
     VT.contrast = new VirtualTable({
       wrapEl: contrastWrap,
       tbodyEl: els.contrastTbody,
-      colCount: 8,
+      colCount: 9,
       rowRenderer: contrastRowHtml,
       estimateRowHeight: 24,
       overscan: 10,

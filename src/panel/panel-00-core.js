@@ -428,7 +428,7 @@ const SORT_KEYS = {
     f => ORDER[f.severity] ?? -1, f => f.wcag ?? '', f => f.name ?? '', f => f.type ?? '',
   ],
   contrast: [
-    f => f.ratio ?? 0, f => f.required ?? 0, f => f.largeText ? 1 : 0,
+    f => f.ratio ?? 0, f => f.apcaLc ?? 0, f => f.required ?? 0, f => f.largeText ? 1 : 0,
     f => f.text ?? '', f => f.tag ?? '', f => f.testId ?? '', f => f.path ?? '', f => f.note ?? '',
   ],
   tab: [
