@@ -523,7 +523,7 @@ if (els.depthMax) {
 if (els.recipeSelect) {
   els.recipeSelect.addEventListener("change", async () => {
     const recipeId = els.recipeSelect.value || "auto";
-    applyRecipe(recipeId);
+    applyRecipe(recipeId, { applyProfiles: true });
     const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
     uiPrefs.recipeId = recipeId;
     await storageSet({ uiPrefs });
@@ -1061,6 +1061,11 @@ if (els.rawJsonToggle) {
     const expanded = els.rawJsonToggle.getAttribute("aria-expanded") === "true";
     els.rawJsonToggle.setAttribute("aria-expanded", String(!expanded));
     if (els.rawJsonBody) els.rawJsonBody.hidden = expanded;
+    // Deferred highlight: content rendered while collapsed is plain text
+    if (!expanded && els.json && els.json.dataset.hl === "0") {
+      renderJsonInto(els.json, els.json.textContent || "");
+      els.json.dataset.hl = "1";
+    }
   });
 }
 

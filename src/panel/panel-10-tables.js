@@ -193,6 +193,22 @@ function renderJsonInto(el, text) {
   el.innerHTML = highlightJson(text);
 }
 
+// Lazy variant for the Raw JSON sheet: while the sheet is collapsed only cheap
+// textContent is written (highlighting a hidden 300k-char payload on every run
+// is wasted work); the expand handler upgrades from the same textContent.
+// Copy actions read textContent either way.
+function renderRawJson(el, bodyEl, text) {
+  if (!el) return;
+  if (typeof text !== "string") text = pretty(text);
+  if (bodyEl && bodyEl.hidden) {
+    el.textContent = text;
+    el.dataset.hl = "0";
+    return;
+  }
+  renderJsonInto(el, text);
+  el.dataset.hl = "1";
+}
+
 function toast(message, action) {
   if (!els.toast) return;
   // Dedup identical toasts within 700ms

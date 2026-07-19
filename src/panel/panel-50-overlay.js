@@ -134,7 +134,7 @@ function buildSessionMarkdown(session) {
     for (const x of topBlocking) {
       const quality = x.signatureQuality || "medium";
       const qualityLabel = quality === "low" ? "low (may be unstable)" : quality;
-      lines.push(`| ${x.blockingWeight} | ${x.occurrences} | ${x.firstSeenStep} | ${x.lastSeenStep} | ${qualityLabel} | ${txt(x.label || "issue", 26)} | ${x.wcag || "—"} | ${x.level || "—"} | ${x.confidence || "—"} | \`${txt(x.sig, 90)}\` |`);
+      lines.push(`| ${x.blockingWeight} | ${x.occurrences} | ${x.firstSeenStep} | ${x.lastSeenStep} | ${qualityLabel} | ${mdCell(txt(x.label || "issue", 26))} | ${mdCell(x.wcag || "—")} | ${mdCell(x.level || "—")} | ${mdCell(x.confidence || "—")} | \`${mdCell(txt(x.sig, 90))}\` |`);
     }
   }
   lines.push("");
@@ -286,6 +286,12 @@ function tabRowHtml(e, idx) {
 
 function txt(s, n = 140) {
   return (s || "").replace(/\s+/g, " ").trim().slice(0, n);
+}
+
+// GFM table cell escape: unescaped '|' splits columns even inside code spans.
+// Stable signatures are pipe-joined, so every cell they land in must escape.
+function mdCell(s) {
+  return String(s ?? "").replace(/\|/g, "\\|");
 }
 
 function actionIsWatch(resultObj) {
@@ -620,7 +626,7 @@ function applyFixSuggestions(findings) {
   return findings;
 }
 
-function applyRecipe(recipeId) {
+function applyRecipe(recipeId, opts) {
   const recipe = RECIPES[recipeId];
   if (!recipe) return;
   activeRecipeId = recipeId;
@@ -628,6 +634,14 @@ function applyRecipe(recipeId) {
   if (recipe.frameScope && els.target) els.target.value = recipe.frameScope;
   if (recipe.depthMax && els.depthMax) els.depthMax.value = String(recipe.depthMax);
   if (recipe.activeMode) state.activeMode = recipe.activeMode;
+  // Profile allowlist: activates exactly the recipe's profiles — but only on
+  // explicit recipe selection, never on startup restore (which must not
+  // clobber the user's manual profile choices).
+  if (opts && opts.applyProfiles && Array.isArray(recipe.profileAllowlist)) {
+    profileState.active = recipe.profileAllowlist.filter(id => id in profileState.profiles);
+    if (typeof renderProfileSelect === "function") renderProfileSelect();
+    if (typeof saveActiveProfiles === "function") saveActiveProfiles();
+  }
 }
 
 function getActiveRecipeId() {
@@ -771,11 +785,20 @@ function renderExplorer(findings) {
   const filtered = applySortState(applyExplorerFilters(findings), 'explorer');
   state.explorer = filtered;
 
-  // Update findings count (with the axe-style violations / needs-review split)
+  // Update findings count (with the axe-style violations / needs-review split).
+  // Counts use the same hashFinding dedup as the visible rows — otherwise
+  // duplicate findings make the numbers contradict what is rendered.
   if (els.findingsCount) {
-    const total = all.length;
+    const seenCount = new Set();
+    const uniqueAll = all.filter(f => {
+      const h = hashFinding(f);
+      if (seenCount.has(h)) return false;
+      seenCount.add(h);
+      return true;
+    });
+    const total = uniqueAll.length;
     const shown = filtered.length;
-    const review = all.filter(f => classifyReviewStatus(f) === "needs_review").length;
+    const review = uniqueAll.filter(f => classifyReviewStatus(f) === "needs_review").length;
     const base = shown === total ? `${total} findings` : `${shown} of ${total}`;
     els.findingsCount.textContent = review > 0 ? `${base} · ${review} need review` : base;
   }
@@ -1303,7 +1326,7 @@ async function runAction(action, opts = {}) {
   } catch (err) {
     const failed = { ok: false, action, error: String(err?.message || err) };
     state.lastResult = failed;
-    renderJsonInto(els.json, pretty(failed));
+    renderRawJson(els.json, els.rawJsonBody, pretty(failed));
     setRunTelemetry({ usedFrames: "—", diff: "(run failed)" });
     setPersistentStatus("FAILED", "TRANSPORT", "Run transport failure");
     console.error("RUN_AUDIT transport failure", err);
@@ -1318,7 +1341,7 @@ async function runAction(action, opts = {}) {
   if (r?.bestEntry?.result?.findings) {
     r.bestEntry.result.findings = applyFixSuggestions(r.bestEntry.result.findings);
   }
-  renderJsonInto(els.json, pretty(r));
+  renderRawJson(els.json, els.rawJsonBody, pretty(r));
   if (!r?.ok) {
     const noScope = r?.reason === "NO_SCOPE_MATCH" || r?.error === "NO_SCOPE_MATCH";
     const manualMissing = r?.reason === "MANUAL_FRAMES_MISSING" || r?.error === "MANUAL_FRAMES_MISSING";
@@ -1592,6 +1615,16 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
       console.warn("captureStepOptionC: session changed during capture — discarding result");
       toast("Session was ended during capture");
       return false;
+    }
+
+    // Enrich findings (fix suggestions + EN 301 549 clauses) before snapshotting —
+    // the same normalization the RUN_AUDIT path applies; without it flow-captured
+    // findings kept en301549Clauses: null forever.
+    if (r?.run?.bestEntry?.result?.findings) {
+      r.run.bestEntry.result.findings = applyFixSuggestions(r.run.bestEntry.result.findings);
+    }
+    if (r?.active?.bestEntry?.result?.findings) {
+      r.active.bestEntry.result.findings = applyFixSuggestions(r.active.bestEntry.result.findings);
     }
 
     const capturedAt = nowIso();

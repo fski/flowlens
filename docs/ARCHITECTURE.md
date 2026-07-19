@@ -60,7 +60,7 @@
 
 | File | Lines | Role |
 |------|------:|------|
-| `src/manifest/manifest.base.json` | 25 | MV3 config: permissions (`scripting`, `tabs`, `webNavigation`, `storage`), `host_permissions` (`http://*/*`, `https://*/*`), service worker, devtools page |
+| `src/manifest/manifest.base.json` | 25 | MV3 config: permissions (`scripting`, `webNavigation`, `storage`), `host_permissions` (`http://*/*`, `https://*/*`), service worker, devtools page |
 | `src/devtools/` | ~10 | DevTools panel registration (`chrome.devtools.panels.create`) |
 | `src/panel/panel.html` | 533 | Panel HTML: 3 top tabs (Snap/Flow/Settings), mode toolbar, severity filters, findings, bottom sheets |
 | `src/panel/panel-00-core.js` | 483 | Globals, `els`, state, HostConfig, profiles, recipes, sorting |

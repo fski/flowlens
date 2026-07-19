@@ -1338,12 +1338,14 @@ function renderFlowVerdict() {
     totalBlockingAdded += ba;
     if (ba > 0) blockingSteps.push(s.index);
   }
+  // Cheap identity hash FIRST — this render runs on the 1s session HUD tick,
+  // so the expensive cross-step rollup must stay behind the early-return gate.
+  const hash = `${steps.length},${steps.map(s => s.index).join("+")},${totalBlockingAdded},${blockingSteps.join(";")}`;
+  if (hash === _verdictHash) return;
+  _verdictHash = hash;
   // Systemic issues: blocking signatures recurring across steps (cross-step rollup)
   const rawAppendix = sess?.rawAppendix && typeof sess.rawAppendix === "object" ? sess.rawAppendix : {};
   const systemic = computeFlowBlockingRollup(steps, rawAppendix).filter(x => x.occurrences >= 2).slice(0, 3);
-  const hash = `${steps.length},${totalBlockingAdded},${blockingSteps.join(";")},${systemic.map(x => x.sig + ":" + x.occurrences).join(";")}`;
-  if (hash === _verdictHash) return;
-  _verdictHash = hash;
   const pass = totalBlockingAdded === 0;
   const badge = pass ? "PASS" : "FAIL";
   const badgeCls = pass ? "flowVerdictBadge--pass" : "flowVerdictBadge--fail";
@@ -1359,11 +1361,11 @@ function renderFlowVerdict() {
   const hasSuspect = steps.some(s => s.profileSuspect === true);
   const hasDegraded = steps.some(s => s.stableSignatures?.run?.stepQuality?.degraded === true);
   const hasRootMissing = steps.some(s => s.rootSelectorNotFound === true);
-  if (hasSuspect || hasDegraded) {
+  if (hasSuspect || hasDegraded || hasRootMissing) {
     const reasons = [];
     if (hasDegraded) reasons.push("degraded signatures");
     if (hasRootMissing) reasons.push("root selector not found");
-    else if (hasSuspect) reasons.push("low profile confidence");
+    if (hasSuspect) reasons.push("low profile confidence");
     const tooltip = reasons.length ? reasons.join("; ") : "reduced confidence";
     diffConfNote = ` <span class="diffConfidenceReduced" title="${escapeHtml(tooltip)}">Diff confidence: reduced</span>`;
   }

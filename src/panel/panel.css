@@ -2107,7 +2107,6 @@ kbd {
   text-transform: uppercase;
   letter-spacing: .06em;
 }
-.settingsToggles { display: flex; flex-direction: column; gap: 6px; }
 .settingsGroup select { max-width: 220px; }
 
 /* Frame group: 2-row layout — select on first row, actions on second */

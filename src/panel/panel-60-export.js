@@ -296,11 +296,13 @@ async function loadUiPrefs() {
   const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
   if (els.alsoConsole) els.alsoConsole.checked = !!uiPrefs.alsoConsole;
   if (els.wcagLevel && uiPrefs.wcagLevel) els.wcagLevel.value = uiPrefs.wcagLevel;
-  if (els.depthMax && uiPrefs.depthMax) els.depthMax.value = String(uiPrefs.depthMax);
+  // Recipe first, persisted per-field overrides after — otherwise a non-auto
+  // recipe re-clobbers the user's saved depth/mode on every panel load.
   if (els.recipeSelect && uiPrefs.recipeId) {
     els.recipeSelect.value = uiPrefs.recipeId;
     applyRecipe(uiPrefs.recipeId);
   }
+  if (els.depthMax && uiPrefs.depthMax) els.depthMax.value = String(uiPrefs.depthMax);
   const ciOpts = uiPrefs.junitCiOptions || {};
   if (els.ciFailOnBlocking) els.ciFailOnBlocking.checked = ciOpts.failOnBlocking !== false;
   if (els.ciTreatNeedsReview) els.ciTreatNeedsReview.checked = !!ciOpts.treatNeedsReviewAsFailure;

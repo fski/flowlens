@@ -1602,14 +1602,19 @@
    * Render overlay annotations for findings.
    * Returns stats: { ok, requested, rendered, skipped, skippedReasons }.
    */
-  const annotateFindings = (findingsData) => {
+  // Single source of the overlay root's stacking/isolation contract.
+  const createAnnotationContainer = () => {
     clearAnnotations();
-
     const container = doc.createElement("div");
     container.id = ANNOTATION_CONTAINER_ID;
     container.setAttribute("aria-hidden", "true");
     container.style.cssText = "position:fixed;top:0;left:0;width:0;height:0;overflow:visible;z-index:2147483646;pointer-events:none;";
     doc.body.appendChild(container);
+    return container;
+  };
+
+  const annotateFindings = (findingsData) => {
+    const container = createAnnotationContainer();
 
     const requested = Math.min((findingsData || []).length, MAX_ANNOTATIONS);
     let rendered = 0;
@@ -1673,27 +1678,28 @@
    */
   const TAB_STOP_OVERLAY_MS = 8000;
   const annotateTabStops = (elements) => {
-    clearAnnotations();
+    const container = createAnnotationContainer();
 
-    const container = doc.createElement("div");
-    container.id = ANNOTATION_CONTAINER_ID;
-    container.setAttribute("aria-hidden", "true");
-    container.style.cssText = "position:fixed;top:0;left:0;width:0;height:0;overflow:visible;z-index:2147483646;pointer-events:none;";
-    doc.body.appendChild(container);
-
-    const pts = [];
-    let rendered = 0;
-    for (let i = 0; i < elements.length && rendered < MAX_ANNOTATIONS; i++) {
+    // Phase 1: read all rects (single layout flush) — interleaving reads with
+    // appends into the attached container would force one reflow per element.
+    const rects = [];
+    for (let i = 0; i < elements.length && rects.length < MAX_ANNOTATIONS; i++) {
       const rect = elements[i].getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) continue;
+      rects.push({ i, el: elements[i], rect });
+    }
+
+    // Phase 2: build everything into a fragment, append once.
+    const frag = doc.createDocumentFragment();
+    const pts = [];
+    for (const { i, el, rect } of rects) {
       const badge = doc.createElement("div");
       badge.className = ANNOTATION_CLASS;
       badge.textContent = String(i + 1);
-      badge.title = getAccName(elements[i]) || cssPath(elements[i]);
+      badge.title = getAccName(el) || cssPath(el);
       badge.style.cssText = `position:fixed;top:${rect.top - 9}px;left:${rect.left - 9}px;min-width:18px;height:18px;background:#7BB85E;color:#141414;font:bold 10px/18px system-ui;text-align:center;border-radius:50%;padding:0 2px;box-sizing:border-box;z-index:2147483647;pointer-events:none;`;
-      container.appendChild(badge);
+      frag.appendChild(badge);
       pts.push([rect.left + rect.width / 2, rect.top + rect.height / 2]);
-      rendered++;
     }
 
     if (pts.length > 1) {
@@ -1708,15 +1714,16 @@
       poly.setAttribute("stroke-dasharray", "4 3");
       poly.setAttribute("opacity", "0.7");
       svg.appendChild(poly);
-      container.appendChild(svg);
+      frag.appendChild(svg);
     }
+    container.appendChild(frag);
 
     w.setTimeout(() => {
       const c = doc.getElementById(ANNOTATION_CONTAINER_ID);
       if (c === container) c.remove();
     }, TAB_STOP_OVERLAY_MS);
 
-    return { rendered };
+    return { rendered: rects.length };
   };
 
   // ---------------- main checks ----------------
