@@ -58,6 +58,17 @@ if (emptyRetryBtn) {
   emptyRetryBtn.addEventListener("click", () => _lockedPreset([state.activeMode || "run"]));
 }
 
+// Guided start (two-speed entry, FastPass/Assessment pattern):
+// Quick = one-shot checks; Deep = timed monitors + baseline audit.
+const guidedQuickBtn = document.getElementById("guidedQuick");
+if (guidedQuickBtn) {
+  guidedQuickBtn.addEventListener("click", () => _lockedPreset(["run", "contrast"]));
+}
+const guidedDeepBtn = document.getElementById("guidedDeep");
+if (guidedDeepBtn) {
+  guidedDeepBtn.addEventListener("click", () => _lockedPreset(["watch", "observe", "run"]));
+}
+
 if (els.exportToggle && els.exportMenu) {
   els.exportToggle.addEventListener("click", () => {
     setExportMenuOpen(els.exportMenu.hidden);

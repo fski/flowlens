@@ -7,6 +7,29 @@ on:
     branches: [main]
 
 jobs:
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Build extension
+        run: npm run build
+      - name: E2E smoke — fixture rule counts
+        run: node scripts/e2e-smoke.mjs
+      - name: Headless runner smoke — deterministic CI report
+        run: |
+          node scripts/ci-runner.mjs --url "file://$PWD/fixtures/a11y-rule-fixtures.html" --out /tmp/ci-a
+          node scripts/ci-runner.mjs --url "file://$PWD/fixtures/a11y-rule-fixtures.html" --out /tmp/ci-b
+          diff /tmp/ci-a/flowlens-report.json /tmp/ci-b/flowlens-report.json
+          echo "runner deterministic ✓"
+
   build-and-test:
     runs-on: ubuntu-latest
     steps:

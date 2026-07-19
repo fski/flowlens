@@ -57,6 +57,8 @@ const els = {
   q: document.getElementById("q"),
   findingsCount: document.getElementById("findingsCount"),
   reviewFilterChip: document.getElementById("reviewFilterChip"),
+  watchAnnouncements: document.getElementById("watchAnnouncements"),
+  watchAnnList: document.getElementById("watchAnnList"),
   allTableBody: document.querySelector("#allTable tbody"),
 
   toast: document.getElementById("toast"),

@@ -494,6 +494,31 @@ function renderWatch(res) {
       els.watchVerdicts.innerHTML = '<span class="watchVerdict watchVerdict--pass">All metrics within budget \u2713</span>';
     }
   }
+  // "What a screen reader heard" — chronological announcement timeline.
+  // The #1 conversational-UI failure is a bot reply that announces nothing;
+  // this makes silence visible instead of burying it in counters.
+  if (els.watchAnnouncements && els.watchAnnList) {
+    const anns = Array.isArray(res.announcements) ? res.announcements : [];
+    const hadLoading = (res.totalLoadingMs ?? 0) > 0 || (res.bursts ?? 0) > 0;
+    if (!anns.length && !hadLoading) {
+      els.watchAnnouncements.hidden = true;
+    } else {
+      els.watchAnnouncements.hidden = false;
+      const items = anns.map(a => {
+        const t = `+${((a.t ?? 0) / 1000).toFixed(1)}s`;
+        const mode = a.ariaLive || a.role || "live";
+        const empty = !a.text || a.text === "(empty)";
+        const body = empty
+          ? "<em>empty announcement — the screen reader says nothing</em>"
+          : `“${escapeHtml(txt(a.text, 120))}”`;
+        return `<li class="watchAnnItem${empty ? " watchAnnItem--empty" : ""}"><span class="watchAnnT mono">${escapeHtml(t)}</span><span class="watchAnnMode">[${escapeHtml(mode)}]</span> ${body}</li>`;
+      });
+      if (!anns.length && hadLoading) {
+        items.push('<li class="watchAnnItem watchAnnItem--empty"><em>Loading activity produced no announcements — screen reader users heard nothing.</em></li>');
+      }
+      els.watchAnnList.innerHTML = items.join("");
+    }
+  }
   // Events timeline table
   const events = Array.isArray(res.events) ? res.events : [];
   const tbody = els.watchTbody;

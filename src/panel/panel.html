@@ -92,6 +92,16 @@
           <span class="emptyVersion" id="emptyVersion"></span>
           <span class="emptyText" id="emptyText">Run an audit to see results</span>
           <span class="emptyHint" id="emptyHint">Choose a mode above and click the button to start scanning</span>
+          <div class="guidedStart" id="guidedStart">
+            <button class="btn guidedBtn" id="guidedQuick" type="button">
+              Quick scan
+              <span class="guidedSub">Audit + Contrast · ~5 s</span>
+            </button>
+            <button class="btn guidedBtn" id="guidedDeep" type="button">
+              Deep audit
+              <span class="guidedSub">Watch + Observe + Audit · ~60 s</span>
+            </button>
+          </div>
           <button class="btn" id="emptyRetry" type="button" hidden>Retry</button>
         </section>
 
@@ -201,6 +211,10 @@
             <div class="sectionEmpty" id="watchEmpty">Run Watch to monitor live a11y events</div>
             <div class="watchSummary" id="watchSummary"></div>
             <div class="watchVerdicts" id="watchVerdicts"></div>
+            <div class="watchAnnouncements" id="watchAnnouncements" hidden>
+              <div class="watchAnnTitle">What a screen reader heard</div>
+              <ol class="watchAnnList" id="watchAnnList"></ol>
+            </div>
             <div class="tableWrap vscroll">
               <table class="tbl" id="watchTable">
                 <caption class="sr-only">Watch events</caption>
