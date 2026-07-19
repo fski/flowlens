@@ -1048,8 +1048,10 @@ describe("v2 expansion coverage delta", () => {
 // ══════════════════════════════════════════════════════
 
 describe("Conversational ruleset — WCAG_COVERAGE_VERSION", () => {
-  it("WCAG_COVERAGE_VERSION is 4", () => {
-    assert.equal(ctx.__WCAG_COVERAGE_VERSION, 4);
+  it("WCAG_COVERAGE_VERSION is 5", () => {
+    // v5: MODE_TO_WCAG (contrast → 1.4.3, tabWalk → 2.1.2), reasons for
+    // uncovered criteria, and the 2.1.4 / 3.2.2 / 3.3.8 rules
+    assert.equal(ctx.__WCAG_COVERAGE_VERSION, 5);
   });
 });
 

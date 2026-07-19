@@ -268,6 +268,8 @@ export function createContext(opts = {}) {
     this.__WCAG_TARGET = typeof WCAG_TARGET !== 'undefined' ? WCAG_TARGET : {};
     this.__WCAG_CRITERIA = typeof WCAG_CRITERIA !== 'undefined' ? WCAG_CRITERIA : [];
     this.__RULE_TO_WCAG = typeof RULE_TO_WCAG !== 'undefined' ? RULE_TO_WCAG : {};
+    this.__MODE_TO_WCAG = typeof MODE_TO_WCAG !== 'undefined' ? MODE_TO_WCAG : {};
+    this.__UNCOVERED_CRITERIA_REASONS = typeof UNCOVERED_CRITERIA_REASONS !== 'undefined' ? UNCOVERED_CRITERIA_REASONS : {};
     this.__STABLE_SIGNATURE_VERSION = typeof STABLE_SIGNATURE_VERSION !== 'undefined' ? STABLE_SIGNATURE_VERSION : 0;
     this.__RECIPES = typeof RECIPES !== 'undefined' ? RECIPES : {};
     this.__activeRecipeId = typeof activeRecipeId !== 'undefined' ? activeRecipeId : 'auto';

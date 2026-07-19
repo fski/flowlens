@@ -4662,6 +4662,9 @@ const FIX_SUGGESTIONS = {
   FOCUS_VISIBLE_SUPPRESSED: 'Add visible :focus-visible style (outline or box-shadow).',
   NO_SKIP_NAV: 'Add a skip link: <a href="#main" class="skip-link">Skip to main content</a>.',
   MISSING_AUTOCOMPLETE: 'Add appropriate autocomplete attribute (e.g., autocomplete="email").',
+  ACCESSKEY_CHAR_SHORTCUT: 'Provide a way to remap or disable the shortcut, or require a modifier key.',
+  SELECT_AUTO_SUBMIT: 'Trigger navigation from an explicit button, not the change event.',
+  PASTE_BLOCKED_INPUT: 'Allow paste and autocomplete="current-password" so password managers work.',
   CLICK_WITHOUT_KEYBOARD: f => `Ensure this ${f.tag?.toLowerCase() || 'element'} is keyboard reachable (Enter/Space).`,
   ARIA_HIDDEN_FOCUSABLE: 'Add tabindex="-1" to focusable elements inside aria-hidden.',
   ARIA_REQUIRED_ATTR_MISSING: f => `Add ${f.extra?.attr}="..." to role="${f.extra?.role}" as required by ARIA.`,
@@ -6180,10 +6183,12 @@ function renderDiagnostics() {
     const _crit = typeof WCAG_CRITERIA !== "undefined" ? WCAG_CRITERIA : [];
     const titleMap = {};
     for (const c of _crit) titleMap[c.criterion] = c.title;
+    const _reasons = typeof UNCOVERED_CRITERIA_REASONS !== "undefined" ? UNCOVERED_CRITERIA_REASONS : {};
     const items = ecs.criteriaMissing.slice(0, MAX_SHOWN);
-    els.coverageMissingList.innerHTML = items.map(c =>
-      `<li>${escapeHtml(c)} ${escapeHtml(titleMap[c] || "")}</li>`
-    ).join("") + (ecs.criteriaMissing.length > MAX_SHOWN
+    els.coverageMissingList.innerHTML = items.map(c => {
+      const reason = _reasons[c] ? ` <span class="coverageReason">${escapeHtml(_reasons[c])}</span>` : "";
+      return `<li>${escapeHtml(c)} ${escapeHtml(titleMap[c] || "")}${reason}</li>`;
+    }).join("") + (ecs.criteriaMissing.length > MAX_SHOWN
       ? `<li class="coverageMore">+${ecs.criteriaMissing.length - MAX_SHOWN} more</li>`
       : "");
   }
@@ -6327,6 +6332,13 @@ function engineCoverageSummary(opts) {
       for (const c of mapping.also) {
         if (targetSet.has(c)) coveredSet.add(c);
       }
+    }
+  }
+  // Dedicated modes cover criteria that run()-rules don't (Contrast → 1.4.3, Tab Walk → 2.1.2)
+  const _modeMap = typeof MODE_TO_WCAG !== "undefined" ? MODE_TO_WCAG : {};
+  for (const mode of Object.keys(_modeMap)) {
+    for (const c of _modeMap[mode]) {
+      if (targetSet.has(c)) coveredSet.add(c);
     }
   }
   const criteriaCovered = [...coveredSet].sort();

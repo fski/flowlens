@@ -1394,6 +1394,17 @@ kbd {
 .wcagLink { color: var(--teal); text-decoration: none; }
 .wcagLink:hover, .wcagLink:focus-visible { text-decoration: underline; }
 
+/* Reason chip on uncovered WCAG criteria (Settings → WCAG Coverage) */
+.coverageReason {
+  color: var(--tx3);
+  font-size: 9px;
+  text-transform: uppercase;
+  border: 1px solid var(--brd);
+  border-radius: var(--radius-xs);
+  padding: 0 4px;
+  margin-left: 4px;
+}
+
 /* JSON syntax highlighting tokens (Raw JSON sheets) */
 .jt-key  { color: var(--teal); }
 .jt-str  { color: var(--green); }

@@ -2289,6 +2289,36 @@
       }
     });
 
+    // 2.1.4 Character Key Shortcuts: single printable-character accesskey
+    _qa("[accesskey]").forEach(el => {
+      if (isHidden(el)) return;
+      const key = (el.getAttribute("accesskey") || "").trim();
+      if (key.length === 1 && /\S/.test(key)) {
+        add(findings, { type: "ACCESSKEY_CHAR_SHORTCUT", el, severity: "low", wcag: "2.1.4", note: `accesskey="${key}" is a single-character shortcut — verify it can be remapped or disabled.`, extra: { accesskey: key } });
+      }
+    });
+
+    // 3.2.2 On Input: controls whose change handler navigates or submits
+    _qa("select[onchange],input[onchange]").forEach(el => {
+      if (isHidden(el)) return;
+      const handler = (el.getAttribute("onchange") || "").toLowerCase();
+      if (/(location|window\.open|\.submit\s*\()/.test(handler)) {
+        add(findings, { type: "SELECT_AUTO_SUBMIT", el, severity: "medium", wcag: "3.2.2", note: "Changing this control triggers navigation or submit — unexpected context change on input.", extra: { handler: handler.slice(0, 120) } });
+      }
+    });
+
+    // 3.3.8 Accessible Authentication: password fields hostile to password managers
+    _qa("input[type='password']").forEach(el => {
+      if (isHidden(el)) return;
+      const onpaste = (el.getAttribute("onpaste") || "").toLowerCase();
+      const ac = (el.getAttribute("autocomplete") || "").toLowerCase();
+      const pasteBlocked = /return\s+false|preventdefault/.test(onpaste);
+      const autofillOff = ac === "off";
+      if (pasteBlocked || autofillOff) {
+        add(findings, { type: "PASTE_BLOCKED_INPUT", el, severity: "medium", wcag: "3.3.8", note: pasteBlocked ? "Password field blocks paste — defeats password managers (cognitive function test)." : "Password field sets autocomplete=off — hinders password managers.", extra: { pasteBlocked, autocomplete: ac || null } });
+      }
+    });
+
     // 2.1.1 Keyboard: clickable custom controls missing reliable keyboard support
     _qa("[onclick],[role='button'],[role='link']").forEach(el => {
       if (isHidden(el) || hasInertAncestor(el)) return;
