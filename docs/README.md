@@ -10,6 +10,10 @@
 - **[ENGINE_RULES.md](./ENGINE_RULES.md)** — Rule catalog: RULE_REGISTRY, all inline rules, Tab Walk event types, how to add a new rule, FP hotspots, fixtures and expected counts.
 - **[SESSION_MODEL.md](./SESSION_MODEL.md)** — Session/Flow technical model: step/snapshot schemas, signature strategy, blocking logic, diff model, caps and compaction, determinism versioning, maintainer guidelines.
 
+## Product
+
+- **[COMPETITIVE_LANDSCAPE.md](./COMPETITIVE_LANDSCAPE.md)** — 2025–2026 competitive matrix (axe, Lighthouse, WAVE, Accessibility Insights, IBM, Pa11y, ARC, Evinced, Assistiv), market gaps, positioning, UI patterns worth adopting.
+
 ## Technical References
 
 - **[SESSION_CAPTURE.md](./SESSION_CAPTURE.md)** — Session capture design doc: schema, frame keys, diff/signatures, reliability caps, raw appendix, exports, HUD semantics.

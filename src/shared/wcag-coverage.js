@@ -2,7 +2,7 @@
 // Versioned: bump WCAG_COVERAGE_VERSION when criteria list or rule mappings change.
 // Local-only, no network. Consumed by panel.js coverage functions.
 
-const WCAG_COVERAGE_VERSION = 4;
+const WCAG_COVERAGE_VERSION = 5;
 
 const WCAG_TARGET = { version: "2.2", level: "AA" };
 
@@ -88,6 +88,7 @@ const WCAG_CRITERIA = [
 const RULE_TO_WCAG = {
   // depthLevel: 1=critical/always, 2=important/secondary, 3=advisory/specialized
   // conversationalTag: "chat"|"helpcenter"|"hybrid"|undefined
+  ACCESSKEY_CHAR_SHORTCUT:                 { criterion: "2.1.4", level: "A", confidence: "heuristic", depthLevel: 2 },
   ACCESSKEY_DUPLICATE:                     { criterion: "4.1.2", level: "A", confidence: null, depthLevel: 2 },
   ANNOUNCEMENT_IN_DIFFERENT_FRAME:         { criterion: "4.1.3", level: "AA", confidence: "heuristic", depthLevel: 3, conversationalTag: "chat", group: "depth3/announcements" },
   AREA_ALT_MISSING:                        { criterion: "1.1.1", level: "A", confidence: null, depthLevel: 1 },
@@ -187,6 +188,7 @@ const RULE_TO_WCAG = {
   NO_MAIN_LANDMARK:                        { criterion: "1.3.1", level: "A", confidence: null, depthLevel: 2 },
   NO_SKIP_NAV:                             { criterion: "2.4.1", level: "A", confidence: null, depthLevel: 2 },
   OBJECT_NO_ALT:                           { criterion: "1.1.1", level: "A", confidence: null, depthLevel: 1 },
+  PASTE_BLOCKED_INPUT:                     { criterion: "3.3.8", level: "AA", confidence: "heuristic", depthLevel: 2 },
   POSITIVE_TABINDEX:                       { criterion: "2.4.3", level: "A", confidence: null, depthLevel: 2 },
   P_AS_HEADING:                            { criterion: "1.3.1", level: "A", confidence: null, depthLevel: 2 },
   REDUNDANT_ENTRY:                         { criterion: "3.3.7", level: "A", confidence: null, depthLevel: 3 },
@@ -194,6 +196,7 @@ const RULE_TO_WCAG = {
   REGION_NO_NAME:                          { criterion: "1.3.1", level: "A", confidence: null, depthLevel: 2 },
   SCOPE_ATTR_VALID:                        { criterion: "1.3.1", level: "A", confidence: null, depthLevel: 2 },
   SCROLLABLE_NOT_FOCUSABLE:                { criterion: "2.1.1", level: "A", confidence: null, depthLevel: 1 },
+  SELECT_AUTO_SUBMIT:                      { criterion: "3.2.2", level: "A", confidence: "heuristic", depthLevel: 2 },
   SERVER_IMAGE_MAP:                        { criterion: "1.1.1", level: "A", confidence: null, depthLevel: 2 },
   SHADOW_DOM_FOCUS_ISSUE:                  { criterion: "2.1.1", level: "A", confidence: null, depthLevel: 2 },
   SHADOW_DOM_NOTE:                         { criterion: null, level: null, confidence: null, reason: "diagnostic", depthLevel: 3 },
@@ -209,4 +212,44 @@ const RULE_TO_WCAG = {
   VIDEO_AUTOPLAY:                          { criterion: "1.4.2", level: "A", confidence: null, depthLevel: 1 },
   VIDEO_NO_CAPTIONS:                       { criterion: "1.2.2", level: "A", confidence: null, depthLevel: 1 },
   VIEWPORT_ZOOM_DISABLED:                  { criterion: "1.4.4", level: "AA", confidence: null, depthLevel: 1 },
+};
+
+/**
+ * Criteria covered by dedicated audit modes rather than run()-rules.
+ * Contrast mode measures 1.4.3 directly; Tab Walk detects keyboard traps (2.1.2).
+ * Counted in engineCoverageSummary alongside RULE_TO_WCAG.
+ */
+const MODE_TO_WCAG = {
+  contrast: ["1.4.3"],
+  tabWalk: ["2.1.2"],
+};
+
+/**
+ * Why the remaining target criteria have no automated check.
+ * Rendered next to the "Missing criteria" list so coverage stays honest:
+ *   manual      — needs human judgment on content/behavior
+ *   media       — needs review of audio/video assets
+ *   multi-page  — needs cross-page comparison, outside a single-flow audit
+ *   dynamic     — needs behavioral observation; partial candidate for Watch/Observe
+ */
+const UNCOVERED_CRITERIA_REASONS = {
+  "1.2.3": "media",
+  "1.2.4": "media",
+  "1.2.5": "media",
+  "1.3.2": "manual",
+  "1.3.3": "manual",
+  "1.3.4": "manual",
+  "1.4.1": "manual",
+  "1.4.5": "manual",
+  "1.4.11": "manual",
+  "1.4.13": "dynamic",
+  "2.3.1": "media",
+  "2.4.5": "multi-page",
+  "2.5.1": "manual",
+  "2.5.2": "manual",
+  "2.5.4": "manual",
+  "3.2.1": "dynamic",
+  "3.2.3": "multi-page",
+  "3.2.4": "multi-page",
+  "3.3.4": "manual",
 };

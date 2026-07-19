@@ -1602,14 +1602,19 @@
    * Render overlay annotations for findings.
    * Returns stats: { ok, requested, rendered, skipped, skippedReasons }.
    */
-  const annotateFindings = (findingsData) => {
+  // Single source of the overlay root's stacking/isolation contract.
+  const createAnnotationContainer = () => {
     clearAnnotations();
-
     const container = doc.createElement("div");
     container.id = ANNOTATION_CONTAINER_ID;
     container.setAttribute("aria-hidden", "true");
     container.style.cssText = "position:fixed;top:0;left:0;width:0;height:0;overflow:visible;z-index:2147483646;pointer-events:none;";
     doc.body.appendChild(container);
+    return container;
+  };
+
+  const annotateFindings = (findingsData) => {
+    const container = createAnnotationContainer();
 
     const requested = Math.min((findingsData || []).length, MAX_ANNOTATIONS);
     let rendered = 0;
@@ -1663,6 +1668,62 @@
 
     const skipped = requested - rendered;
     return { ok: true, requested, rendered, skipped, skippedReasons };
+  };
+
+  /**
+   * Visualize keyboard tab order: numbered badges + a connecting focus path
+   * (Accessibility Insights "tab stops" pattern). Purely visual — never
+   * contributes to findings, events, or signatures. Auto-clears after
+   * TAB_STOP_OVERLAY_MS or on the next annotate/clear call.
+   */
+  const TAB_STOP_OVERLAY_MS = 8000;
+  const annotateTabStops = (elements) => {
+    const container = createAnnotationContainer();
+
+    // Phase 1: read all rects (single layout flush) — interleaving reads with
+    // appends into the attached container would force one reflow per element.
+    const rects = [];
+    for (let i = 0; i < elements.length && rects.length < MAX_ANNOTATIONS; i++) {
+      const rect = elements[i].getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) continue;
+      rects.push({ i, el: elements[i], rect });
+    }
+
+    // Phase 2: build everything into a fragment, append once.
+    const frag = doc.createDocumentFragment();
+    const pts = [];
+    for (const { i, el, rect } of rects) {
+      const badge = doc.createElement("div");
+      badge.className = ANNOTATION_CLASS;
+      badge.textContent = String(i + 1);
+      badge.title = getAccName(el) || cssPath(el);
+      badge.style.cssText = `position:fixed;top:${rect.top - 9}px;left:${rect.left - 9}px;min-width:18px;height:18px;background:#7BB85E;color:#141414;font:bold 10px/18px system-ui;text-align:center;border-radius:50%;padding:0 2px;box-sizing:border-box;z-index:2147483647;pointer-events:none;`;
+      frag.appendChild(badge);
+      pts.push([rect.left + rect.width / 2, rect.top + rect.height / 2]);
+    }
+
+    if (pts.length > 1) {
+      const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("aria-hidden", "true");
+      svg.style.cssText = "position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:2147483645;";
+      const poly = doc.createElementNS("http://www.w3.org/2000/svg", "polyline");
+      poly.setAttribute("points", pts.map(p => p.map(Math.round).join(",")).join(" "));
+      poly.setAttribute("fill", "none");
+      poly.setAttribute("stroke", "#7BB85E");
+      poly.setAttribute("stroke-width", "2");
+      poly.setAttribute("stroke-dasharray", "4 3");
+      poly.setAttribute("opacity", "0.7");
+      svg.appendChild(poly);
+      frag.appendChild(svg);
+    }
+    container.appendChild(frag);
+
+    w.setTimeout(() => {
+      const c = doc.getElementById(ANNOTATION_CONTAINER_ID);
+      if (c === container) c.remove();
+    }, TAB_STOP_OVERLAY_MS);
+
+    return { rendered: rects.length };
   };
 
   // ---------------- main checks ----------------
@@ -2286,6 +2347,36 @@
         if (autocompleteable && !el.getAttribute("autocomplete")) {
           add(findings, { type: "MISSING_AUTOCOMPLETE", el, severity: "low", wcag: "1.3.5", note: `Input "${name}" likely needs autocomplete attribute for autofill support.` });
         }
+      }
+    });
+
+    // 2.1.4 Character Key Shortcuts: single printable-character accesskey
+    _qa("[accesskey]").forEach(el => {
+      if (isHidden(el)) return;
+      const key = (el.getAttribute("accesskey") || "").trim();
+      if (key.length === 1 && /\S/.test(key)) {
+        add(findings, { type: "ACCESSKEY_CHAR_SHORTCUT", el, severity: "low", wcag: "2.1.4", note: `accesskey="${key}" is a single-character shortcut — verify it can be remapped or disabled.`, extra: { accesskey: key } });
+      }
+    });
+
+    // 3.2.2 On Input: controls whose change handler navigates or submits
+    _qa("select[onchange],input[onchange]").forEach(el => {
+      if (isHidden(el)) return;
+      const handler = (el.getAttribute("onchange") || "").toLowerCase();
+      if (/(location|window\.open|\.submit\s*\()/.test(handler)) {
+        add(findings, { type: "SELECT_AUTO_SUBMIT", el, severity: "medium", wcag: "3.2.2", note: "Changing this control triggers navigation or submit — unexpected context change on input.", extra: { handler: handler.slice(0, 120) } });
+      }
+    });
+
+    // 3.3.8 Accessible Authentication: password fields hostile to password managers
+    _qa("input[type='password']").forEach(el => {
+      if (isHidden(el)) return;
+      const onpaste = (el.getAttribute("onpaste") || "").toLowerCase();
+      const ac = (el.getAttribute("autocomplete") || "").toLowerCase();
+      const pasteBlocked = /return\s+false|preventdefault/.test(onpaste);
+      const autofillOff = ac === "off";
+      if (pasteBlocked || autofillOff) {
+        add(findings, { type: "PASTE_BLOCKED_INPUT", el, severity: "medium", wcag: "3.3.8", note: pasteBlocked ? "Password field blocks paste — defeats password managers (cognitive function test)." : "Password field sets autocomplete=off — hinders password managers.", extra: { pasteBlocked, autocomplete: ac || null } });
       }
     });
 
@@ -3807,7 +3898,7 @@
   };
 
   // ---------------- tabWalk (heuristic keyboard order) ----------------
-  const tabWalk = ({ steps = 60, includePositiveTabindex = true } = {}) => {
+  const tabWalk = ({ steps = 60, includePositiveTabindex = true, visualize = true } = {}) => {
     const order = computeTabOrder();
     const filtered = includePositiveTabindex ? order : order.filter(el => getTabIndex(el) === 0);
     const max = Math.min(steps, filtered.length);
@@ -3929,6 +4020,12 @@
 
     if (original && original !== doc.body) {
       try { original.focus({ preventScroll: true }); } catch (_) {}
+    }
+
+    // Visual tab-stop overlay (numbered badges + focus path); side-effect only —
+    // the returned result shape stays untouched so signatures are unaffected.
+    if (visualize) {
+      try { annotateTabStops(filtered.slice(0, max)); } catch (_) {}
     }
 
     const summary = {

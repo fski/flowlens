@@ -113,6 +113,9 @@
      - `TOUCH_TARGET_TOO_SMALL`: 1
      - `DUPLICATE_MAIN_LANDMARK`: 1
      - `IFRAME_MISSING_TITLE`: 1
+     - `ACCESSKEY_CHAR_SHORTCUT`: 1 (`#accesskeyShortcut`; `#accesskeyEmpty` must NOT flag)
+     - `SELECT_AUTO_SUBMIT`: 1 (`#autoSubmitSelect`; `#benignOnchangeSelect` must NOT flag)
+     - `PASTE_BLOCKED_INPUT`: 2 (`#pasteBlockedPassword`, `#autofillOffPassword`; `#wellBehavedPassword` must NOT flag)
   6. Slice A transition fixture expectation:
      - Trigger overlay fixture and run `A11YFlowAudit.observe({ seconds: 2, intervalMs: 300 })`.
      - If `ARIA_HIDDEN_FOCUSABLE` appears during the transition window, it must be `confidence=advisory` with `extra.duringTransition=true`.

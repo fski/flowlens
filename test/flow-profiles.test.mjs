@@ -27,8 +27,8 @@ describe("GENERIC_PROFILES shape", () => {
   const profiles = ctx.__GENERIC_PROFILES;
   const keys = Object.keys(profiles);
 
-  it("has exactly 7 profiles", () => {
-    assert.equal(keys.length, 7);
+  it("has exactly 8 profiles", () => {
+    assert.equal(keys.length, 8);
   });
 
   it("has expected profile keys", () => {
@@ -38,6 +38,7 @@ describe("GENERIC_PROFILES shape", () => {
     assert.ok(keys.includes("hybrid-help-chat"));
     assert.ok(keys.includes("chat_widget_v2"));
     assert.ok(keys.includes("helpcenter_bot_hybrid_v2"));
+    assert.ok(keys.includes("wizard_flow_v2"));
     assert.ok(keys.includes("helpcenter_static_v2"));
   });
 

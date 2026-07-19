@@ -188,8 +188,9 @@ if (csp && typeof csp === "object") {
   }
 }
 
-// Permissions allowlist
-const ALLOWED_PERMISSIONS = ["scripting", "tabs", "webNavigation", "storage"];
+// Permissions allowlist — "tabs" dropped in v6: tabId comes from
+// chrome.devtools.inspectedWindow and no chrome.tabs.* API is called.
+const ALLOWED_PERMISSIONS = ["scripting", "webNavigation", "storage"];
 const ALLOWED_HOST_PERMISSIONS = ["http://*/*", "https://*/*"];
 
 const actualPerms = [...(manifest.permissions || [])].sort();

@@ -17,12 +17,25 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const LIMITS_JS = join(__dirname, '..', 'src', 'shared', 'limits.js');
 const FLOW_PROFILES_JS = join(__dirname, '..', 'src', 'shared', 'flow-profiles.js');
 const WCAG_COVERAGE_JS = join(__dirname, '..', 'src', 'shared', 'wcag-coverage.js');
+const EN_MAP_JS = join(__dirname, '..', 'src', 'shared', 'en301549-map.js');
 const D3AGG_JS = join(__dirname, '..', 'src', 'engine', 'depth3Aggregates.js');
 const CI_EXPORTER_JS = join(__dirname, '..', 'src', 'engine', 'ciExporter.js');
-const PANEL_JS = join(__dirname, '..', 'src', 'panel', 'panel.js');
+const PANEL_DIR = join(__dirname, '..', 'src', 'panel');
+const PANEL_PARTS = join(PANEL_DIR, 'panel.parts.json');
 
 // Cut source before the "wire up" section where imperative DOM binding code begins.
+// The wireup part is excluded via the manifest; the marker cut stays as a belt-and-braces
+// guard in case wiring code ever creeps into an earlier part.
 const INIT_MARKER = '\n// --- wire up ---\n';
+
+/** Concatenated panel source minus the wireup part (function definitions only). */
+function readPanelSource() {
+  const manifest = JSON.parse(readFileSync(PANEL_PARTS, 'utf8'));
+  return manifest.parts
+    .filter(name => name !== manifest.wireup)
+    .map(name => readFileSync(join(PANEL_DIR, name), 'utf8'))
+    .join('');
+}
 
 function buildMockEls() {
   const noop = () => {};
@@ -165,7 +178,7 @@ function buildMockDocument() {
  * @returns {object} The vm context with all functions as properties
  */
 export function createContext(opts = {}) {
-  const source = readFileSync(PANEL_JS, 'utf8');
+  const source = readPanelSource();
   const markerIdx = source.indexOf(INIT_MARKER);
   const safeSource = markerIdx !== -1 ? source.slice(0, markerIdx) : source;
 
@@ -245,6 +258,10 @@ export function createContext(opts = {}) {
   const wcagScript = new Script(wcagCoverageSource, { filename: 'wcag-coverage.js' });
   wcagScript.runInContext(ctx);
 
+  const enMapSource = readFileSync(EN_MAP_JS, 'utf8');
+  const enMapScript = new Script(enMapSource, { filename: 'en301549-map.js' });
+  enMapScript.runInContext(ctx);
+
   const d3aggSource = readFileSync(D3AGG_JS, 'utf8');
   const d3aggScript = new Script(d3aggSource, { filename: 'depth3Aggregates.js' });
   d3aggScript.runInContext(ctx);
@@ -268,6 +285,8 @@ export function createContext(opts = {}) {
     this.__WCAG_TARGET = typeof WCAG_TARGET !== 'undefined' ? WCAG_TARGET : {};
     this.__WCAG_CRITERIA = typeof WCAG_CRITERIA !== 'undefined' ? WCAG_CRITERIA : [];
     this.__RULE_TO_WCAG = typeof RULE_TO_WCAG !== 'undefined' ? RULE_TO_WCAG : {};
+    this.__MODE_TO_WCAG = typeof MODE_TO_WCAG !== 'undefined' ? MODE_TO_WCAG : {};
+    this.__UNCOVERED_CRITERIA_REASONS = typeof UNCOVERED_CRITERIA_REASONS !== 'undefined' ? UNCOVERED_CRITERIA_REASONS : {};
     this.__STABLE_SIGNATURE_VERSION = typeof STABLE_SIGNATURE_VERSION !== 'undefined' ? STABLE_SIGNATURE_VERSION : 0;
     this.__RECIPES = typeof RECIPES !== 'undefined' ? RECIPES : {};
     this.__activeRecipeId = typeof activeRecipeId !== 'undefined' ? activeRecipeId : 'auto';

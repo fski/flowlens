@@ -180,6 +180,32 @@ const GENERIC_PROFILES = {
     frameScope: "primary",
   },
 
+  "wizard_flow_v2": {
+    label: "Wizard / Multi-step Form",
+    description: "Step-based flow — wizards, checkouts, onboarding, multi-page forms",
+    version: 2,
+    intent: "wizard_flow",
+    recommended: { depthMax: 2, enableDepth3: false },
+    frame: {
+      urlIncludes: [],
+      domSelectors: [
+        "form",
+        "fieldset",
+        "[role='form']",
+        "progress",
+        "[aria-current='step']",
+      ],
+    },
+    modeHints: {
+      "wizard-steps": {
+        roles: ["[aria-current='step']", "[role='group'][aria-label]"],
+        testIds: [],
+        url: null,
+      },
+    },
+    frameScope: "host",
+  },
+
   "helpcenter_static_v2": {
     label: "Help Center Static (v2)",
     description: "Static help center with article navigation, no chat",

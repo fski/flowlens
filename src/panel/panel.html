@@ -30,10 +30,6 @@
           <span class="tabLabel">Settings</span>
           <kbd class="keycap" aria-hidden="true">3</kbd>
         </button>
-        <button class="topTab topTab--about" id="topTabAbout" role="tab" data-tab="about" aria-controls="aboutContent" aria-selected="false" tabindex="-1" type="button">
-          <span class="tabLabel">About</span>
-          <kbd class="keycap" aria-hidden="true">4</kbd>
-        </button>
       </nav>
 
 
@@ -130,6 +126,7 @@
                 <button id="searchClear" class="searchClear" type="button" aria-label="Clear search">&times;</button>
               </div>
               <div class="toolbarActions">
+                <button class="reviewFilterChip" id="reviewFilterChip" type="button" aria-pressed="false" title="Show only findings that need human review">Needs review</button>
                 <span class="findingsCount" id="findingsCount" aria-live="polite"></span>
                 <span class="highlightHint">Click row to expand</span>
               </div>
@@ -326,18 +323,8 @@
             <span class="accLabel">Session info</span>
             <span class="chevron" aria-hidden="true">&#x2228;</span>
           </button>
-          <div class="accordionBody" id="flowSessionInfoBody" hidden>
-            <dl class="sessionInfoGrid">
-              <dt>Status</dt><dd id="flowSiStatus">IDLE</dd>
-              <dt>Started</dt><dd id="flowSiStarted">&mdash;</dd>
-              <dt>Duration</dt><dd id="flowSiDuration">&mdash;</dd>
-              <dt>Steps</dt><dd id="flowSiSteps">0 / 100</dd>
-              <dt>Baseline</dt><dd id="flowSiBaseline">Run</dd>
-              <dt>Active</dt><dd id="flowSiActive">Observe</dd>
-              <dt>Scope</dt><dd id="flowSiScope">Primary</dd>
-              <dt>WCAG</dt><dd id="flowSiWcag">2.2 AA</dd>
-            </dl>
-          </div>
+          <!-- populated by renderFlowSessionInfo() -->
+          <div class="accordionBody" id="flowSessionInfoBody" hidden></div>
         </section>
 
         <!-- Timeline view accordion -->
@@ -379,18 +366,6 @@
           </div>
         </section>
 
-        <!-- Raw JSON for flow record -->
-        <section class="accordion" id="flowRecordJson">
-          <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="flowRecordJsonBody">
-            <span class="accIcon" aria-hidden="true">{&thinsp;}</span>
-            <span class="accLabel">Raw JSON</span>
-            <span class="chevron" aria-hidden="true">&#x2228;</span>
-          </button>
-          <div class="accordionBody" id="flowRecordJsonBody" hidden>
-            <pre class="rawJsonPre">(no session data yet)</pre>
-          </div>
-        </section>
-
         <!-- Status line -->
         <div class="lastStatusLine mono" id="lastStatusLine" role="status" aria-live="polite" aria-atomic="true" hidden>
           Last status: IDLE
@@ -404,13 +379,6 @@
 
         <section class="settingsPane">
           <div class="settingsGrid">
-              <div class="settingsGroup">
-                <span class="settingsLabel">Display</span>
-                <div class="settingsToggles">
-                  <label class="switch"><input id="themeToggle" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Light theme</span></label>
-                  <label class="switch"><input id="density" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Compact</span></label>
-                </div>
-              </div>
               <div class="settingsGroup">
                 <span class="settingsLabel">WCAG level</span>
                 <label class="sr-only" for="wcagLevel">WCAG compliance level</label>
@@ -438,11 +406,12 @@
                   <option value="chat_widget">Chat Widget</option>
                   <option value="helpcenter">Help Center</option>
                   <option value="hybrid">Hybrid</option>
+                  <option value="wizard">Wizard / Form</option>
                 </select>
               </div>
               <div class="settingsGroup">
                 <span class="settingsLabel">Profiles</span>
-                <div id="profileSelect" class="profilePills" role="group" aria-label="Active MFE profiles"></div>
+                <div id="profileSelect" class="profilePills" role="group" aria-label="Active flow profiles"></div>
               </div>
               <div class="settingsGroup">
                 <span class="settingsLabel">Target scope</span>
@@ -476,10 +445,6 @@
           </div>
         </section>
 
-      </div><!-- /settingsContent -->
-
-      <!-- ═══════════════════════ ABOUT / DIAGNOSTICS ═══════════════════════ -->
-      <div id="aboutContent" role="tabpanel" aria-labelledby="topTabAbout" hidden inert>
         <section class="aboutSection">
           <h2 class="aboutHeading">FlowLens Diagnostics</h2>
           <dl class="aboutDl">
@@ -545,12 +510,13 @@
             <ul class="coverageList" id="coverageMissingList"></ul>
           </details>
         </section>
-      </div><!-- /aboutContent -->
+
+      </div><!-- /settingsContent -->
 
       <!-- Hidden runtime metadata (used by JS) -->
       <div class="runtimeMeta" hidden aria-hidden="true">
         <span id="inspectedUrl">&mdash;</span>
-        <span id="brandEnv">&mdash;</span>
+        <span id="envBadge">&mdash;</span>
         <span id="usedFrames">&mdash;</span>
         <span id="diff">&mdash;</span>
       </div>
@@ -561,6 +527,7 @@
     <script src="limits.js"></script>
     <script src="flow-profiles.js"></script>
     <script src="wcag-coverage.js"></script>
+    <script src="en301549-map.js"></script>
     <script src="depth3Aggregates.js"></script>
     <script src="ciExporter.js"></script>
     <script src="panel.js"></script>

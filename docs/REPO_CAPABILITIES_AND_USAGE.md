@@ -51,7 +51,7 @@
 
 | Plik | Linie | Rola |
 |------|------:|------|
-| `manifest.json` | 25 | Konfiguracja MV3: permissions (`scripting`, `tabs`, `webNavigation`, `storage`), `host_permissions` (`http://*/*`, `https://*/*`), service worker, devtools page |
+| `manifest.json` | 25 | Konfiguracja MV3: permissions (`scripting`, `webNavigation`, `storage`), `host_permissions` (`http://*/*`, `https://*/*`), service worker, devtools page |
 | `devtools.html` / `devtools.js` | ~10 | Rejestracja panelu DevTools (`chrome.devtools.panels.create`) |
 | `panel.html` | 272 | Struktura HTML panelu: header, scope/targeting, settings, tryby, action bar, progress, wyniki, eksport |
 | `panel.js` | 4265 | Logika UI: stan, renderowanie tabel wirtualnych, sesje Flow, sygnatury, eksporty, persistence, accessibility |

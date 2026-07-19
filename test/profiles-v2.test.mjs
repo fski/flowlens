@@ -16,7 +16,7 @@ const buildDiagnosticsMarkdown = ctx.buildDiagnosticsMarkdown;
 const norm = (o) => JSON.parse(JSON.stringify(o));
 
 // ── v2 profile IDs ──
-const V2_IDS = ["chat_widget_v2", "helpcenter_bot_hybrid_v2", "helpcenter_static_v2"];
+const V2_IDS = ["chat_widget_v2", "helpcenter_bot_hybrid_v2", "wizard_flow_v2", "helpcenter_static_v2"];
 const V1_IDS = ["generic-helpcenter-spa", "generic-chat-widget", "generic-ai-bot-tree", "hybrid-help-chat"];
 
 // ══════════════════════════════════════════════════════════════════════

@@ -84,6 +84,9 @@ Rules implemented directly in the `run()` block without a `RULE_REGISTRY` entry.
 | `DRAGGABLE_NO_ALTERNATIVE` | 2.5.8 | medium | ~1675 |
 | `REDUNDANT_ENTRY` | 3.3.7 | low | ~1709 |
 | `TARGET_SIZE_AAA` | 2.5.5 | low | ~1723 |
+| `ACCESSKEY_CHAR_SHORTCUT` | 2.1.4 | low | ~2400 |
+| `SELECT_AUTO_SUBMIT` | 3.2.2 | medium | ~2410 |
+| `PASTE_BLOCKED_INPUT` | 3.3.8 | medium | ~2420 |
 
 ---
 

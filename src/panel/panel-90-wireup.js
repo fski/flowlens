@@ -1,0 +1,1117 @@
+// --- wire up ---
+
+// Top-level tab clicks
+document.querySelectorAll("#topTabBar [role='tab']").forEach(btn => {
+  btn.addEventListener("click", () => showView(btn.dataset.tab));
+});
+
+// Roving tabindex for top tabs
+document.getElementById("topTabBar").addEventListener("keydown", (e) => {
+  const tabs = [...document.querySelectorAll("#topTabBar [role='tab']")];
+  if (!tabs.length) return;
+  const idx = tabs.indexOf(e.target);
+  if (idx < 0) return;
+  let next = idx;
+  if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (idx + 1) % tabs.length;
+  else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (idx - 1 + tabs.length) % tabs.length;
+  else if (e.key === "Home") next = 0;
+  else if (e.key === "End") next = tabs.length - 1;
+  else return;
+  e.preventDefault();
+  showView(tabs[next].dataset.tab);
+  tabs[next].focus();
+});
+
+// Snap subtab clicks
+document.querySelectorAll("#snapSubTabBar [role='tab']").forEach(btn => {
+  btn.addEventListener("click", () => {
+    showView("snap", btn.dataset.action);
+  });
+});
+
+// Roving tabindex for snap subtabs
+document.getElementById("snapSubTabBar").addEventListener("keydown", (e) => {
+  const tabs = [...document.querySelectorAll("#snapSubTabBar [role='tab']")];
+  if (!tabs.length) return;
+  const idx = tabs.indexOf(e.target);
+  if (idx < 0) return;
+  let next = idx;
+  if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (idx + 1) % tabs.length;
+  else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (idx - 1 + tabs.length) % tabs.length;
+  else if (e.key === "Home") next = 0;
+  else if (e.key === "End") next = tabs.length - 1;
+  else return;
+  e.preventDefault();
+  showView("snap", tabs[next].dataset.action);
+  tabs[next].focus();
+});
+
+
+// Run button: execute currently selected mode
+if (els.runCurrentMode) {
+  els.runCurrentMode.addEventListener("click", () => _lockedPreset([state.activeMode || "run"]));
+}
+
+// Retry button in error empty state: re-trigger run
+const emptyRetryBtn = document.getElementById("emptyRetry");
+if (emptyRetryBtn) {
+  emptyRetryBtn.addEventListener("click", () => _lockedPreset([state.activeMode || "run"]));
+}
+
+if (els.exportToggle && els.exportMenu) {
+  els.exportToggle.addEventListener("click", () => {
+    setExportMenuOpen(els.exportMenu.hidden);
+  });
+  els.exportToggle.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      setExportMenuOpen(true);
+      const first = exportMenuItems().find(item => !item.disabled);
+      if (first) first.focus();
+      return;
+    }
+    if (e.key === "Escape" && !els.exportMenu.hidden) {
+      e.preventDefault();
+      setExportMenuOpen(false, { restoreFocus: true });
+    }
+  });
+  els.exportMenu.addEventListener("keydown", (e) => {
+    const items = exportMenuItems().filter(item => !item.disabled);
+    if (!items.length) return;
+    const currentIdx = items.findIndex(item => item === document.activeElement);
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setExportMenuOpen(false, { restoreFocus: true });
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      items[(currentIdx + 1 + items.length) % items.length].focus();
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      items[(currentIdx - 1 + items.length) % items.length].focus();
+      return;
+    }
+    if (e.key === "Tab") setExportMenuOpen(false);
+  });
+  document.addEventListener("click", (e) => {
+    const target = e.target;
+    if (els.exportToggle.contains(target) || els.exportMenu.contains(target)) return;
+    setExportMenuOpen(false);
+  });
+}
+
+
+els.refreshFrames.addEventListener("click", refreshFrames);
+els.target.addEventListener("change", () => {
+  updateScopeUi();
+});
+if (els.pinFrame) {
+  els.pinFrame.addEventListener("change", async () => {
+    updateScopeUi();
+    await setPinnedFrameIfNeeded();
+  });
+}
+if (els.frameSelect) {
+  els.frameSelect.addEventListener("change", async () => {
+    if (!els.pinFrame?.checked) return;
+    await setPinnedFrameIfNeeded();
+  });
+}
+
+
+
+if (els.copyFrameUrl) {
+  els.copyFrameUrl.addEventListener("click", async () => {
+    const selected = els.frameSelect.selectedOptions[0];
+    const url = selected?.dataset?.fullUrl || selected?.title || "";
+    if (!url || url === "(no url)") { toast("No URL to copy"); return; }
+    const ok = await copyText(url);
+    if (ok) toast("Copied frame URL");
+  });
+}
+
+els.copyJson.addEventListener("click", async () => {
+  await copyText(pretty(enrichRunJsonExport(state.lastResult)));
+  setExportMenuOpen(false);
+  toast("Copied JSON");
+});
+
+els.downloadJson.addEventListener("click", () => {
+  downloadText(`a11yflowaudit-${Date.now()}.json`, pretty(enrichRunJsonExport(state.lastResult)), "application/json");
+  setExportMenuOpen(false);
+  toast("Downloaded JSON");
+});
+
+if (els.downloadMd) {
+  els.downloadMd.addEventListener("click", () => {
+    const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
+    const envTag = `${originFrom(url) || "\u2014"} \u2022 ${detectEnv(url)}`;
+    const _best = state.lastResult?.bestEntry || state.lastResult?.best;
+    const md = buildMarkdown({
+      inspectedUrl: url,
+      best: _best,
+      perFrame: state.lastResult?.perFrame,
+      usedFrameIds: state.lastResult?.usedFrameIds,
+      envTag,
+      shadowCoverage: _best?.result?.shadowCoverage || _best?.shadowCoverage || null,
+    });
+    downloadText(`a11yflowaudit-${Date.now()}.md`, md, "text/markdown");
+    setExportMenuOpen(false);
+    toast("Downloaded MD");
+  });
+}
+
+els.copyMd.addEventListener("click", async () => {
+  await copyMarkdown();
+  setExportMenuOpen(false);
+});
+if (els.exportSessionJsonMenu) {
+  els.exportSessionJsonMenu.addEventListener("click", async () => {
+    await exportSessionJson();
+    setExportMenuOpen(false);
+  });
+}
+if (els.exportSessionMdMenu) {
+  els.exportSessionMdMenu.addEventListener("click", async () => {
+    await exportSessionMarkdown();
+    setExportMenuOpen(false);
+  });
+}
+if (els.exportDiffReportMenu) {
+  els.exportDiffReportMenu.addEventListener("click", () => {
+    const session = sessionState.current || sessionState.lastEndedSession;
+    if (!session) { toast("No session available"); return; }
+    const payload = compactSessionForExport(normalizeLoadedSession(session));
+    const report = buildMachineReadableDiffReport(payload);
+    if (!report) { toast("Diff report requires at least 2 steps"); return; }
+    const version = (typeof __FLOWLENS_VERSION__ !== "undefined") ? __FLOWLENS_VERSION__ : "dev";
+    const env = detectEnv(els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "");
+    downloadText(`flowlens-${version}-${env}-diff-report.json`, JSON.stringify(report, null, 2), "application/json");
+    setExportMenuOpen(false);
+    toast("Downloaded diff report JSON");
+  });
+}
+if (els.downloadJunitXml) {
+  els.downloadJunitXml.addEventListener("click", () => {
+    const raw = state.lastResult || {};
+    const bestEntry = raw.bestEntry || raw.best || null;
+    const allFindings = Array.isArray(bestEntry?.result?.findings) ? bestEntry.result.findings : [];
+    const findings = applyAllFindingFilters(allFindings);
+    const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
+    const env = detectEnv(url);
+    const fk = bestEntry?.frameKey || "";
+    const capturedAt = state._lastCapturedAt || "";
+    const version = (typeof __FLOWLENS_VERSION__ !== "undefined") ? __FLOWLENS_VERSION__ : "dev";
+    const wcagLevel = els.wcagLevel ? els.wcagLevel.value : "";
+    const ciOptions = getJunitCiOptionsFromUi();
+    const xml = buildJunitXmlForRun({
+      findings,
+      ctx: { frameKey: fk },
+      meta: {
+        extensionVersion: version,
+        schemaVersion: sessionState.current?.schemaVersion || 3,
+        signatureVersion: sessionState.current?.signatureVersion || 2,
+        frameKeyVersion: sessionState.current?.frameKeyVersion || 1,
+        enMappingVersion: typeof EN_MAPPING_VERSION !== "undefined" ? EN_MAPPING_VERSION : 0,
+        url,
+        envTag: `${originFrom(url) || "\u2014"} \u2022 ${env}`,
+        wcagLevel,
+        capturedAt,
+      },
+      ciOptions,
+    });
+    const mode = state.lastResult?.mode || "run";
+    const ciSuffix = isNonDefaultJunitCiOptions(ciOptions) ? ".ci-strict" : "";
+    downloadText(`flowlens-${version}-${env}-${mode}${ciSuffix}.junit.xml`, xml, "application/xml");
+    setExportMenuOpen(false);
+    toast("Downloaded JUnit XML");
+  });
+}
+if (els.exportSessionJunitMenu) {
+  els.exportSessionJunitMenu.addEventListener("click", () => {
+    const session = sessionState.current || sessionState.lastEndedSession;
+    if (!session) { toast("No session available"); return; }
+    const payload = compactSessionForExport(normalizeLoadedSession(session));
+    if (!payload) { toast("Session JUnit export failed"); return; }
+    const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
+    const env = detectEnv(url);
+    const version = (typeof __FLOWLENS_VERSION__ !== "undefined") ? __FLOWLENS_VERSION__ : "dev";
+    const wcagLevel = els.wcagLevel ? els.wcagLevel.value : "";
+    const ciOptions = getJunitCiOptionsFromUi();
+    const xml = buildJunitXmlForSession({
+      session: payload,
+      rawAppendix: payload.rawAppendix || {},
+      meta: {
+        extensionVersion: version,
+        schemaVersion: payload.schemaVersion || 3,
+        signatureVersion: payload.signatureVersion || 2,
+        frameKeyVersion: payload.frameKeyVersion || 1,
+        enMappingVersion: typeof EN_MAPPING_VERSION !== "undefined" ? EN_MAPPING_VERSION : 0,
+        url,
+        envTag: `${originFrom(url) || "\u2014"} \u2022 ${env}`,
+        wcagLevel,
+      },
+      ciOptions,
+    });
+    const ciSuffix = isNonDefaultJunitCiOptions(ciOptions) ? ".ci-strict" : "";
+    downloadText(`flowlens-${version}-${env}-session-${payload.id || "unknown"}${ciSuffix}.junit.xml`, xml, "application/xml");
+    setExportMenuOpen(false);
+    toast("Session JUnit XML exported");
+  });
+}
+if (els.sessionStart) {
+  els.sessionStart.addEventListener("click", () => {
+    if (sessionState.current) {
+      toast("Session already active");
+      return;
+    }
+    startSession();
+  });
+}
+if (els.sessionMark) els.sessionMark.addEventListener("click", () => captureStepOptionC());
+if (els.sessionEnd) els.sessionEnd.addEventListener("click", () => endSession());
+
+// Step label input handlers
+if (els.flowLabelSave) els.flowLabelSave.addEventListener("click", saveStepLabel);
+if (els.flowLabelSkip) els.flowLabelSkip.addEventListener("click", hideStepLabelInput);
+if (els.flowLabelField) {
+  els.flowLabelField.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") saveStepLabel();
+    if (e.key === "Escape") hideStepLabelInput();
+  });
+}
+
+// Timeline drill-down + delete step + inline label edit
+{
+  const ftBody = document.getElementById("flowTimelineBody");
+  if (ftBody) {
+    // Click: delete button or drill-down
+    ftBody.addEventListener("click", (e) => {
+      const deleteBtn = e.target.closest(".stepDeleteBtn");
+      if (deleteBtn) {
+        e.stopPropagation();
+        const si = Number(deleteBtn.dataset.deleteStep);
+        if (Number.isFinite(si)) deleteStep(si);
+        return;
+      }
+      const tr = e.target.closest("tr.trow");
+      if (!tr) return;
+      const si = Number(tr.dataset.stepIndex);
+      if (Number.isFinite(si)) renderStepDrillDown(si);
+    });
+    // Double-click: inline label edit on route cell (2nd column)
+    ftBody.addEventListener("dblclick", (e) => {
+      const td = e.target.closest("td");
+      if (!td) return;
+      const tr = td.closest("tr.trow");
+      if (!tr) return;
+      const cells = [...tr.children];
+      if (cells.indexOf(td) !== 1) return;
+      const stepIndex = Number(tr.dataset.stepIndex);
+      if (!Number.isFinite(stepIndex)) return;
+      const sess = sessionState.current || sessionState.lastEndedSession;
+      const step = (sess?.steps || []).find(s => s.index === stepIndex);
+      if (!step) return;
+      e.preventDefault();
+      const originalContent = td.innerHTML;
+      const currentLabel = step.label || "";
+      td.innerHTML = `<input class="stepLabelEdit" type="text" value="${escapeHtml(currentLabel)}" maxlength="80" placeholder="Add label..." />`;
+      const input = td.querySelector("input");
+      input.focus();
+      input.select();
+      const commitEdit = () => {
+        const newLabel = (input.value || "").trim();
+        step.label = newLabel || null;
+        renderFlowTimeline();
+        if (sessionState.current) {
+          persistActiveSessionBestEffort(compactSessionForExport(sessionState.current));
+        }
+        if (newLabel) toast(`Label updated: ${newLabel}`);
+      };
+      input.addEventListener("blur", commitEdit, { once: true });
+      input.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") { input.blur(); }
+        if (ev.key === "Escape") {
+          input.removeEventListener("blur", commitEdit);
+          td.innerHTML = originalContent;
+        }
+      });
+    });
+  }
+}
+
+if (els.sheetCopyRaw) {
+  els.sheetCopyRaw.addEventListener("click", async () => {
+    await copyText(els.json.textContent || "");
+    setExportMenuOpen(false);
+    toast("Copied raw JSON");
+  });
+}
+
+// --- Cell copy (capture phase to intercept before table row handlers) ---
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".cellCopy");
+  if (!btn) return;
+  e.stopPropagation();
+  e.preventDefault();
+  copyText(btn.dataset.copy || "");
+  toast("Copied");
+}, true);
+
+// Keyboard navigation for table rows (Enter/Space to activate)
+document.addEventListener("keydown", (e) => {
+  if (e.target && e.target.closest("button, a, input, select, textarea")) return;
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const tr = e.target.closest("tr.trow");
+  if (!tr) return;
+  e.preventDefault();
+  tr.click();
+});
+
+// --- DELEGATED_TABLE_CLICKS ---
+
+/** Build detail row HTML for a finding */
+function buildDetailRow(finding, colCount) {
+  const sev = finding.severity || 'info';
+  const wcagRef = wcagUnderstandingRef(finding.wcag);
+  const wcagCell = wcagRef
+    ? `<a class="wcagLink" href="${escapeHtml(wcagRef.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(finding.wcag)} — ${escapeHtml(wcagRef.title)}</a>`
+    : escapeHtml(finding.wcag ?? '');
+  const reviewBadge = classifyReviewStatus(finding) === 'needs_review'
+    ? ' <span class="badge needsReview" title="Heuristic finding — verify manually">needs review</span>'
+    : '';
+  const fields = [
+    ['Severity', `<span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span>${reviewBadge}`],
+    ['WCAG', wcagCell],
+    ['Name', escapeHtml(finding.name ?? '')],
+    ['Type', escapeHtml(finding.type ?? '')],
+    ['Path', escapeHtml(finding.path ?? ''), true],
+    ['Fix', escapeHtml(finding.fix ?? ''), true],
+  ];
+  const isCrossFrame = !finding.el && (typeof RULE_TO_WCAG !== "undefined") && RULE_TO_WCAG[finding.type]?.group === "depth3/multiframe";
+  if (isCrossFrame) {
+    fields.push(['Scope', '<span class="badge crossFrame">Cross-frame</span> This finding spans multiple frames and cannot be highlighted individually']);
+  }
+  const html = fields
+    .filter(([, v]) => v)
+    .map(([k, v, mono]) =>
+      `<span class="detailLabel">${escapeHtml(k)}</span><span class="detailValue${mono ? ' detailMono' : ''}">${v}</span>`
+    ).join('');
+  return `<tr class="detailRow" style="--row-sev:var(--sev-${escapeHtml(sev)})"><td colspan="${colCount}"><div class="detailInner">${html}<div class="detailActions"><button class="btn xs detailCopy" type="button">Copy</button></div></div></td></tr>`;
+}
+
+if (els.allTableBody && !els.allTableBody.__bound) {
+  els.allTableBody.__bound = true;
+  els.allTableBody.addEventListener("click", async (e) => {
+    try {
+      // Copy button inside detail row
+      if (e.target.closest(".detailCopy")) {
+        const idx = VT.all ? VT.all.expandedIdx : null;
+        const f = Number.isFinite(idx) ? state.explorer[idx] : null;
+        if (f) {
+          const text = Object.entries(f).filter(([k, v]) => v && !k.startsWith('_')).map(([k, v]) => `${k}: ${v}`).join('\n');
+          await copyText(text);
+          toast("Copied to clipboard");
+        }
+        return;
+      }
+
+      // Row click — toggle expand + auto-highlight on expand
+      const tr = e.target.closest("tr.trow");
+      if (!tr) return;
+      const idx = Number(tr.getAttribute("data-i"));
+      const f = Number.isFinite(idx) ? state.explorer[idx] : null;
+      if (!f || !VT.all) return;
+
+      VT.all.toggleExpanded(idx);
+      if (VT.all.expandedIdx === idx) {
+        const isCrossFrame = !f.el && (typeof RULE_TO_WCAG !== "undefined") && RULE_TO_WCAG[f.type]?.group === "depth3/multiframe";
+        if (isCrossFrame) {
+          toast("Cross-frame finding — cannot highlight across frame boundaries");
+        } else {
+          await highlightFinding(f, state._activeHighlightCtx);
+        }
+      }
+    } catch (err) {
+      console.warn("Explorer table click failed", err);
+      toast("Could not highlight element");
+    }
+  });
+}
+
+// Contrast table: click row → highlight element on page
+if (els.contrastTbody && !els.contrastTbody.__bound) {
+  els.contrastTbody.__bound = true;
+  els.contrastTbody.__selected = null;
+  els.contrastTbody.addEventListener("click", async (e) => {
+    try {
+      const tr = e?.target?.closest ? e.target.closest("tr.trow") : null;
+      if (!tr) return;
+
+      if (els.contrastTbody.__selected) els.contrastTbody.__selected.classList.remove("isSelected");
+      tr.classList.add("isSelected");
+      els.contrastTbody.__selected = tr;
+
+      const idx = Number(tr.getAttribute("data-i"));
+      if (VT.contrast) VT.contrast.selectedIdx = idx;
+      const item = Number.isFinite(idx) && VT.contrast ? VT.contrast.data[idx] : null;
+      if (!item) return;
+
+      await highlightFinding({ path: item.path, testId: item.testId, tag: item.tag, name: item.text }, state._activeHighlightCtx);
+    } catch (err) {
+      console.warn("Contrast table click failed", err);
+      toast("Could not highlight element");
+    }
+  });
+}
+
+// Tab walk table: click row → highlight element on page
+if (els.tabTbody && !els.tabTbody.__bound) {
+  els.tabTbody.__bound = true;
+  els.tabTbody.__selected = null;
+  els.tabTbody.addEventListener("click", async (e) => {
+    try {
+      const tr = e?.target?.closest ? e.target.closest("tr.trow") : null;
+      if (!tr) return;
+
+      if (els.tabTbody.__selected) els.tabTbody.__selected.classList.remove("isSelected");
+      tr.classList.add("isSelected");
+      els.tabTbody.__selected = tr;
+
+      const idx = Number(tr.getAttribute("data-i"));
+      if (VT.tab) VT.tab.selectedIdx = idx;
+      const item = Number.isFinite(idx) && VT.tab ? VT.tab.data[idx] : null;
+      if (!item) return;
+
+      await highlightFinding({ path: item.path, name: item.name, role: item.role }, state._activeHighlightCtx);
+    } catch (err) {
+      console.warn("Tab walk table click failed", err);
+      toast("Could not highlight element");
+    }
+  });
+}
+
+if (els.wcagLevel) {
+  els.wcagLevel.addEventListener("change", async () => {
+    const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
+    uiPrefs.wcagLevel = els.wcagLevel.value;
+    await storageSet({ uiPrefs });
+  });
+}
+
+if (els.depthMax) {
+  els.depthMax.addEventListener("change", async () => {
+    const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
+    uiPrefs.depthMax = Number(els.depthMax.value) || 3;
+    await storageSet({ uiPrefs });
+    // Re-render current findings with new depth filter
+    const currentRec = state.currentId ? state.byId[state.currentId] : state.records?.[0];
+    const mode = currentRec?.action || "run";
+    const cached = state.findingsByMode[mode];
+    if (cached) {
+      const filtered = applyAllFindingFilters(cached);
+      state.currentFindings = filtered;
+      scheduleRerenderFindings("depth_filter");
+    }
+    renderDiagnostics();
+  });
+}
+
+if (els.recipeSelect) {
+  els.recipeSelect.addEventListener("change", async () => {
+    const recipeId = els.recipeSelect.value || "auto";
+    applyRecipe(recipeId, { applyProfiles: true });
+    const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
+    uiPrefs.recipeId = recipeId;
+    await storageSet({ uiPrefs });
+    renderDiagnostics();
+  });
+}
+
+if (els.alsoConsole) {
+  els.alsoConsole.addEventListener("change", async () => {
+    const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
+    uiPrefs.alsoConsole = !!els.alsoConsole.checked;
+    await storageSet({ uiPrefs });
+  });
+}
+
+// --- JUnit CI options persistence ---
+function getJunitCiOptionsFromUi() {
+  return {
+    failOnBlocking: els.ciFailOnBlocking ? els.ciFailOnBlocking.checked : true,
+    treatNeedsReviewAsFailure: els.ciTreatNeedsReview ? !!els.ciTreatNeedsReview.checked : false,
+    maxFailuresAllowed: els.ciMaxFailures ? Math.max(0, parseInt(els.ciMaxFailures.value, 10) || 0) : 0,
+  };
+}
+async function saveJunitCiOptions() {
+  const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
+  uiPrefs.junitCiOptions = getJunitCiOptionsFromUi();
+  await storageSet({ uiPrefs });
+}
+if (els.ciFailOnBlocking) els.ciFailOnBlocking.addEventListener("change", saveJunitCiOptions);
+if (els.ciTreatNeedsReview) els.ciTreatNeedsReview.addEventListener("change", saveJunitCiOptions);
+if (els.ciMaxFailures) els.ciMaxFailures.addEventListener("change", saveJunitCiOptions);
+
+// Copy diagnostics
+if (els.copyDiagnostics) {
+  els.copyDiagnostics.addEventListener("click", async () => {
+    const payload = buildDiagnosticsPayload(gatherDiagnosticsOpts());
+    const ok = await copyText(pretty(payload));
+    if (els.copyDiagHint) {
+      els.copyDiagHint.textContent = ok ? "Copied!" : "Copy failed";
+      setTimeout(() => { els.copyDiagHint.textContent = ""; }, 2000);
+    }
+  });
+}
+if (els.copyDiagnosticsMdBtn) {
+  els.copyDiagnosticsMdBtn.addEventListener("click", async () => {
+    const payload = buildDiagnosticsPayload(gatherDiagnosticsOpts());
+    const md = buildDiagnosticsMarkdown(payload);
+    const ok = await copyText(md);
+    if (els.copyDiagHint) {
+      els.copyDiagHint.textContent = ok ? "Copied!" : "Copy failed";
+      setTimeout(() => { els.copyDiagHint.textContent = ""; }, 2000);
+    }
+  });
+}
+if (els.copyCiJson) {
+  els.copyCiJson.addEventListener("click", async () => {
+    const report = buildCIReportFromState();
+    if (!report) {
+      if (els.copyDiagHint) {
+        els.copyDiagHint.textContent = "CI exporter not available";
+        setTimeout(() => { els.copyDiagHint.textContent = ""; }, 2000);
+      }
+      return;
+    }
+    const ok = await copyText(pretty(report));
+    if (els.copyDiagHint) {
+      els.copyDiagHint.textContent = ok ? "Copied CI JSON!" : "Copy failed";
+      setTimeout(() => { els.copyDiagHint.textContent = ""; }, 2000);
+    }
+  });
+}
+
+// Explorer reactive filters (debounced)
+let __explorerT = null;
+function scheduleExplorerRender() {
+  clearTimeout(__explorerT);
+  __explorerT = setTimeout(() => {
+    renderExplorer(state.currentFindings);
+  }, 120);
+}
+
+els.q.addEventListener("input", scheduleExplorerRender);
+
+// Needs-review filter chip (axe-style violations / needs-review split)
+if (els.reviewFilterChip) {
+  els.reviewFilterChip.addEventListener("click", () => {
+    state.reviewFilter = !state.reviewFilter;
+    els.reviewFilterChip.setAttribute("aria-pressed", String(state.reviewFilter));
+    els.reviewFilterChip.classList.toggle("isActive", state.reviewFilter);
+    scheduleExplorerRender();
+  });
+}
+
+// Search clear button
+const searchClearBtn = document.getElementById("searchClear");
+if (searchClearBtn) {
+  searchClearBtn.addEventListener("click", () => {
+    els.q.value = "";
+    els.q.focus();
+    scheduleExplorerRender();
+  });
+}
+
+if (els.sevTabs) {
+  els.sevTabs.addEventListener("click", (e) => {
+    const tab = e.target.closest(".sevTab");
+    if (!tab) return;
+    const sev = tab.dataset.sev;
+
+    // Handle contrast mode tabs (all/fail/pass)
+    if (state.activeMode === "contrast") {
+      state.contrastFilter = sev || "all";
+      renderContrastSevTabs();
+      updateContrastView();
+      const refocus = els.sevTabs.querySelector(`.sevTab[data-sev="${sev}"]`);
+      if (refocus) refocus.focus();
+      return;
+    }
+
+    if (!sev) {
+      // "All" tab: clear selection
+      state.sevFilter = new Set();
+    } else if (e.shiftKey) {
+      // Shift+click: toggle severity in/out
+      const next = new Set(state.sevFilter);
+      if (next.has(sev)) next.delete(sev); else next.add(sev);
+      state.sevFilter = next;
+    } else {
+      // Regular click: sole-select or toggle to All
+      if (state.sevFilter.size === 1 && state.sevFilter.has(sev)) {
+        state.sevFilter = new Set();
+      } else {
+        state.sevFilter = new Set([sev]);
+      }
+    }
+
+    renderSevTabs(state.currentFindings);
+    scheduleExplorerRender();
+    const refocus = els.sevTabs.querySelector(`.sevTab[data-sev="${sev}"]`);
+    if (refocus) refocus.focus();
+  });
+}
+
+// Integrity overview pill click — group filter toggle (attached exactly once)
+var _integrityPillsBound = false;
+function initIntegrityOverviewOnce() {
+  if (_integrityPillsBound) return;
+  _integrityPillsBound = true;
+  document.querySelectorAll(".integrityPill").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const group = btn.getAttribute("data-group");
+      activeGroupFilter = (activeGroupFilter === group) ? null : group;
+      document.querySelectorAll(".integrityPill").forEach(b => b.classList.remove("active"));
+      if (activeGroupFilter) btn.classList.add("active");
+      scheduleRerenderFindings("pill_filter");
+    });
+  });
+}
+initIntegrityOverviewOnce();
+
+// Contrast search clear button
+const contrastClearBtn = document.getElementById("contrastSearchClear");
+if (contrastClearBtn && els.contrastQ) {
+  contrastClearBtn.addEventListener("click", () => {
+    els.contrastQ.value = "";
+    els.contrastQ.focus();
+    updateContrastView();
+  });
+}
+
+// Contrast search
+if (els.contrastQ) {
+  let __contrastT = null;
+  els.contrastQ.addEventListener("input", () => {
+    clearTimeout(__contrastT);
+    __contrastT = setTimeout(updateContrastView, 120);
+  });
+}
+
+// Tab walk search
+if (els.tabWalkQ) {
+  let __tabT = null;
+  els.tabWalkQ.addEventListener("input", () => {
+    clearTimeout(__tabT);
+    __tabT = setTimeout(() => {
+      renderTabWalk({ events: state.tabData });
+    }, 120);
+  });
+}
+
+// keyboard shortcuts (tab-aware)
+window.addEventListener("keydown", (e) => {
+  if (state.running) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target && (e.target.matches("input,select,textarea") || e.target.isContentEditable)) return;
+  const key = (e.key || "").toLowerCase();
+
+  // Top-level tab switching: 1/2/3
+  if (key === "1") { showView("snap"); return; }
+  if (key === "2") { showView("flow"); return; }
+  if (key === "3") { showView("settings"); return; }
+
+  if (state.topTab === "flow") {
+    // s = mark step (if session active), e = end session
+    if (key === "s" && sessionState.current && els.sessionMark && !els.sessionMark.disabled) {
+      els.sessionMark.click();
+      return;
+    }
+    if (key === "e" && sessionState.current && els.sessionEnd && !els.sessionEnd.disabled) {
+      els.sessionEnd.click();
+      return;
+    }
+    // r = start recording (if no session)
+    if (key === "r" && !sessionState.current && els.sessionStart && !els.sessionStart.disabled) {
+      els.sessionStart.click();
+      return;
+    }
+  }
+});
+
+
+// --- Column visibility ---
+const TABLE_COLS = {
+  allTable: ['sev', 'wcag', 'name', 'type'],
+  contrastTable: ['ratio', 'req', 'large', 'text', 'tag', 'testId', 'path', 'note'],
+  tabTable: ['i', 'type', 'tabIndex', 'name', 'path', 'note'],
+};
+
+const colVisibility = {};
+const colStyleEl = document.createElement('style');
+colStyleEl.id = 'colToggleStyles';
+document.head.appendChild(colStyleEl);
+
+function applyColStyles() {
+  const rules = [];
+  for (const [tableId, cols] of Object.entries(colVisibility)) {
+    for (const [idx, visible] of Object.entries(cols)) {
+      if (visible === false) {
+        const n = Number(idx) + 1;
+        rules.push(`#${tableId} th:nth-child(${n}), #${tableId} td:nth-child(${n}) { width: 0 !important; max-width: 0 !important; padding: 0 !important; border: none !important; overflow: hidden; font-size: 0; line-height: 0; visibility: hidden; }`);
+      }
+    }
+  }
+  colStyleEl.textContent = rules.join('\n');
+}
+
+function isColVisible(tableId, colIdx) {
+  return colVisibility[tableId]?.[colIdx] !== false;
+}
+
+function toggleColVisibility(tableId, colIdx) {
+  if (!colVisibility[tableId]) colVisibility[tableId] = {};
+  colVisibility[tableId][colIdx] = !isColVisible(tableId, colIdx) ? true : false;
+  if (colVisibility[tableId][colIdx] === true) delete colVisibility[tableId][colIdx];
+  if (Object.keys(colVisibility[tableId]).length === 0) delete colVisibility[tableId];
+  applyColStyles();
+  storageSet({ colPrefs: colVisibility });
+}
+
+function createColToggle(tableId, parentEl, afterEl) {
+  const cols = TABLE_COLS[tableId];
+  if (!cols || !parentEl) return;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'colToggle';
+
+  const btn = document.createElement('button');
+  btn.className = 'btn xs';
+  btn.type = 'button';
+  btn.textContent = 'Columns';
+  btn.setAttribute('aria-expanded', 'false');
+
+  const dropdown = document.createElement('div');
+  dropdown.className = 'colDropdown';
+  dropdown.hidden = true;
+
+  cols.forEach((name, idx) => {
+    const label = document.createElement('label');
+    label.className = 'colOption';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = isColVisible(tableId, idx);
+    cb.addEventListener('change', () => {
+      toggleColVisibility(tableId, idx);
+      cb.checked = isColVisible(tableId, idx);
+    });
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(' ' + name));
+    dropdown.appendChild(label);
+  });
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = !dropdown.hidden;
+    // Close any other open dropdowns first
+    document.querySelectorAll('.colDropdown').forEach(d => { d.hidden = true; });
+    document.querySelectorAll('.colToggle .btn').forEach(b => { b.setAttribute('aria-expanded', 'false'); });
+    if (!isOpen) {
+      dropdown.hidden = false;
+      btn.setAttribute('aria-expanded', 'true');
+    }
+  });
+
+  dropdown.addEventListener('click', (e) => e.stopPropagation());
+
+  wrapper.appendChild(btn);
+  wrapper.appendChild(dropdown);
+  if (afterEl) {
+    afterEl.insertAdjacentElement('afterend', wrapper);
+  } else {
+    parentEl.appendChild(wrapper);
+  }
+}
+
+// Close column dropdowns on outside click
+document.addEventListener('click', () => {
+  document.querySelectorAll('.colDropdown').forEach(d => { d.hidden = true; });
+  document.querySelectorAll('.colToggle .btn').forEach(b => { b.setAttribute('aria-expanded', 'false'); });
+});
+
+// Default hidden columns for each table (indices that are hidden unless user toggled)
+const DEFAULT_COL_HIDDEN = {};
+
+function initColToggles() {
+  // Load saved prefs then set up toggles
+  storageGet(['colPrefs']).then(({ colPrefs }) => {
+    let useSaved = false;
+    if (colPrefs && Object.keys(colPrefs).length > 0) {
+      // Validate saved prefs against current column counts to avoid stale indices
+      const valid = Object.entries(colPrefs).every(([tableId, cols]) => {
+        const expected = TABLE_COLS[tableId];
+        return expected && Object.keys(cols).every(i => Number(i) < expected.length);
+      });
+      if (valid) { Object.assign(colVisibility, colPrefs); useSaved = true; }
+    }
+    if (!useSaved) {
+      // Apply smart defaults — hide low-priority columns
+      Object.assign(colVisibility, JSON.parse(JSON.stringify(DEFAULT_COL_HIDDEN)));
+    }
+    applyColStyles();
+
+    const placements = [
+      { tableId: 'contrastTable', selector: '#contrastToolbar .toolbarActions' },
+      { tableId: 'tabTable', selector: '#tabWalkToolbar .toolbarActions' },
+    ];
+
+    for (const p of placements) {
+      const el = document.querySelector(p.selector);
+      if (!el) continue;
+      if (p.sibling) {
+        createColToggle(p.tableId, el.parentElement, el);
+      } else {
+        createColToggle(p.tableId, el);
+      }
+    }
+  });
+}
+
+function initSortableHeaders() {
+  const tables = [
+    {
+      id: 'explorer',
+      thead: document.querySelector('#allTable thead'),
+      render: () => renderExplorer(state.currentFindings),
+    },
+    {
+      id: 'contrast',
+      thead: document.querySelector('#contrastTable thead'),
+      render: () => updateContrastView(),
+    },
+    {
+      id: 'tab',
+      thead: document.querySelector('#tabTable thead'),
+      render: () => renderTabWalk({ events: state.tabData }),
+    },
+  ];
+
+  for (const t of tables) {
+    if (!t.thead) continue;
+    const ths = t.thead.querySelectorAll('th');
+    ths.forEach((th, idx) => {
+      th.classList.add('sortable');
+      th.setAttribute('tabindex', '0');
+      th.setAttribute('aria-sort', 'none');
+      th.addEventListener('click', () => {
+        toggleSort(t.id, idx, t.thead);
+        t.render();
+      });
+      th.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          toggleSort(t.id, idx, t.thead);
+          t.render();
+        }
+      });
+    });
+    // Apply default sort indicator if sortState is pre-configured
+    const s = sortState[t.id];
+    if (s && s.col != null && ths[s.col]) {
+      ths[s.col].setAttribute('data-sort-dir', s.dir);
+      ths[s.col].setAttribute('aria-sort', s.dir === 'asc' ? 'ascending' : 'descending');
+    }
+  }
+}
+
+function initVirtualTables() {
+  // All findings (potentially very large)
+  const allWrap = document.querySelector("#allTable")?.closest?.(".tableWrap");
+  if (allWrap && els.allTableBody && !VT.all) {
+    VT.all = new VirtualTable({
+      wrapEl: allWrap,
+      tbodyEl: els.allTableBody,
+      colCount: 4,
+      rowRenderer: explorerRowHtml,
+      detailRenderer: buildDetailRow,
+      estimateRowHeight: 24,
+      overscan: 12,
+    });
+  }
+
+  // Contrast failures
+  const contrastWrap = document.querySelector("#contrastTable")?.closest?.(".tableWrap");
+  if (contrastWrap && els.contrastTbody && !VT.contrast) {
+    VT.contrast = new VirtualTable({
+      wrapEl: contrastWrap,
+      tbodyEl: els.contrastTbody,
+      colCount: 8,
+      rowRenderer: contrastRowHtml,
+      estimateRowHeight: 24,
+      overscan: 10,
+    });
+  }
+
+  // TabWalk events
+  const tabWrap = document.querySelector("#tabTable")?.closest?.(".tableWrap");
+  if (tabWrap && els.tabTbody && !VT.tab) {
+    VT.tab = new VirtualTable({
+      wrapEl: tabWrap,
+      tbodyEl: els.tabTbody,
+      colCount: 6,
+      rowRenderer: tabRowHtml,
+      estimateRowHeight: 24,
+      overscan: 10,
+    });
+  }
+}
+
+
+// Horizontal scroll shadow indicator for .tableWrap
+function initScrollShadows() {
+  const wraps = document.querySelectorAll('.tableWrap');
+  for (const wrap of wraps) {
+    const update = () => {
+      const hasOverflow = wrap.scrollWidth > wrap.clientWidth;
+      const atEnd = wrap.scrollLeft + wrap.clientWidth >= wrap.scrollWidth - 1;
+      wrap.classList.toggle('scrollRight', hasOverflow && !atEnd);
+    };
+    wrap.addEventListener('scroll', update, { passive: true });
+    new ResizeObserver(update).observe(wrap);
+    update();
+  }
+}
+initScrollShadows();
+
+// Bottom sheets offset for toast positioning
+(function initBottomSheetsOffset() {
+  const sheets = document.getElementById("bottomSheets");
+  if (!sheets) return;
+  const update = () => {
+    document.documentElement.style.setProperty("--bottomSheetsOffset", sheets.offsetHeight + "px");
+  };
+  new ResizeObserver(update).observe(sheets);
+  update();
+})();
+
+// Sub-tab bar overflow fade indicators
+(function initSubTabOverflow() {
+  const wrap = document.getElementById("subTabBarWrap");
+  const nav = document.getElementById("snapSubTabBar");
+  if (!wrap || !nav) return;
+  const update = () => {
+    const hasOverflow = nav.scrollWidth > nav.clientWidth;
+    wrap.classList.toggle("canScrollRight", hasOverflow && nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 1);
+    wrap.classList.toggle("canScrollLeft", hasOverflow && nav.scrollLeft > 1);
+  };
+  nav.addEventListener("scroll", update, { passive: true });
+  new ResizeObserver(update).observe(nav);
+  update();
+})();
+
+// auto refresh on navigation
+chrome.devtools.network.onNavigated.addListener(async () => {
+  state.findingsByMode = {};
+  state.hasRunMode = new Set();
+  state.contrastFilter = "all";
+  await refreshInspectedUrl();
+  await refreshFrames();
+  toast("Navigated — refreshed frames");
+
+  // Auto-capture if enabled (R4: guarded against timer stacking and inFlight races)
+  if (sessionState.current && els.autoCaptureNav?.checked) {
+    const { url } = getCurrentScopeInfo();
+    if (url && url !== sessionState.lastAutoNavUrl) {
+      if (sessionState.autoCapturePending) clearTimeout(sessionState.autoCapturePending);
+      const debounceMs = Number(els.autoCaptureDelay?.value) || 500;
+      sessionState.autoCapturePending = setTimeout(async () => {
+        sessionState.autoCapturePending = null;
+        // Skip if session ended, or capture already in flight (will be queued by captureStepOptionC)
+        if (!sessionState.current) return;
+        sessionState.lastAutoNavUrl = url;
+        try {
+          const autoLabel = await deriveAutoLabel(url);
+          await captureStepOptionC(autoLabel, { isAutoCapture: true });
+        } catch (e) {
+          console.error("Auto-capture failed:", e);
+          toast("Auto-capture failed");
+        }
+      }, debounceMs);
+    }
+  }
+});
+
+// Bottom sheet toggles
+if (els.pastRunsToggle) {
+  els.pastRunsToggle.addEventListener("click", () => {
+    const expanded = els.pastRunsToggle.getAttribute("aria-expanded") === "true";
+    els.pastRunsToggle.setAttribute("aria-expanded", String(!expanded));
+    if (els.pastRunsBody) els.pastRunsBody.hidden = expanded;
+    if (!expanded) renderPastRuns();
+  });
+}
+
+if (els.rawJsonToggle) {
+  els.rawJsonToggle.addEventListener("click", () => {
+    const expanded = els.rawJsonToggle.getAttribute("aria-expanded") === "true";
+    els.rawJsonToggle.setAttribute("aria-expanded", String(!expanded));
+    if (els.rawJsonBody) els.rawJsonBody.hidden = expanded;
+    // Deferred highlight: content rendered while collapsed is plain text
+    if (!expanded && els.json && els.json.dataset.hl === "0") {
+      renderJsonInto(els.json, els.json.textContent || "");
+      els.json.dataset.hl = "1";
+    }
+  });
+}
+
+if (els.deleteAllRuns) {
+  els.deleteAllRuns.addEventListener("click", deleteAllRunsAction);
+}
+
+// Accordion toggles
+document.querySelectorAll('.accordionToggle').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const expanded = btn.getAttribute('aria-expanded') === 'true';
+    btn.setAttribute('aria-expanded', String(!expanded));
+    const body = btn.closest('.accordion')?.querySelector('.accordionBody');
+    if (body) body.hidden = expanded;
+    const chevron = btn.querySelector('.chevron');
+    if (chevron) chevron.textContent = expanded ? '\u2228' : '\u2227';
+  });
+});
+
+function syncCollapsedSections() {
+  // Raw JSON body visibility synced via sheetHeader toggle
+  if (els.rawJsonBody) {
+    els.rawJsonBody.hidden = els.rawJsonToggle?.getAttribute("aria-expanded") !== "true";
+  }
+}
+
+// initial
+showView("snap", "run");
+syncCollapsedSections();
+renderSevTabs();
+updateResultsVisibility(false);
+initVirtualTables();
+initSortableHeaders();
+// Session comparison
+const _compareBtn = document.getElementById("compareRunBtn");
+if (_compareBtn) _compareBtn.addEventListener("click", runSessionComparison);
+initColToggles();
+updateScopeUi();
+setVersionBadge();
+loadUiPrefs();
+
+(async () => {
+  await refreshInspectedUrl();
+  await refreshFrames();
+})();
+
+if (!hasRuntime()) {
+  toast("Runtime API missing — try reopening DevTools after reloading extension");
+}

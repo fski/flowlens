@@ -128,6 +128,22 @@
       <iframe role="presentation" srcdoc="<p>presentation iframe</p>"></iframe>
       <iframe aria-hidden="true" srcdoc="<p>aria hidden iframe</p>"></iframe>
     </section>
+
+    <section id="v6-rules-fixture">
+      <h2>v6 Rules Fixture (2.1.4 / 3.2.2 / 3.3.8)</h2>
+      <!-- ACCESSKEY_CHAR_SHORTCUT: 1 expected -->
+      <button id="accesskeyShortcut" accesskey="s" type="button">Save (accesskey)</button>
+      <button id="accesskeyEmpty" accesskey="" type="button">No shortcut (negative)</button>
+      <!-- SELECT_AUTO_SUBMIT: 1 expected -->
+      <form action="#">
+        <select id="autoSubmitSelect" aria-label="Jump to page" onchange="this.form.submit()"><option>One</option></select>
+      </form>
+      <select id="benignOnchangeSelect" aria-label="Sort order" onchange="console.log('changed')"><option>One</option></select>
+      <!-- PASTE_BLOCKED_INPUT: 2 expected (paste blocked + autofill off) -->
+      <input id="pasteBlockedPassword" type="password" onpaste="return false" aria-label="Password (paste blocked)" />
+      <input id="autofillOffPassword" type="password" autocomplete="off" aria-label="Password (autofill off)" />
+      <input id="wellBehavedPassword" type="password" autocomplete="current-password" aria-label="Password (negative)" />
+    </section>
   </main>
   <script>
     (() => {

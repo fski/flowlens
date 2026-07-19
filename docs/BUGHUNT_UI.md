@@ -4,8 +4,8 @@ Manual smoke test for UI stability after Phase D (Integrity Overview, Group Filt
 
 ## Pre-flight
 
-1. Load the extension in Chrome (`chrome://extensions/` → Load unpacked)
-2. Open DevTools on any page with a chat widget or help center
+1. `npm run build`, then load `dist/` in Chrome (`chrome://extensions/` → Load unpacked)
+2. Open DevTools on any page with a multi-step flow (chat widget, wizard, help center)
 
 ## Core Smoke Tests
 
