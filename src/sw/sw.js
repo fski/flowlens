@@ -726,6 +726,26 @@ async function executeAuditAcrossFrames({
     };
   });
 
+  // Disambiguate sibling frames whose URL-derived stable key collides
+  // (about:blank/data: iframes inherit parent origin + "root" path hint):
+  // without a suffix the panel's frameKeyStable-indexed maps silently
+  // overwrite one frame's results with the other's. Ordinal by frameId —
+  // deterministic within an audit; such frames have no stronger identity.
+  {
+    const stableCounts = new Map();
+    for (const f of scoredFrames) stableCounts.set(f.frameKeyStable, (stableCounts.get(f.frameKeyStable) || 0) + 1);
+    const dupOrdinal = new Map();
+    for (const f of [...scoredFrames].sort((a, b) => a.frameId - b.frameId)) {
+      if ((stableCounts.get(f.frameKeyStable) || 0) < 2) continue;
+      const n = (dupOrdinal.get(f.frameKeyStable) || 0) + 1;
+      dupOrdinal.set(f.frameKeyStable, n);
+      if (n > 1) {
+        f.frameKeyStable = `${f.frameKeyStable}::dup${n}`;
+        f.frameKey = `${f.frameKey}::dup${n}`;
+      }
+    }
+  }
+
   const picked = chooseBestEntry({ action, perFrame: scoredFrames, target, probeByFrameId });
   const bestEntry = picked?.entry || null;
 
@@ -805,6 +825,32 @@ async function acquireAuditLock(tabId) {
   return () => { _auditLockByTab.delete(tabId); release(); };
 }
 
+// MV3 keepalive: Chrome may reap an idle service worker after ~30s, killing
+// long captures (watch runs 40s; CAPTURE_STEP chains baseline+active) and
+// closing the sendResponse channel mid-flight. Any extension API call resets
+// the idle timer, so while work is in flight we ping a cheap API every 20s.
+// Refcounted — concurrent handlers share one interval.
+let _keepaliveCount = 0;
+let _keepaliveTimer = null;
+function acquireKeepalive() {
+  _keepaliveCount++;
+  if (!_keepaliveTimer) {
+    _keepaliveTimer = setInterval(() => {
+      try { chrome.runtime.getPlatformInfo(() => {}); } catch { /* SW shutting down */ }
+    }, 20000);
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    _keepaliveCount = Math.max(0, _keepaliveCount - 1);
+    if (_keepaliveCount === 0 && _keepaliveTimer) {
+      clearInterval(_keepaliveTimer);
+      _keepaliveTimer = null;
+    }
+  };
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     const validation = validateIncomingMessage(msg, sender);
@@ -825,6 +871,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const tabId = Number(msg.tabId);
       const frameId = Number(msg.frameId);
       const finding = isPlainObject(msg.finding) ? msg.finding : {};
+      // Don't inject highlight DOM while a capture holds the audit lock —
+      // a running watch/observe would record our style/attribute churn as
+      // page activity. Non-blocking: report busy instead of queueing 40s.
+      if (_auditLockByTab.get(tabId)) {
+        sendResponse({ ok: true, found: false, strategy: "none", reason: "AUDIT_IN_PROGRESS", frameIdUsed: frameId });
+        return;
+      }
       let results;
       try {
       results = await chrome.scripting.executeScript({
@@ -922,6 +975,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           };
 
           const pick = () => {
+            // 0th: shadow-aware deep path ("a > b >>> c > d") — descends
+            // shadow roots; the only precise address for shadow-DOM targets
+            try {
+              if (finding?.pathDeep && finding.pathDeep.includes(">>>")) {
+                const hops = String(finding.pathDeep).split(" >>> ");
+                let root = document;
+                let el = null;
+                for (let i = 0; i < hops.length && root; i++) {
+                  el = root.querySelector(hops[i]);
+                  if (!el) { root = null; break; }
+                  if (i < hops.length - 1) root = el.shadowRoot;
+                }
+                if (root && el && matchesExpectation(el)) return { el, strategy: "path-deep" };
+              }
+            } catch {}
+
             // 1st: CSS path — most specific, unique selector from audit time,
             // validated against the expected tag/role and with truncation recovery
             try {
@@ -1075,6 +1144,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     if (msg.type === "RUN_AUDIT") {
       const tabId = Number(msg.tabId);
+      const releaseKeepalive = acquireKeepalive();
       const release = await acquireAuditLock(tabId);
       try {
         const action = String(msg.action);
@@ -1104,12 +1174,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           frameProbeById,
         });
         sendResponse(out);
-      } finally { release(); }
+      } finally { release(); releaseKeepalive(); }
       return;
     }
 
     if (msg.type === "CAPTURE_STEP") {
       const tabId = Number(msg.tabId);
+      const releaseKeepalive = acquireKeepalive();
       const release = await acquireAuditLock(tabId);
       try {
       const startedAt = Date.now();
@@ -1191,7 +1262,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         active,
         frameKeyByFrameId: mergedFrameKeyByFrameId,
       });
-      } finally { release(); }
+      } finally { release(); releaseKeepalive(); }
       return;
     }
 

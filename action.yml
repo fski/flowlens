@@ -1,0 +1,62 @@
+name: "FlowLens Flow Audit"
+description: "Audit the accessibility of a multi-step flow headlessly and emit a deterministic CI report + JUnit XML."
+branding:
+  icon: "eye"
+  color: "orange"
+inputs:
+  urls:
+    description: "Newline-separated URLs — each is one flow step, audited in order."
+    required: false
+    default: ""
+  steps-file:
+    description: "Path to a JSON file: [{\"url\": \"…\", \"label\": \"…\"}, …]. Takes precedence over urls."
+    required: false
+    default: ""
+  wcag:
+    description: "WCAG target level (2.1-AA | 2.1-AAA | 2.2-AA | 2.2-AAA)."
+    required: false
+    default: "2.2-AA"
+  fail-on-blocking:
+    description: "Fail the job when blocking findings exceed max-failures at baseline or are introduced by a step."
+    required: false
+    default: "true"
+  max-failures:
+    description: "Blocking findings allowed at the baseline step."
+    required: false
+    default: "0"
+  out:
+    description: "Output directory for flowlens-report.json and junit.xml."
+    required: false
+    default: "flowlens-ci"
+runs:
+  using: "composite"
+  steps:
+    - name: Install FlowLens dependencies
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        npm ci
+        npm i -D playwright
+        npx playwright install --with-deps chromium
+    - name: Build audit snippet
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm run build
+    - name: Run flow audit
+      shell: bash
+      run: |
+        ARGS=""
+        if [ -n "${{ inputs.steps-file }}" ]; then
+          ARGS="--steps ${{ inputs.steps-file }}"
+        else
+          while IFS= read -r url; do
+            [ -n "$url" ] && ARGS="$ARGS --url $url"
+          done <<< "${{ inputs.urls }}"
+        fi
+        if [ "${{ inputs.fail-on-blocking }}" = "true" ]; then
+          ARGS="$ARGS --fail-on-blocking"
+        fi
+        node "${{ github.action_path }}/scripts/ci-runner.mjs" $ARGS \
+          --wcag "${{ inputs.wcag }}" \
+          --max-failures "${{ inputs.max-failures }}" \
+          --out "${{ inputs.out }}"

@@ -494,6 +494,31 @@ function renderWatch(res) {
       els.watchVerdicts.innerHTML = '<span class="watchVerdict watchVerdict--pass">All metrics within budget \u2713</span>';
     }
   }
+  // "What a screen reader heard" — chronological announcement timeline.
+  // The #1 conversational-UI failure is a bot reply that announces nothing;
+  // this makes silence visible instead of burying it in counters.
+  if (els.watchAnnouncements && els.watchAnnList) {
+    const anns = Array.isArray(res.announcements) ? res.announcements : [];
+    const hadLoading = (res.totalLoadingMs ?? 0) > 0 || (res.bursts ?? 0) > 0;
+    if (!anns.length && !hadLoading) {
+      els.watchAnnouncements.hidden = true;
+    } else {
+      els.watchAnnouncements.hidden = false;
+      const items = anns.map(a => {
+        const t = `+${((a.t ?? 0) / 1000).toFixed(1)}s`;
+        const mode = a.ariaLive || a.role || "live";
+        const empty = !a.text || a.text === "(empty)";
+        const body = empty
+          ? "<em>empty announcement — the screen reader says nothing</em>"
+          : `“${escapeHtml(txt(a.text, 120))}”`;
+        return `<li class="watchAnnItem${empty ? " watchAnnItem--empty" : ""}"><span class="watchAnnT mono">${escapeHtml(t)}</span><span class="watchAnnMode">[${escapeHtml(mode)}]</span> ${body}</li>`;
+      });
+      if (!anns.length && hadLoading) {
+        items.push('<li class="watchAnnItem watchAnnItem--empty"><em>Loading activity produced no announcements — screen reader users heard nothing.</em></li>');
+      }
+      els.watchAnnList.innerHTML = items.join("");
+    }
+  }
   // Events timeline table
   const events = Array.isArray(res.events) ? res.events : [];
   const tbody = els.watchTbody;
@@ -1171,6 +1196,7 @@ async function highlightFinding(finding, highlightCtx) {
 async function _highlightFindingInner(finding, highlightCtx) {
   const payload = {
     path: finding.path ?? null,
+    pathDeep: finding.pathDeep ?? finding.targetRef?.pathDeep ?? null,
     testId: finding.testId ?? null,
     tag: finding.tag ?? null,
     name: finding.name ?? null,
@@ -1189,7 +1215,7 @@ async function _highlightFindingInner(finding, highlightCtx) {
   }
 
   // Retry across other used frames if not found
-  if (res?.found === false && usedFrameIds.length > 0) {
+  if (res?.found === false && res?.reason !== "AUDIT_IN_PROGRESS" && usedFrameIds.length > 0) {
     const retryIds = usedFrameIds.filter(id => id !== bestFrameId).slice(0, 3);
     for (const fid of retryIds) {
       try {
@@ -1201,7 +1227,7 @@ async function _highlightFindingInner(finding, highlightCtx) {
 
   // No frame context (e.g. a restored past run) — discover frames and retry
   // the embedded ones so highlight still works for iframe findings.
-  if (res?.found === false && usedFrameIds.length === 0) {
+  if (res?.found === false && res?.reason !== "AUDIT_IN_PROGRESS" && usedFrameIds.length === 0) {
     try {
       const lf = await send({ type: "LIST_FRAMES" });
       const frameIds = (Array.isArray(lf?.frames) ? lf.frames : [])
@@ -1225,7 +1251,9 @@ async function _highlightFindingInner(finding, highlightCtx) {
     const tag = res.matched?.tag ? `: <${res.matched.tag}>` : "";
     toast(approx ? `Highlighted closest match${via}${tag}${frameUsed}` : `Highlighted${via}${tag}${frameUsed}`);
   } else {
-    const reason = res?.reason === "FRAME_INACCESSIBLE" ? "frame inaccessible" : "element not found — re-run the audit if the page changed";
+    const reason = res?.reason === "FRAME_INACCESSIBLE" ? "frame inaccessible"
+      : res?.reason === "AUDIT_IN_PROGRESS" ? "audit in progress — highlight after it finishes"
+      : "element not found — re-run the audit if the page changed";
     // Manual retry advances to the first frame that has NOT been tried yet
     // (auto loop covered bestFrameId + up to 3 others).
     const autoTried = new Set([bestFrameId, ...usedFrameIds.filter(id => id !== bestFrameId).slice(0, 3)]);

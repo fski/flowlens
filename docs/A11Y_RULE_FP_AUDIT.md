@@ -106,13 +106,17 @@
      }, {});
      console.table(byType);
      ```
-  5. Confirm expected counts:
-     - `FOCUS_VISIBLE_SUPPRESSED`: 1
-     - `CLICK_WITHOUT_KEYBOARD`: 3
+  5. Confirm expected counts (ENFORCED in CI by `scripts/e2e-smoke.mjs` —
+     update both places together; historical counts predating v6 fixture
+     additions were stale, re-measured 2026-07-19):
+     - `FOCUS_VISIBLE_SUPPRESSED`: 23 (page-wide: fixture suppresses focus styles broadly)
+     - `CLICK_WITHOUT_KEYBOARD`: 7
      - `ARIA_HIDDEN_FOCUSABLE`: 1
-     - `TOUCH_TARGET_TOO_SMALL`: 1
+     - `TOUCH_TARGET_TOO_SMALL`: 23
      - `DUPLICATE_MAIN_LANDMARK`: 1
      - `IFRAME_MISSING_TITLE`: 1
+     - `COMPETING_SKIP_NAV`: 1
+     - `HC_ACCORDION_NO_STATE`: 1
      - `ACCESSKEY_CHAR_SHORTCUT`: 1 (`#accesskeyShortcut`; `#accesskeyEmpty` must NOT flag)
      - `SELECT_AUTO_SUBMIT`: 1 (`#autoSubmitSelect`; `#benignOnchangeSelect` must NOT flag)
      - `PASTE_BLOCKED_INPUT`: 2 (`#pasteBlockedPassword`, `#autofillOffPassword`; `#wellBehavedPassword` must NOT flag)

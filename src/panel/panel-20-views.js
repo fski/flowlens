@@ -191,6 +191,9 @@ async function persistRecords(scopeKey) {
     if (!row || typeof row !== "object") return row;
     const out = compactObjectStrings(row, maxLen);
     if (typeof row.path === "string") out.path = truncateSelectorPath(row.path, Math.max(maxLen, 140));
+    // A truncated deep path is useless (each ">>>" hop must parse whole) —
+    // keep it intact under a generous cap or drop it entirely.
+    if (typeof row.pathDeep === "string") out.pathDeep = row.pathDeep.length <= 300 ? row.pathDeep : null;
     if (typeof row.testId === "string") out.testId = row.testId.slice(0, 200);
     if (typeof row.html === "string") out.html = row.html.slice(0, Math.max(maxLen, 120));
     return out;
