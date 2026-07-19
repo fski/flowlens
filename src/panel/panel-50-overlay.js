@@ -1199,14 +1199,33 @@ async function _highlightFindingInner(finding, highlightCtx) {
     }
   }
 
+  // No frame context (e.g. a restored past run) — discover frames and retry
+  // the embedded ones so highlight still works for iframe findings.
+  if (res?.found === false && usedFrameIds.length === 0) {
+    try {
+      const lf = await send({ type: "LIST_FRAMES" });
+      const frameIds = (Array.isArray(lf?.frames) ? lf.frames : [])
+        .map(f => Number(f.frameId))
+        .filter(id => Number.isFinite(id) && id !== bestFrameId)
+        .slice(0, 3);
+      for (const fid of frameIds) {
+        try {
+          const retry = await send({ type: "HIGHLIGHT", frameId: fid, finding: payload });
+          if (retry?.found) { res = retry; break; }
+        } catch { /* skip inaccessible frame */ }
+      }
+    } catch { /* frame discovery unavailable — keep original result */ }
+  }
+
   // Show toast with strategy + frameIdUsed info
   const frameUsed = res?.frameIdUsed != null ? ` in frame ${res.frameIdUsed}` : "";
   if (res?.found) {
+    const approx = res.strategy === "path-parent" || res.strategy === "path-loose" || res.strategy === "heuristic" || res.strategy === "html";
     const via = res.strategy && res.strategy !== "none" ? ` via ${res.strategy.toUpperCase()}` : "";
     const tag = res.matched?.tag ? `: <${res.matched.tag}>` : "";
-    toast(`Highlighted${via}${tag}${frameUsed}`);
+    toast(approx ? `Highlighted closest match${via}${tag}${frameUsed}` : `Highlighted${via}${tag}${frameUsed}`);
   } else {
-    const reason = res?.reason === "FRAME_INACCESSIBLE" ? "frame inaccessible" : "element not found";
+    const reason = res?.reason === "FRAME_INACCESSIBLE" ? "frame inaccessible" : "element not found — re-run the audit if the page changed";
     toast(`Not found (${reason})`, {
       label: usedFrameIds.length > 1 ? "Try other frames" : undefined,
       fn: usedFrameIds.length > 1 ? () => highlightFinding(finding, { bestFrameId: usedFrameIds[1], usedFrameIds }) : undefined,

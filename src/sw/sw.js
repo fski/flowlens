@@ -877,12 +877,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             return walk(document, 0);
           };
 
+          // A path hit is only trusted when it still looks like the audited
+          // element — after dynamic re-renders an :nth-of-type path can resolve
+          // to a DIFFERENT node, and highlighting the wrong element is worse
+          // than falling through to the heuristic strategies.
+          const matchesExpectation = (el) => {
+            if (!el) return false;
+            const tag = (finding?.tag || "").toLowerCase();
+            if (tag && el.tagName && el.tagName.toLowerCase() !== tag) return false;
+            if (finding?.role && el.getAttribute("role") !== finding.role) return false;
+            return true;
+          };
+
+          // Resolve a CSS path: exact first, then loosened by dropping leading
+          // context segments (structure ABOVE the target changed). Every hit
+          // must still look like the audited element (matchesExpectation).
+          const resolvePath = (path) => {
+            const segments = String(path).split(" > ");
+            for (let skip = 0; skip < 3 && skip < segments.length; skip++) {
+              const sel = segments.slice(skip).join(" > ");
+              let el = null;
+              try { el = queryDeep(sel); } catch { continue; }
+              if (el && matchesExpectation(el)) {
+                return { el, strategy: skip === 0 ? "path" : "path-loose" };
+              }
+            }
+            return null;
+          };
+
           const pick = () => {
-            // 1st: CSS path — most specific, unique selector from audit time
+            // 1st: CSS path — most specific, unique selector from audit time,
+            // validated against the expected tag/role and with truncation recovery
             try {
               if (finding?.path) {
-                const el = queryDeep(finding.path);
-                if (el) return { el, strategy: "path" };
+                const hit = resolvePath(finding.path);
+                if (hit) return hit;
               }
             } catch {}
 
@@ -942,6 +971,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 const htmlNorm = norm(finding.html).slice(0, 120);
                 for (const c of document.querySelectorAll(tag)) {
                   if (norm(c.outerHTML).slice(0, 120).includes(htmlNorm)) return { el: c, strategy: "html" };
+                }
+              }
+            } catch {}
+
+            // 5th: structural parent of the audited path — approximate anchor
+            // when the exact element vanished or the captured path was cut by
+            // limits (truncated attribute selectors PARSE in CSS but never
+            // match, so this also rescues those). Runs last so precise
+            // strategies always win; labeled path-parent for honest feedback.
+            try {
+              if (finding?.path) {
+                const segs = String(finding.path).split(" > ");
+                for (let cut = 1; cut <= 2 && segs.length - cut >= 1; cut++) {
+                  const sel = segs.slice(0, segs.length - cut).join(" > ");
+                  let el = null;
+                  try { el = queryDeep(sel); } catch { continue; }
+                  if (el) return { el, strategy: "path-parent" };
                 }
               }
             } catch {}
