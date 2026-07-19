@@ -1460,6 +1460,13 @@ kbd {
   white-space: pre-wrap;
 }
 
+/* JSON syntax highlighting tokens (Raw JSON sheets) */
+.jt-key  { color: var(--teal); }
+.jt-str  { color: var(--green); }
+.jt-num  { color: var(--orange); }
+.jt-bool { color: var(--mint); }
+.jt-null { color: var(--red); }
+
 /* ═══ WATCH VIZ ═══ */
 .watchSummary {
   display: grid;

@@ -620,6 +620,43 @@ function pretty(x) {
   try { return JSON.stringify(x, null, 2); } catch { return String(x); }
 }
 
+// --- JSON syntax highlighting (Raw JSON sheets) ---
+// Escapes HTML first, then wraps tokens in spans. The textContent of the
+// produced markup is byte-identical to the input, so copy actions can keep
+// reading textContent. Pure + deterministic (no state, no time).
+var JSON_HIGHLIGHT_MAX_CHARS = 300000;
+var JSON_TOKEN_RE = /("(?:\\u[0-9a-fA-F]{4}|\\[^u]|[^\\"])*")(\s*:)?|\b(?:true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
+
+function highlightJson(text) {
+  var escaped = String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+  return escaped.replace(JSON_TOKEN_RE, function (match, str, colon) {
+    var cls;
+    if (str) {
+      cls = colon ? "jt-key" : "jt-str";
+      return '<span class="' + cls + '">' + str + "</span>" + (colon || "");
+    }
+    if (match === "true" || match === "false") cls = "jt-bool";
+    else if (match === "null") cls = "jt-null";
+    else cls = "jt-num";
+    return '<span class="' + cls + '">' + match + "</span>";
+  });
+}
+
+// Renders JSON text into a <pre>, highlighted when small enough to stay
+// responsive; oversized payloads fall back to plain text.
+function renderJsonInto(el, text) {
+  if (!el) return;
+  if (typeof text !== "string") text = pretty(text);
+  if (text.length > JSON_HIGHLIGHT_MAX_CHARS) {
+    el.textContent = text;
+    return;
+  }
+  el.innerHTML = highlightJson(text);
+}
+
 function toast(message, action) {
   if (!els.toast) return;
   // Dedup identical toasts within 700ms
@@ -5378,7 +5415,7 @@ async function runAction(action, opts = {}) {
   } catch (err) {
     const failed = { ok: false, action, error: String(err?.message || err) };
     state.lastResult = failed;
-    els.json.textContent = pretty(failed);
+    renderJsonInto(els.json, pretty(failed));
     setRunTelemetry({ usedFrames: "—", diff: "(run failed)" });
     setPersistentStatus("FAILED", "TRANSPORT", "Run transport failure");
     console.error("RUN_AUDIT transport failure", err);
@@ -5393,7 +5430,7 @@ async function runAction(action, opts = {}) {
   if (r?.bestEntry?.result?.findings) {
     r.bestEntry.result.findings = applyFixSuggestions(r.bestEntry.result.findings);
   }
-  els.json.textContent = pretty(r);
+  renderJsonInto(els.json, pretty(r));
   if (!r?.ok) {
     const noScope = r?.reason === "NO_SCOPE_MATCH" || r?.error === "NO_SCOPE_MATCH";
     const manualMissing = r?.reason === "MANUAL_FRAMES_MISSING" || r?.error === "MANUAL_FRAMES_MISSING";
