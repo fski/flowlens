@@ -15,7 +15,6 @@ const els = {
   profileSelect: document.getElementById("profileSelect"),
   alsoConsole: document.getElementById("alsoConsole"),
   pinFrame: document.getElementById("pinFrame"),
-  density: document.getElementById("density"),
   themeToggle: document.getElementById("themeToggle"),
   wcagLevel: document.getElementById("wcagLevel"),
   targetingSummary: document.getElementById("targetingSummary"),
@@ -86,7 +85,6 @@ const els = {
   sheetCopyRaw: document.getElementById("sheetCopyRaw"),
 
   // about / diagnostics
-  aboutContent: document.getElementById("aboutContent"),
   diagVersion: document.getElementById("diagVersion"),
   diagSchema: document.getElementById("diagSchema"),
   diagSignature: document.getElementById("diagSignature"),
@@ -653,6 +651,20 @@ function highlightJson(text) {
   });
 }
 
+// Resolves a WCAG criterion number ("4.1.2") to its W3C Understanding page.
+// Returns { url, title } or null. Link is only followed on explicit user
+// click — FlowLens itself still makes zero network requests.
+function wcagUnderstandingRef(criterion) {
+  if (!criterion || typeof WCAG_CRITERIA === "undefined") return null;
+  var entry = WCAG_CRITERIA.find(function (c) { return c.criterion === criterion; });
+  if (!entry || !entry.title) return null;
+  var slug = entry.title.toLowerCase()
+    .replace(/[()]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return { url: "https://www.w3.org/WAI/WCAG22/Understanding/" + slug, title: entry.title };
+}
+
 // Renders JSON text into a <pre>, highlighted when small enough to stay
 // responsive; oversized payloads fall back to plain text.
 function renderJsonInto(el, text) {
@@ -984,11 +996,11 @@ const SNAP_CTA = {
 };
 
 const SNAP_CTA_RERUN = {
-  run:      "Re-run Audit",
-  contrast: "Re-check Contrast",
-  tabWalk:  "Re-run Tab\u00A0Walk",
-  observe:  "Re-start Observe",
-  watch:    "Re-start Watch",
+  run:      "Rerun Audit",
+  contrast: "Recheck Contrast",
+  tabWalk:  "Rerun Tab\u00A0Walk",
+  observe:  "Restart Observe",
+  watch:    "Restart Watch",
 };
 
 function updateSnapCta(mode) {
@@ -1036,7 +1048,7 @@ function showMode(mode) {
 function showView(tab, sub) {
   // Update top-level tab
   if (tab) state.topTab = tab;
-  const panels = { snap: els.snapContent, flow: els.flowContent, settings: els.settingsContent, about: els.aboutContent };
+  const panels = { snap: els.snapContent, flow: els.flowContent, settings: els.settingsContent };
   document.querySelectorAll("#topTabBar [role='tab']").forEach(btn => {
     const isActive = btn.dataset.tab === state.topTab;
     btn.setAttribute("aria-selected", String(isActive));
@@ -1056,8 +1068,8 @@ function showView(tab, sub) {
     showMode(sub);
   }
 
-  // Auto-render about/diagnostics when switching to About
-  if (state.topTab === "about") {
+  // Diagnostics live at the bottom of Settings — refresh them on entry
+  if (state.topTab === "settings") {
     renderDiagnostics();
   }
 
@@ -5971,10 +5983,6 @@ async function copyMarkdown() {
 }
 
 
-function applyDensity(isCompact) {
-  document.body.classList.toggle("compact", !!isCompact);
-}
-
 function applyTheme(light) {
   document.documentElement.setAttribute("data-theme", light ? "light" : "dark");
 }
@@ -6252,9 +6260,6 @@ function renderProfileSelect() {
 
 async function loadUiPrefs() {
   const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
-  const compact = !!uiPrefs.compact;
-  if (els.density) els.density.checked = compact;
-  applyDensity(compact);
   const light = uiPrefs.theme === "light" || (uiPrefs.theme == null && window.matchMedia("(prefers-color-scheme: light)").matches);
   if (els.themeToggle) els.themeToggle.checked = light;
   applyTheme(light);
@@ -7038,9 +7043,13 @@ document.addEventListener("keydown", (e) => {
 /** Build detail row HTML for a finding */
 function buildDetailRow(finding, colCount) {
   const sev = finding.severity || 'info';
+  const wcagRef = wcagUnderstandingRef(finding.wcag);
+  const wcagCell = wcagRef
+    ? `<a class="wcagLink" href="${escapeHtml(wcagRef.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(finding.wcag)} — ${escapeHtml(wcagRef.title)}</a>`
+    : escapeHtml(finding.wcag ?? '');
   const fields = [
     ['Severity', `<span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span>`],
-    ['WCAG', escapeHtml(finding.wcag ?? '')],
+    ['WCAG', wcagCell],
     ['Name', escapeHtml(finding.name ?? '')],
     ['Type', escapeHtml(finding.type ?? '')],
     ['Path', escapeHtml(finding.path ?? ''), true],
@@ -7146,16 +7155,6 @@ if (els.tabTbody && !els.tabTbody.__bound) {
       console.warn("Tab walk table click failed", err);
       toast("Could not highlight element");
     }
-  });
-}
-
-if (els.density) {
-  els.density.addEventListener("change", async () => {
-    const compact = !!els.density.checked;
-    applyDensity(compact);
-    const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
-    uiPrefs.compact = compact;
-    await storageSet({ uiPrefs });
   });
 }
 
@@ -7390,7 +7389,6 @@ window.addEventListener("keydown", (e) => {
   if (key === "1") { showView("snap"); return; }
   if (key === "2") { showView("flow"); return; }
   if (key === "3") { showView("settings"); return; }
-  if (key === "4") { showView("about"); return; }
 
   if (state.topTab === "flow") {
     // s = mark step (if session active), e = end session

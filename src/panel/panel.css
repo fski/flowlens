@@ -738,7 +738,6 @@ kbd {
 .topTab .tabLabel { font-size: 15px; }
 
 .topTab--settings { flex: 0 0 auto; }
-.topTab--about { flex: 0 0 auto; }
 
 /* ═══ ABOUT / DIAGNOSTICS ═══ */
 .aboutSection {
@@ -1449,16 +1448,9 @@ kbd {
   padding: 8px 0;
 }
 
-/* ═══ RAW JSON PRE (flow panels) ═══ */
-.rawJsonPre {
-  margin: 0;
-  padding: 12px 0;
-  color: var(--tx3);
-  font: 500 12px/1.6 var(--font-mono);
-  max-height: min(200px, 25vh);
-  overflow: auto;
-  white-space: pre-wrap;
-}
+/* WCAG Understanding link in finding detail */
+.wcagLink { color: var(--teal); text-decoration: none; }
+.wcagLink:hover, .wcagLink:focus-visible { text-decoration: underline; }
 
 /* JSON syntax highlighting tokens (Raw JSON sheets) */
 .jt-key  { color: var(--teal); }
@@ -2370,20 +2362,6 @@ kbd {
 #wcagLevel { min-width: 100px; }
 #target { min-width: 100px; }
 #frameSelect { min-width: 120px; flex: 1; }
-
-body.compact .wrap { gap: 0; }
-body.compact .headerBar { padding: 4px 12px; }
-body.compact .ctaSlot { padding: 8px 12px 0; }
-body.compact .ctaBtn { min-height: 40px; font-size: 13px; }
-body.compact .subTab { min-height: 40px; }
-body.compact .topTab { min-height: 40px; }
-body.compact .btn { padding: 6px 12px; font-size: 13px; }
-body.compact .tbl thead th,
-body.compact .tbl tbody td { padding: 3px 4px; }
-body.compact .tbl thead th { font-size: 10px; }
-body.compact .tbl { font-size: 11px; }
-body.compact .settingsGrid { gap: 12px; padding: 0; }
-body.compact .brandLogo { width: 72px; height: auto; }
 
 /* ═══ LIGHT THEME COMPONENT OVERRIDES ═══ */
 [data-theme="light"] .sheetBody { background: rgba(0, 0, 0, 0.03); }
