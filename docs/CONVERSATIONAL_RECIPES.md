@@ -137,7 +137,7 @@ The structural profiles detect patterns common across these and similar products
 ## Troubleshooting
 
 1. **Chat not detected?**
-   - Check the **Active Profile** in the About/Diagnostics tab.
+   - Check the **Active Profile** in the Settings tab (Diagnostics section).
    - If the widget is embedded (iframe), ensure Frame Scope is set to "embedded".
 
 2. **No findings in Watch mode?**

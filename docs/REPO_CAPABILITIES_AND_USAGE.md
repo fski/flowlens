@@ -55,9 +55,9 @@
 | `devtools.html` / `devtools.js` | ~10 | Rejestracja panelu DevTools (`chrome.devtools.panels.create`) |
 | `panel.html` | 272 | Struktura HTML panelu: header, scope/targeting, settings, tryby, action bar, progress, wyniki, eksport |
 | `panel.js` | 4265 | Logika UI: stan, renderowanie tabel wirtualnych, sesje Flow, sygnatury, eksporty, persistence, accessibility |
-| `panel.css` | 1918 | Style: Ayu Dark theme, light theme, compact mode, severity kolory, responsive |
-| `sw.js` | ~1100 | Service worker: walidacja wiadomości, frame scope resolution, frame scoring, script injection, normalizacja wyników, frame key generation |
-| `a11y-audit-snippet.js` | ~2200 | Silnik audytu WCAG: ~50 typów reguł, `run()`, `observe()`, `watch()`, `tabWalk()`, `contrastScan()`, profile-aware checks |
+| `panel.css` | 2527 | Style: dark theme only, severity kolory, responsive |
+| `sw.js` | ~1605 | Service worker: walidacja wiadomości, frame scope resolution, frame scoring, script injection, normalizacja wyników, frame key generation |
+| `a11y-audit-snippet.js` | ~4285 | Silnik audytu WCAG: ~120 typów reguł, `run()`, `observe()`, `watch()`, `tabWalk()`, `contrastScan()`, profile-aware checks |
 | `fixtures/a11y-rule-fixtures.html` | ~130 | Strona testowa z fixture'ami do weryfikacji reguł FP |
 | `icons/` | — | Ikony rozszerzenia (16, 32, 48, 128px) |
 
