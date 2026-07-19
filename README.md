@@ -55,7 +55,7 @@ See [docs/DEPTH_MODEL.md](docs/DEPTH_MODEL.md) for the full depth model referenc
 FlowLens outputs are deterministic and reproducible:
 
 - **Stable signatures** — Every finding produces a content-addressed signature that is identical across runs with the same inputs
-- **No timestamps** — Findings carry no time-based data that would cause false diffs
+- **Time-free signatures** — stable signatures and diffs exclude timestamps, so time-based data never causes false diffs (captured result summaries do carry a timestamp for display)
 - **Bounded capture artifacts** — All capture windows and observation periods have fixed upper bounds
 - **No raw text in CI export** — The CI JSON contract exports structural metadata, not page content
 - **No telemetry** — Zero network calls, zero analytics, zero tracking
@@ -67,7 +67,7 @@ All processing happens entirely in the browser:
 - No message text is stored or exported
 - No DOM paths appear in CI JSON output
 - Cross-frame integrity checks operate on hashed structural summaries only
-- No network requests are made — ever
+- The audit engine makes no network requests; the only outbound traffic is opening a W3C WCAG documentation link if you explicitly click one
 - No data leaves the browser
 
 ## Audit modes
@@ -80,7 +80,7 @@ Five modes, each injected into the inspected page:
 - **TabWalk** — tabs through up to 80 focusable elements to detect focus traps and order issues, drawing numbered tab-stop markers and the focus path on the page
 - **Contrast** — scans up to 250 text nodes for approximate color contrast ratios (AA/AAA)
 
-Presets combine modes: Quick (Run + Contrast), Release (Watch + Observe + Run), Focus (TabWalk + Run).
+Two guided presets are available from the empty state: **Quick scan** (Run + Contrast) and **Deep audit** (Watch + Observe + Run).
 
 ## Flow Profiles
 
@@ -114,7 +114,7 @@ You can pin a frame per origin so it persists across reloads and acts as a manua
 
 ## Keyboard shortcuts
 
-`r` Run, `o` Observe, `w` Watch, `t` TabWalk, `c` Contrast
+`1` / `2` / `3` switch the Snap / Flow / Settings tabs. Inside the Flow tab: `r` starts a recording session, `s` marks a step, `e` ends the session. There are no per-mode shortcuts.
 
 ## Export
 
@@ -150,7 +150,7 @@ dist/                          build output — load this in Chrome (gitignored)
 
 ## How it works
 
-`panel.js` sends messages to `sw.js`, which injects `a11y-audit-snippet.js` into the target frame(s) via `chrome.scripting.executeScript`. The snippet runs the audit in the page context and returns results. The panel stores results in `chrome.storage.local` (last 20 per origin/env), supports diffing between runs, and uses virtual scrolling for large result sets.
+`panel.js` sends messages to `sw.js`, which injects `a11y-audit-snippet.js` into the target frame(s) via `chrome.scripting.executeScript`. The snippet runs the audit in the page context and returns results. The panel stores results in `chrome.storage.local` (up to 20 per origin/env; fewer when storage quota forces progressive compaction), supports diffing between runs, and uses virtual scrolling for large result sets.
 
 The state transition engine (C1–C4) evaluates conversation integrity from the audit findings. Depth 3 aggregates summarize integrity across four axes. The CI exporter produces a deterministic JSON report suitable for automated pipelines.
 

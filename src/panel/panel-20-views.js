@@ -203,6 +203,7 @@ async function persistRecords(scopeKey) {
     if (!row || typeof row !== "object") return row;
     return {
       ratio: row.ratio,
+      apcaLc: row.apcaLc,
       required: row.required,
       largeText: !!row.largeText,
       text: truncateString(row.text ?? "", Math.min(maxLen, 120)),

@@ -46,7 +46,7 @@ All tests use `node:test` and `node:assert/strict` with zero npm dependencies. T
 npm run build
 ```
 
-The build must produce a bundle under 450K total. Check the build output for file sizes.
+Keep the bundle lean — the current build is ~550K total (check the build output for file sizes); avoid additions that grow it substantially.
 
 ### Adding rules
 

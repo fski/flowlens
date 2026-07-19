@@ -55,14 +55,29 @@ class VirtualTable {
       const st = wrap.scrollTop || 0;
 
       const rh = Math.max(18, this.rowHeight || this.estimateRowHeight);
-      const start0 = Math.floor(st / rh);
+
+      // One variable-height row (the expanded detail) lives inside uniform
+      // virtualization: fold its cached height into the scroll offset and the
+      // spacer that covers it, or total scroll height jumps whenever the
+      // expansion leaves the rendered window.
+      const dh = (this.expandedIdx != null && this.detailRenderer) ? (this.detailHeight || 0) : 0;
+      let stAdj = st;
+      if (dh) {
+        const detailTop = (this.expandedIdx + 1) * rh;
+        if (st > detailTop) stAdj = Math.max(detailTop, st - dh);
+      }
+      const start0 = Math.floor(stAdj / rh);
       const vis = Math.ceil(vh / rh) + 1;
 
       const start = Math.max(0, start0 - this.overscan);
       const end = Math.min(n, start0 + vis + this.overscan);
 
-      const topPad = start * rh;
-      const botPad = Math.max(0, (n - end) * rh);
+      let topPad = start * rh;
+      let botPad = Math.max(0, (n - end) * rh);
+      if (dh) {
+        if (this.expandedIdx < start) topPad += dh;
+        else if (this.expandedIdx >= end) botPad += dh;
+      }
 
       // Build HTML
       const rows = [];
@@ -89,6 +104,12 @@ class VirtualTable {
       if (firstRow) {
         const h = firstRow.getBoundingClientRect().height;
         if (h && Math.abs(h - this.rowHeight) > 1) this.rowHeight = h;
+      }
+      // Cache the expanded detail row's height for the spacer math above
+      const detailEl = this.tbodyEl.querySelector("tr.detailRow");
+      if (detailEl) {
+        const h = detailEl.getBoundingClientRect().height;
+        if (h && Math.abs(h - (this.detailHeight || 0)) > 1) this.detailHeight = h;
       }
     });
   }
