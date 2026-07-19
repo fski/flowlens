@@ -1171,6 +1171,7 @@ async function highlightFinding(finding, highlightCtx) {
 async function _highlightFindingInner(finding, highlightCtx) {
   const payload = {
     path: finding.path ?? null,
+    pathDeep: finding.pathDeep ?? finding.targetRef?.pathDeep ?? null,
     testId: finding.testId ?? null,
     tag: finding.tag ?? null,
     name: finding.name ?? null,
@@ -1189,7 +1190,7 @@ async function _highlightFindingInner(finding, highlightCtx) {
   }
 
   // Retry across other used frames if not found
-  if (res?.found === false && usedFrameIds.length > 0) {
+  if (res?.found === false && res?.reason !== "AUDIT_IN_PROGRESS" && usedFrameIds.length > 0) {
     const retryIds = usedFrameIds.filter(id => id !== bestFrameId).slice(0, 3);
     for (const fid of retryIds) {
       try {
@@ -1201,7 +1202,7 @@ async function _highlightFindingInner(finding, highlightCtx) {
 
   // No frame context (e.g. a restored past run) — discover frames and retry
   // the embedded ones so highlight still works for iframe findings.
-  if (res?.found === false && usedFrameIds.length === 0) {
+  if (res?.found === false && res?.reason !== "AUDIT_IN_PROGRESS" && usedFrameIds.length === 0) {
     try {
       const lf = await send({ type: "LIST_FRAMES" });
       const frameIds = (Array.isArray(lf?.frames) ? lf.frames : [])
@@ -1225,7 +1226,9 @@ async function _highlightFindingInner(finding, highlightCtx) {
     const tag = res.matched?.tag ? `: <${res.matched.tag}>` : "";
     toast(approx ? `Highlighted closest match${via}${tag}${frameUsed}` : `Highlighted${via}${tag}${frameUsed}`);
   } else {
-    const reason = res?.reason === "FRAME_INACCESSIBLE" ? "frame inaccessible" : "element not found — re-run the audit if the page changed";
+    const reason = res?.reason === "FRAME_INACCESSIBLE" ? "frame inaccessible"
+      : res?.reason === "AUDIT_IN_PROGRESS" ? "audit in progress — highlight after it finishes"
+      : "element not found — re-run the audit if the page changed";
     // Manual retry advances to the first frame that has NOT been tried yet
     // (auto loop covered bestFrameId + up to 3 others).
     const autoTried = new Set([bestFrameId, ...usedFrameIds.filter(id => id !== bestFrameId).slice(0, 3)]);

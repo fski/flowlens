@@ -736,6 +736,7 @@
       html: el ? html(el) : null,
       targetRef: el ? {
         cssSelector: el ? cssPath(el) : null,
+        pathDeep: el ? cssPathDeep(el) : null,
         testId: el ? testId(el) : null,
         tag: el?.tagName?.toLowerCase() || null,
         role: el?.getAttribute?.("role") || null,
@@ -1446,6 +1447,10 @@
 
   let observeInFlight = null;
   let watchInFlight = null;
+  // Cleanup hooks for running timed modes — a re-injected snippet instance
+  // calls the previous instance's __abortTimed() so two generations of
+  // MutationObservers/intervals never run side by side.
+  const _timedDisposers = new Set();
 
   // ---------------- Shadow DOM scope collection ----------------
 
@@ -1584,6 +1589,23 @@
    * Resolve a finding's target element using fallback chain.
    * P1-2: tag+role+name fallback capped at MAX_TAG_CANDIDATES.
    */
+  // Resolve a shadow-aware deep path ("a > b >>> c > d"): each ">>>" hop
+  // descends into the previous element's shadowRoot.
+  const resolveDeepPath = (deepPath) => {
+    const hops = String(deepPath).split(" >>> ");
+    let root = doc;
+    let el = null;
+    for (let i = 0; i < hops.length; i++) {
+      try { el = root.querySelector(hops[i]); } catch { return null; }
+      if (!el) return null;
+      if (i < hops.length - 1) {
+        root = el.shadowRoot;
+        if (!root) return null;
+      }
+    }
+    return el;
+  };
+
   const resolveTarget = (targetRef) => {
     if (!targetRef) return null;
 
@@ -1596,6 +1618,14 @@
       if (targetRef.role && el.getAttribute("role") !== targetRef.role) return false;
       return true;
     };
+
+    // 0. Shadow-aware deep path — the only selector form that can address a
+    // shadow-DOM element precisely (a light-DOM-shaped cssSelector for a
+    // shadow target can collide with an unrelated light-DOM subtree).
+    if (targetRef.pathDeep && targetRef.pathDeep.includes(">>>")) {
+      const el = resolveDeepPath(targetRef.pathDeep);
+      if (el && looksLikeRef(el)) return el;
+    }
 
     // 1. Try CSS selector (identity-validated)
     if (targetRef.cssSelector) {
@@ -3558,6 +3588,7 @@
       const finish = () => {
         if (settled) return;
         settled = true;
+        _timedDisposers.delete(finish);
         if (timer) clearInterval(timer);
         if (timeout) clearTimeout(timeout);
         const unique = uniqBy(merged, x => `${x.type}|${x.severity}|${x.product||""}|${x.path||""}|${JSON.stringify(x.extra||{})}`);
@@ -3572,6 +3603,7 @@
 
         resolve(result);
       };
+      _timedDisposers.add(finish);
 
       // State Transition Engine — observe mode
       let prevTransitionState = null;
@@ -3834,6 +3866,7 @@
       const finalize = () => {
         if (settled) return;
         settled = true;
+        _timedDisposers.delete(finalize);
         if (timer) clearInterval(timer);
         if (pendingLoaderRecalc) clearTimeout(pendingLoaderRecalc);
         try { observer.disconnect(); } catch {}
@@ -3866,6 +3899,7 @@
 
         resolve(result);
       };
+      _timedDisposers.add(finalize);
 
       timer = setInterval(() => {
         const t = +(performance.now() - start).toFixed(0);
@@ -4221,6 +4255,12 @@
     }
   };
 
+  api.__abortTimed = () => {
+    for (const dispose of [..._timedDisposers]) { try { dispose(); } catch {} }
+  };
+
+  // Stop the previous injection's timed modes before taking over the slot.
+  try { w[KEY]?.__abortTimed?.(); } catch {}
   w[KEY] = api;
   console.log(`✅ ${KEY} installed`, w.location.href, "inIframe=", w.self !== w.top, "mode=", detectMode());
 })();
