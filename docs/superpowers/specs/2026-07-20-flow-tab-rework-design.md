@@ -1,7 +1,9 @@
 # Flow tab rework — design spec
 
 **Date:** 2026-07-20
-**Status:** approved (design direction) — pending spec review
+**Status:** reviewed (code-verified) — pending final user sign-off
+**Reviewed:** 2026-07-20 — assumptions checked against source; corrections folded
+into §4.1, §4.2, §4.4, §4.5, §6a. See "Review log" at the end.
 **Version target:** FlowLens 6.1.0 (minor: new user-facing capability, no breaking data change)
 
 ## 1. Problem
@@ -76,6 +78,11 @@ Interface (all async, Promise-based):
 - `pruneToSessions(keepSessionIds[])` — bounds disk; called on session end,
   keeps media only for the most recent N sessions (N=5) that still exist in the
   record store.
+- **Deletion wiring (verified gap):** `deleteSession` must be called from the
+  existing "Delete run" and "Delete all runs" handlers (`panel-20-views.js:465,
+  491`) and when a session is replaced — otherwise media orphans accumulate in
+  IndexedDB independent of the record store. Prune is the backstop, not the
+  primary cleanup.
 - `objectUrlForShot(sessionId, stepIndex)` — convenience returning a cached
   `URL.createObjectURL` (revoked on re-render) for `<img src>`.
 
@@ -95,6 +102,14 @@ losing the shot.
   frontmost, or a `chrome://` page).
 - Panel converts dataURL → Blob, writes `flowMediaStore.putShot(...)`, sets
   `step.hasShot = true`.
+- **Overlay hygiene (verified gap):** the audit snippet injects a tab-stop /
+  highlight overlay (`__flowlens_annotations__`, lives up to 30 s) and finding
+  highlights. Before `captureVisibleTab`, the panel MUST call the snippet's
+  exported `clearAnnotations()` (and clear any active highlight) so the
+  screenshot shows the real page, not FlowLens's own green badges.
+- **Rate limit:** `captureVisibleTab` is quota-limited per second. Auto-capture
+  is debounced (≥500 ms) so it won't hit it; rapid manual marking might — the
+  best-effort path handles a throttled failure as a placeholder tile.
 - Capture is **best-effort and non-blocking**: a shot failure never fails the
   step audit; the step still records, filmstrip shows a placeholder tile.
 
@@ -112,24 +127,43 @@ Host permissions (`http://*/*`, `https://*/*`) already cover
   (toast, no error state).
 - Requires a user gesture — bound to a "Record video" button in the Flow CTA.
 
-### 4.4 Auto-capture trigger (change to existing wiring)
-- `state.autoCaptureNav` (or the persisted UI pref) **defaults ON**.
-- The existing `webNavigation.onCommitted`-driven debounce is extended to also
-  fire on **`webNavigation.onHistoryStateUpdated`** (SPA route change via the
-  History API) for the inspected tab, same debounce.
-- A small `classifyNavForCapture(details, lastUrl)` helper decides whether a nav
-  event is a real step (URL/path changed, not a hash-only or self-nav) — pure
-  and unit-tested to keep noise down.
-- The "Auto" toggle remains as an explicit opt-out; "Mark step" stays for manual
+### 4.4 Auto-capture trigger (corrected after code review)
+**Existing mechanism (verified):** auto-capture is driven **panel-side** by
+`chrome.devtools.network.onNavigated` (`panel-90-wireup.js:1027`) with a
+debounce, gated on the `autoCaptureNav` checkbox — NOT by a SW `webNavigation`
+listener. SW↔panel today is request/response (`chrome.runtime.onMessage`); there
+is **no long-lived port** to push events to a specific DevTools panel.
+
+Plan:
+- Flip `autoCaptureNav` (persisted UI pref) to **default ON**.
+- `devtools.network.onNavigated` reliably catches full navigations but is
+  **unreliable for pure History-API route changes** (pushState without a network
+  load). To cover SPA routes we add a SW listener on
+  `webNavigation.onHistoryStateUpdated` filtered to the inspected `tabId`, which
+  **pushes an event to the panel over a NEW `runtime.connect` port** (new
+  plumbing — costed into the plan, previously under-scoped).
+- Panel **dedupes** the two sources by last-captured URL so a full navigation
+  isn't counted twice (onNavigated + onHistoryStateUpdated can both fire).
+- `classifyNavForCapture(url, lastUrl)` (pure, unit-tested) decides a real step:
+  ignore hash-only changes and self-navigation, accept path/query changes.
+- The "Auto" toggle stays as explicit opt-out; "Mark step" stays for manual
   insertion.
 
-### 4.5 Diff / lifecycle data builders (new, pure)
-Reuse the existing per-step stable signatures already stored on each step
-(`step.diffs`, `stableFindingSignatureSet`). No engine change.
+### 4.5 Diff / lifecycle data builders (new, pure — verified against data model)
+The step object **already stores everything needed** (verified in
+`captureStepOptionC`, `panel-50-overlay.js`): `step.snapshots.run` (full
+normalized findings), `step.stableSignatures.run` (from the existing
+`computeStableSignatureSet` → `stableFindingSignatureSet`), and `step.diffs`
+(from the existing `buildStepDiffs`). No engine change; these builders wrap
+existing machinery.
 - `bucketStepDiff(step, prevStep) → { appeared[], persisting[], resolved[] }` —
-  finding-level buckets for the detail pane.
+  diffs the two steps' `stableSignatures.run` sets for identity. **Resolved
+  findings (present in prev, gone in current) must be resolved to human-readable
+  form from `prevStep`'s snapshot**, not the current one — the current step no
+  longer contains them. Appeared/persisting resolve from the current snapshot.
 - `buildIssueLifecycle(steps) → { lanes: [{ sig, label, severity, firstStep,
-  lastStep, presentSteps[] }] }` — one lane per recurring issue across the flow.
+  lastStep, presentSteps[] }] }` — one lane per recurring signature across the
+  flow, built from each step's `stableSignatures`.
 Both pure, deterministic, table-tested.
 
 ### 4.6 Flow view (rewrite) — `renderFlow(state)` orchestrator
@@ -170,6 +204,22 @@ list, swimlane becomes horizontally scrollable inside its own container (never
 the page body). Uses the existing token system; new CSS lives beside the current
 `#flowContent` block.
 
+## 6a. Self-accessibility (dogfooding — added after review)
+
+FlowLens is an accessibility tool; its own new Flow UI must pass the bar it
+enforces. Non-negotiable for the rewrite:
+- **Filmstrip** tiles are a keyboard-navigable list (arrow keys, roving
+  tabindex — reuse the `attachRovingTabindex` helper the tab bars will share),
+  each tile labelled with step number + issue summary.
+- **Step list** rows are focusable and operable by Enter/Space; selection is
+  announced (`aria-selected` on an `aria-live` detail region).
+- **Lifecycle swimlane** is not colour-only: each lane carries a text label and
+  the severity is conveyed by label, not just hue.
+- **Step ←/→ nav** is real buttons with labels, not click-only handlers.
+- Detail pane updates announce via a polite live region so the change is
+  perceivable without sight.
+This is verified in the E2E pass (focus order, roles, labels), not just eyeballed.
+
 ## 7. Constraints & risks (surfaced to the user)
 
 - **Viewport-only screenshots.** `captureVisibleTab` captures the visible
@@ -178,7 +228,10 @@ the page body). Uses the existing token system; new CSS lives beside the current
 - **Frontmost requirement.** If the inspected tab isn't frontmost at capture
   time, the shot fails → placeholder tile, step still records.
 - **Video picker per recording.** `getDisplayMedia` prompts the user to pick the
-  tab once per recording. Accepted as the no-permission tradeoff.
+  tab once per recording. Accepted as the no-permission tradeoff. It also
+  requires transient user activation **and the panel to be focused** — if focus
+  is in the inspected page the call can reject; the Record button handler must
+  run in the panel's own gesture. Manual-verify item.
 - **IndexedDB is async.** The panel renders filmstrip/detail with a loading
   state and fills images as object URLs resolve; object URLs are revoked on
   re-render to avoid leaks.
@@ -226,3 +279,23 @@ Even as one spec, land in reviewable slices, each green on its own:
 - **Screenshot format:** PNG. Larger than JPEG but lossless for text/contrast
   inspection, which is the point of an a11y screenshot; the 5-session prune
   bounds disk.
+
+## 11. Review log (2026-07-20, code-verified)
+
+Findings from reviewing the design against the actual source, with resolutions:
+
+| # | Severity | Finding | Resolution |
+|---|---|---|---|
+| A | HIGH | Auto-capture trigger was mis-described. Real source is panel-side `devtools.network.onNavigated`, not SW `webNavigation`. SW↔panel is request/response — no port exists to push SPA nav events. | §4.4 rewritten: default the panel listener ON; add SW `onHistoryStateUpdated` over a **new `runtime.connect` port** (extra plumbing, now costed), deduped against onNavigated. |
+| B | HIGH (favourable) | Verified the step object retains full per-finding data (`snapshots`, `stableSignatures`, `diffs`) — a real finding-level Appeared/Persisting/Resolved diff IS possible, not just counts. | §4.5 confirmed; builders wrap existing `computeStableSignatureSet`/`buildStepDiffs`. |
+| C | MED | Resolved findings can't be read from the current step (they're gone). | §4.5: resolve RESOLVED items from `prevStep`'s snapshot. |
+| D | MED | Spec ignored the Flow UI's OWN accessibility — unacceptable for an a11y tool. | New §6a: keyboard nav, roles/labels, non-colour-only swimlane, live-region detail; verified in E2E. |
+| E | MED | Media deletion not wired to existing delete-run / delete-all / session-replace — orphans accumulate. | §4.1: call `deleteSession` from those handlers; prune is only the backstop. |
+| F | LOW-MED | `captureVisibleTab` per-second quota under rapid manual marking. | §4.2: debounce covers auto; best-effort placeholder covers throttled failure. |
+| G | MED | Screenshot could capture FlowLens's own tab-stop/highlight overlay. | §4.2: call snippet `clearAnnotations()` + clear highlight before capture. |
+| H | LOW | `getDisplayMedia` needs panel focus + transient activation. | §7: run from the panel's own Record-button gesture; manual-verify. |
+| I | LOW | IndexedDB absent in the node:vm test harness. | §4.1 `_openDb()` seam + hand-rolled in-memory fake (keeps zero runtime deps). |
+
+Net: design is sound and the hardest risk (finding-level diff) is de-risked by
+existing data. The one real scope increase is the SW→panel port for SPA route
+capture (finding A).
