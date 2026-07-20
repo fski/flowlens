@@ -125,6 +125,11 @@ function updateSessionButtons() {
     const hasMultiStep = (sess?.steps?.length || 0) >= 2;
     els.exportDiffReportMenu.hidden = !(hasExportableSession && hasMultiStep);
   }
+  if (els.exportShotsMenu) {
+    const sessShots = sessionState.current || sessionState.lastEndedSession;
+    const hasShots = (sessShots?.steps || []).some(s => s?.hasShot);
+    els.exportShotsMenu.hidden = !(hasExportableSession && hasShots);
+  }
   if (els.exportAnchor) els.exportAnchor.hidden = !((state.records.length > 0) || hasExportableSession);
   renderSessionHud();
 }

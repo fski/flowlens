@@ -447,6 +447,50 @@ describe('UX audit 2026-07-20 (foodora session feedback)', () => {
   });
 });
 
+describe('screenshot export (store-only ZIP, zero deps)', () => {
+  let ctx;
+  beforeEach(() => { ctx = createContext(); });
+
+  it('crc32 matches the standard test vector', () => {
+    const bytes = new TextEncoder().encode('123456789');
+    assert.equal(ctx.crc32(bytes), 0xCBF43926);
+  });
+
+  it('buildStoreZip produces a structurally valid ZIP (headers, EOCD, offsets)', () => {
+    const zip = ctx.buildStoreZip([
+      { name: 'step-01.png', data: new Uint8Array([1, 2, 3]) },
+      { name: 'step-02.png', data: new Uint8Array([4, 5]) },
+    ]);
+    const u32at = (o) => zip[o] | (zip[o + 1] << 8) | (zip[o + 2] << 16) | (zip[o + 3] << 24);
+    assert.equal(u32at(0) >>> 0, 0x04034b50, 'first local header');
+    // Second local header right after header(30) + name(11) + data(3).
+    assert.equal(u32at(30 + 11 + 3) >>> 0, 0x04034b50, 'second local header');
+    // EOCD at the tail with entry count 2.
+    const eocd = zip.length - 22;
+    assert.equal(u32at(eocd) >>> 0, 0x06054b50, 'EOCD signature');
+    assert.equal(zip[eocd + 10] | (zip[eocd + 11] << 8), 2, 'entry count');
+    // Central directory offset points at a central header.
+    const cdStart = u32at(eocd + 16);
+    assert.equal(u32at(cdStart) >>> 0, 0x02014b50, 'central dir signature');
+  });
+
+  it('collectSessionShots gathers stored shots in step order with padded names', async () => {
+    const mkBlob = (bytes) => ({ arrayBuffer: async () => new Uint8Array(bytes).buffer });
+    ctx.flowMediaStore.getShot = async (sid, key) => (key === 'step_a' ? mkBlob([1]) : key === 'step_b' ? mkBlob([2]) : null);
+    const sess = {
+      id: 's1',
+      steps: [
+        { index: 1, id: 'step_a', hasShot: true },
+        { index: 2, id: 'step_noshot', hasShot: false },
+        { index: 3, id: 'step_b', hasShot: true },
+      ],
+    };
+    const entries = await ctx.collectSessionShots(sess);
+    assert.deepEqual(entries.map(e => e.name).join(','), 'step-01.png,step-03.png');
+    assert.equal(entries[0].data.length, 1);
+  });
+});
+
 describe('recorder error classification (policy block must be loud)', () => {
   let ctx;
   beforeEach(() => { ctx = createContext(); });

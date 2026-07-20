@@ -633,6 +633,40 @@ async function downloadFlowVideo(sessionId) {
   }
 }
 
+// Gather every stored screenshot for a session, in step order.
+async function collectSessionShots(sess) {
+  if (typeof flowMediaStore === "undefined" || !sess) return [];
+  const out = [];
+  for (const step of sess.steps || []) {
+    if (!step?.hasShot) continue;
+    const blob = await flowMediaStore.getShot(sess.id, stepShotKey(step));
+    if (!blob || typeof blob.arrayBuffer !== "function") continue;
+    out.push({ name: shotZipName(step), data: new Uint8Array(await blob.arrayBuffer()) });
+  }
+  return out;
+}
+
+async function downloadSessionScreenshots() {
+  const sess = sessionState.current || sessionState.lastEndedSession;
+  if (!sess) { toast("No session available"); return false; }
+  const entries = await collectSessionShots(sess);
+  if (!entries.length) { toast("No screenshots stored for this flow"); return false; }
+  const zip = buildStoreZip(entries);
+  downloadBlobFile(new Blob([zip], { type: "application/zip" }), `flowlens-flow-${sess.id}-screenshots.zip`);
+  toast(`Downloaded ${entries.length} screenshot${entries.length !== 1 ? "s" : ""} (.zip)`);
+  return true;
+}
+
+async function downloadStepShot(stepIndex) {
+  const sess = sessionState.current || sessionState.lastEndedSession;
+  const step = (sess?.steps || []).find(s => s.index === stepIndex);
+  if (!sess || !step?.hasShot) { toast("No screenshot for this step"); return false; }
+  const blob = await flowMediaStore.getShot(sess.id, stepShotKey(step));
+  if (!blob) { toast("Screenshot not found in storage"); return false; }
+  downloadBlobFile(blob, `flowlens-flow-${sess.id}-step-${String(step.index).padStart(2, "0")}.png`);
+  return true;
+}
+
 function renderContrast(res) {
   state.contrastData = Array.isArray(res?.failures) ? res.failures : [];
   state.contrastSamples = Array.isArray(res?.samples) ? res.samples : [];
