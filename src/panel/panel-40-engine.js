@@ -595,6 +595,9 @@ function buildStepFindingIndex(snapshot, rawAppendix = null) {
       type: (f && f.type) || "UNKNOWN_RULE",
       severity: (f && f.severity) || "info",
       wcag: (f && f.wcag) || "",
+      // Confidence is needed to classify a blocker the same way Snap/CI do
+      // (isRunFindingBlocking): medium is blocking only at strict confidence.
+      confidence: (f && f.confidence) || "",
     };
   }
   return out;

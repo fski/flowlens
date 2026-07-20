@@ -514,37 +514,54 @@ function shouldCaptureShot(scopeInfo) {
  * Best-effort per-step screenshot. Never throws into the audit path: on any
  * failure the step still records and the filmstrip shows a placeholder tile.
  * Overlay hygiene is handled SW-side (clears __flowlens_annotations__ before
- * captureVisibleTab) so FlowLens's own badges don't pollute the shot.
+ * captureVisibleTab). Keyed by the STABLE step.id, not step.index — the index
+ * is renumbered when an earlier step is deleted, which would otherwise make a
+ * step load a different step's screenshot.
+ * @returns {Promise<boolean>} whether the shot landed (so the caller can persist).
  */
-async function captureStepShot(sessionId, stepIndex, scopeInfo, at) {
+async function captureStepShot(sessionId, step, scopeInfo, at) {
   try {
-    if (!shouldCaptureShot(scopeInfo)) return;
+    if (!shouldCaptureShot(scopeInfo)) return false;
     const r = await send({ type: "CAPTURE_SHOT" });
-    if (!r || !r.ok || !r.dataUrl) {
-      markShotError(sessionId, stepIndex);
-      return;
-    }
+    if (!r || !r.ok || !r.dataUrl) { step.shotError = true; return false; }
     const blob = await (await fetch(r.dataUrl)).blob();
-    const put = await flowMediaStore.putShot(sessionId, stepIndex, blob, { at: at || 0 });
-    if (put && put.ok) markShotDone(sessionId, stepIndex);
-    else markShotError(sessionId, stepIndex);
+    const put = await flowMediaStore.putShot(sessionId, step.id, blob, { at: at || 0 });
+    if (put && put.ok) { step.hasShot = true; step.shotError = false; return true; }
+    step.shotError = true;
+    return false;
   } catch (e) {
-    markShotError(sessionId, stepIndex);
+    step.shotError = true;
+    return false;
   }
 }
 
-function _findStep(sessionId, stepIndex) {
-  const sess = sessionState.current || sessionState.lastEndedSession;
-  if (!sess || sess.id !== sessionId) return null;
-  return (sess.steps || []).find(s => s.index === stepIndex) || null;
+// Trigger a local download of a Blob (flow video). Object URL revoked after.
+function downloadBlobFile(blob, filename) {
+  if (!blob) return;
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = filename || "download";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(function () { try { URL.revokeObjectURL(url); } catch (_) {} }, 1000);
 }
-function markShotDone(sessionId, stepIndex) {
-  const step = _findStep(sessionId, stepIndex);
-  if (step) { step.hasShot = true; step.shotError = false; }
-}
-function markShotError(sessionId, stepIndex) {
-  const step = _findStep(sessionId, stepIndex);
-  if (step) { step.shotError = true; }
+
+// Retrieve a stored flow recording and download it (used by the header button
+// after a session ended with a saved video).
+async function downloadFlowVideo(sessionId) {
+  if (typeof flowMediaStore === "undefined") return false;
+  try {
+    var rec = await flowMediaStore.getVideo(sessionId);
+    if (!rec || !rec.blob) { toast("No recording for this flow"); return false; }
+    var ext = (rec.meta && /vp9|vp8|webm/.test(rec.meta.mime || "")) ? "webm" : "webm";
+    downloadBlobFile(rec.blob, "flowlens-flow-" + sessionId + "." + ext);
+    return true;
+  } catch (_) {
+    toast("Could not load recording");
+    return false;
+  }
 }
 
 function renderContrast(res) {
@@ -2006,9 +2023,17 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     updateSessionFramesIndex(sessionState.current, step);
 
     // Best-effort per-step screenshot — fire-and-forget, never blocks or fails
-    // the step. Re-renders the filmstrip when the shot lands.
-    captureStepShot(sessionState.current.id, step.index, { url }, capturedAt)
-      .then(() => { if (typeof renderFlow === "function" && state.topTab === "flow") renderFlow(); })
+    // the step. The step audit is persisted BEFORE the shot resolves, so on
+    // success re-persist so the hasShot marker survives a reload, then
+    // re-render the filmstrip.
+    const _shotSessionId = sessionState.current.id;
+    captureStepShot(_shotSessionId, step, { url }, capturedAt)
+      .then((landed) => {
+        if (landed && sessionState.current && sessionState.current.id === _shotSessionId) {
+          persistActiveSessionBestEffort(compactSessionForExport(sessionState.current)).catch(() => {});
+        }
+        if (typeof renderFlow === "function" && state.topTab === "flow") renderFlow();
+      })
       .catch(() => {});
 
     const compacted = compactSessionForExport(sessionState.current);

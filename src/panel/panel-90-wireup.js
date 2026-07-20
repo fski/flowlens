@@ -343,6 +343,15 @@ function stepIndicesForNav() {
     els.flowUnresolvedOnly.addEventListener("change", () => renderFlow());
   }
 
+  // Download a stored flow recording from the verdict header.
+  if (els.flowVerdictHeader) {
+    els.flowVerdictHeader.addEventListener("click", (e) => {
+      if (!e.target.closest("[data-flow-download-video]")) return;
+      const sess = sessionState.current || sessionState.lastEndedSession;
+      if (sess?.id) downloadFlowVideo(sess.id);
+    });
+  }
+
   // Record video: getDisplayMedia (user picks the tab) → webm in the media
   // store. Toggle button; label reflects recording state.
   if (els.flowRecordVideo) {
@@ -350,7 +359,14 @@ function stepIndicesForNav() {
       if (flowRecorder.isRecording()) {
         const r = await flowRecorder.stop();
         setRecordVideoUi(false);
-        toast(r?.ok ? "Video saved to this flow" : "Recording stopped");
+        if (r?.ok && r.blob) {
+          const sid = (sessionState.current || sessionState.lastEndedSession)?.id || "flow";
+          downloadBlobFile(r.blob, `flowlens-flow-${sid}.webm`);
+          toast("Video saved & downloaded");
+        } else {
+          toast("Recording stopped");
+        }
+        renderFlow();
         return;
       }
       const sess = sessionState.current || sessionState.lastEndedSession;
