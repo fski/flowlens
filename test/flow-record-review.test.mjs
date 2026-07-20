@@ -293,6 +293,15 @@ describe('auto-capture skips third-party SITES (privacy decision 2026-07-20)', (
     assert.equal(ctx.registrableDomain('https://example.com'), 'example.com');
   });
 
+  it('IP literals compare whole — different IPs are different sites', () => {
+    assert.equal(ctx.registrableDomain('http://10.0.3.4:3000/x'), '10.0.3.4');
+    assert.notEqual(ctx.registrableDomain('http://10.0.3.4'), ctx.registrableDomain('http://172.16.3.4'));
+    assert.equal(ctx.registrableDomain('http://localhost:8080/x'), 'localhost');
+    const s = { inspectedOrigin: 'http://10.0.3.4:3000' };
+    assert.equal(ctx.isForeignAutoCaptureOrigin('http://10.0.3.4:3000/step2', s), false);
+    assert.equal(ctx.isForeignAutoCaptureOrigin('http://172.16.3.4/x', s), true);
+  });
+
   it('no session origin → not foreign (no false blocking)', () => {
     assert.equal(ctx.isForeignAutoCaptureOrigin('https://x.com/a', null), false);
     assert.equal(ctx.isForeignAutoCaptureOrigin('https://x.com/a', {}), false);

@@ -97,7 +97,10 @@ function compactSessionForExport(session) {
     profileMatchSignals: lastStep?.profileMatchSignals || [],
     frameScope: clone.settings?.scopeAtCapture || clone.settings?.targetModeAtCapture || "primary",
     rulePack: lastStep?.rulePack || null,
-    reducedDiffConfidence: (clone.steps || []).some(s => s.profileSuspect === true) ||
+    // Same predicate as the verdict header — suspect counts only when a
+    // profile/root selector was actually in play; a looser copy here made the
+    // panel and the CI export disagree about the same session.
+    reducedDiffConfidence: (clone.steps || []).some(s => s.profileSuspect === true && (s.profileLabel || s.rootSelector)) ||
       (clone.steps || []).some(s => s.stableSignatures?.run?.stepQuality?.degraded === true),
   };
   for (const step of clone.steps || []) {
@@ -493,7 +496,15 @@ var flowRecorder = (function () {
     _sessionId = sessionId;
     _chunks = [];
     var mime = pickRecorderMime();
-    _rec = new MediaRecorder(_stream, mime ? { mimeType: mime } : undefined);
+    try {
+      _rec = new MediaRecorder(_stream, mime ? { mimeType: mime } : undefined);
+    } catch (e) {
+      // Stop the tracks or the screen-share indicator stays on with no way
+      // to turn it off from our UI.
+      try { _stream.getTracks().forEach(function (t) { t.stop(); }); } catch (_) {}
+      _stream = null;
+      return { ok: false, reason: "failed", errorName: (e && e.name) || "", errorMessage: String((e && e.message) || "").slice(0, 200) };
+    }
     _rec.ondataavailable = function (ev) { if (ev.data && ev.data.size) _chunks.push(ev.data); };
     // If the user stops sharing from Chrome's own bar, finalize gracefully.
     _stream.getVideoTracks().forEach(function (t) { t.onended = function () { handleRecorderAutoStop(); }; });
@@ -589,7 +600,7 @@ async function captureStepShot(sessionId, step, scopeInfo, at) {
     return false;
   } catch (e) {
     step.shotError = true;
-    step.shotErrorReason = (e && e.message) || "exception";
+    step.shotErrorReason = String((e && e.message) || "exception").slice(0, 200);
     return false;
   }
 }
@@ -1621,7 +1632,7 @@ function buildMachineReadableDiffReport(session) {
     stepsCount: steps.length,
     runConfigSummary: session?.runConfigSummary || null,
     confidence: {
-      reducedDiffConfidence: steps.some(s => s.profileSuspect === true) ||
+      reducedDiffConfidence: steps.some(s => s.profileSuspect === true && (s.profileLabel || s.rootSelector)) ||
         steps.some(s => s.stableSignatures?.run?.stepQuality?.degraded === true),
       profileSuspect: steps.some(s => s.profileSuspect === true),
       rootSelectorNotFound: steps.some(s => s.rootSelectorNotFound === true),
@@ -1807,6 +1818,10 @@ async function startSession() {
   // the whole recorder looked dead; nav flows also lacked their start state.
   if (els.autoCaptureNav?.checked) {
     sessionState.lastAutoNavUrl = url;
+    sessionState.lastFrameNavUrl = null;
+    // Baseline counts as a top-level nav event: embedded frames committing
+    // while the starting page settles belong to it, not to new steps.
+    sessionState.lastTopNavAt = Date.now();
     captureStepOptionC(null, { isAutoCapture: true }).catch(() => {});
   }
   return true;
@@ -1847,6 +1862,8 @@ async function endSession() {
     sessionState.autoCapturePending = null;
   }
   sessionState.lastAutoNavUrl = null;
+  sessionState.lastFrameNavUrl = null;
+  sessionState.lastTopNavAt = 0;
   sessionState.queuedCapture = null;
   // An in-flight capture will discard its own result (session-id guard); drop
   // the busy flag now so End takes effect immediately and the view is clean.

@@ -113,6 +113,10 @@ var _SHARED_SLD = { co: 1, com: 1, org: 1, net: 1, gov: 1, edu: 1, ac: 1 };
 function registrableDomain(originOrUrl) {
   var host;
   try { host = new URL(String(originOrUrl)).hostname; } catch (_) { return String(originOrUrl || ""); }
+  // IP literals have no registrable domain — compare them whole, or
+  // 10.0.3.4 vs 172.16.3.4 would both collapse to "3.4" and count as the
+  // same site (dev/staging MFEs live on bare IPs).
+  if (/^\[/.test(host) || /^[0-9.]+$/.test(host)) return host;
   var parts = host.split(".");
   if (parts.length <= 2) return host;
   return parts.slice(_SHARED_SLD[parts[parts.length - 2]] ? -3 : -2).join(".");
@@ -1501,17 +1505,20 @@ function _diffGroupHtml(title, cls, items) {
   if (!groups.length) {
     body = '<div class="flowDiffEmpty">none</div>';
   } else {
-    body = groups.map(function (g, gi) {
-      var gid = cls + "-" + gi;
+    body = groups.map(function (g) {
+      // Content-hashed id: stable across re-renders (index-based ids shifted
+      // when groups changed) and safe to embed (no page content in the attr).
+      var gid = "fg" + fnv1aHash8(cls + "|" + g.type + "|" + g.severity + "|" + g.wcag);
+      var open = !!state.expandedFGroups[gid];
       return '<div class="fGroup">'
-        + '<button type="button" class="fGroupHdr flowDiffItem--' + escapeHtml(g.severity) + '" data-fgroup="' + gid + '" aria-expanded="false">'
+        + '<button type="button" class="fGroupHdr flowDiffItem--' + escapeHtml(g.severity) + '" data-fgroup="' + gid + '" aria-expanded="' + (open ? "true" : "false") + '">'
         + '<span class="flowDiffSev">' + escapeHtml(g.severity) + '</span>'
         + '<span class="fGroupType">' + escapeHtml(g.type) + '</span>'
         + '<span class="fGroupCount">×' + g.items.length + '</span>'
         + (g.wcag ? '<span class="flowDiffWcag">' + escapeHtml(g.wcag) + '</span>' : '')
-        + '<span class="fGroupChevron" aria-hidden="true">▸</span>'
+        + '<span class="fGroupChevron" aria-hidden="true">' + (open ? "▾" : "▸") + '</span>'
         + '</button>'
-        + '<ul class="flowDiffList fGroupBody" data-fgroup-body="' + gid + '" hidden>' + g.items.map(_findingLineHtml).join("") + '</ul>'
+        + '<ul class="flowDiffList fGroupBody" data-fgroup-body="' + gid + '"' + (open ? '' : ' hidden') + '>' + g.items.map(_findingLineHtml).join("") + '</ul>'
         + '</div>';
     }).join("");
   }
@@ -1601,11 +1608,23 @@ function renderFlow() {
       var stepNo = ((sessionState.current.steps || []).length) + 1;
       var extra = (sessionState.queuedCapture ? " One more step is queued." : "")
         + (sessionState.captureSlow ? " Still working — large page." : "");
-      els.flowCaptureOverlay.innerHTML = '<div class="flowCaptureBox">'
+      var overlayMarkup = '<div class="flowCaptureBox">'
         + '<div class="flowCaptureSpin" aria-hidden="true"></div>'
         + '<div class="flowCaptureTitle">Analyzing step ' + stepNo + '…</div>'
         + '<div class="flowCaptureSub">Keep the page as-is for a few seconds.' + escapeHtml(extra) + '</div>'
+        // End must ALWAYS be reachable (the #68 rule) — the cover hides the
+        // action bar, so it carries its own escape hatch.
+        + '<button class="btn xs flowCaptureEndBtn" type="button" data-capture-end>End session</button>'
         + '</div>';
+      // Idempotent write: renders fire several times per capture, and a blind
+      // innerHTML rewrite restarts the spinner animation and re-announces the
+      // aria-live status on every one of them.
+      if (els.flowCaptureOverlay.__lastMarkup !== overlayMarkup) {
+        els.flowCaptureOverlay.innerHTML = overlayMarkup;
+        els.flowCaptureOverlay.__lastMarkup = overlayMarkup;
+      }
+    } else {
+      els.flowCaptureOverlay.__lastMarkup = null;
     }
   }
   if (els.flowResults) els.flowResults.hidden = !hasSteps;
