@@ -35,6 +35,28 @@ function showView(tab, sub) {
   updateSessionButtons();
 }
 
+// Roving tabindex for a [role="tab"] bar: Arrow keys cycle (wrapping),
+// Home/End jump, activation goes through onActivate(tab). Shared by
+// topTabBar and snapSubTabBar (previously two byte-identical handlers).
+function attachRovingTabindex(container, onActivate) {
+  if (!container) return;
+  container.addEventListener("keydown", (e) => {
+    const tabs = [...container.querySelectorAll("[role='tab']")];
+    if (!tabs.length) return;
+    const idx = tabs.indexOf(e.target);
+    if (idx < 0) return;
+    let next = idx;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (idx + 1) % tabs.length;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (idx - 1 + tabs.length) % tabs.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = tabs.length - 1;
+    else return;
+    e.preventDefault();
+    onActivate(tabs[next]);
+    tabs[next].focus();
+  });
+}
+
 // ═══ RESULTS SHELL ════════════════════════════════════════════════════════
 // One level above the section-view core: decides what fills the Snap body —
 // the idle CTA / the results zone / a blocking error — from a single view
@@ -1062,7 +1084,7 @@ function migrateStepStableSignatures(snapshot, rawAppendix, step) {
       const sev = normalizeWs(f?.severity, 10) || "info";
       if (sev in severityCounts) severityCounts[sev]++;
       if (sev === "high" || sev === "medium") { blockingSet.push(sig); }
-      summaryScore += ({ high: 5, medium: 3, low: 1, info: 0 })[sev] || 0;
+      summaryScore += SEV_SCORE[sev] || 0;
     }
     return { stableFindingSignatureSet: signatures, severityCounts, blockingSet, summaryScore, stepQuality: { degraded: false } };
   }
@@ -1079,7 +1101,7 @@ function migrateStepStableSignatures(snapshot, rawAppendix, step) {
         signatures.push(sig);
         if (sev in severityCounts) severityCounts[sev]++;
         if (sev === "high" || sev === "medium") blockingSet.push(sig);
-        summaryScore += ({ high: 5, medium: 3, low: 1, info: 0 })[sev] || 0;
+        summaryScore += SEV_SCORE[sev] || 0;
       }
     }
   }

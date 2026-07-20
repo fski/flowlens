@@ -6,21 +6,7 @@ document.querySelectorAll("#topTabBar [role='tab']").forEach(btn => {
 });
 
 // Roving tabindex for top tabs
-document.getElementById("topTabBar").addEventListener("keydown", (e) => {
-  const tabs = [...document.querySelectorAll("#topTabBar [role='tab']")];
-  if (!tabs.length) return;
-  const idx = tabs.indexOf(e.target);
-  if (idx < 0) return;
-  let next = idx;
-  if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (idx + 1) % tabs.length;
-  else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (idx - 1 + tabs.length) % tabs.length;
-  else if (e.key === "Home") next = 0;
-  else if (e.key === "End") next = tabs.length - 1;
-  else return;
-  e.preventDefault();
-  showView(tabs[next].dataset.tab);
-  tabs[next].focus();
-});
+attachRovingTabindex(document.getElementById("topTabBar"), (tab) => showView(tab.dataset.tab));
 
 // Snap subtab clicks
 document.querySelectorAll("#snapSubTabBar [role='tab']").forEach(btn => {
@@ -30,21 +16,7 @@ document.querySelectorAll("#snapSubTabBar [role='tab']").forEach(btn => {
 });
 
 // Roving tabindex for snap subtabs
-document.getElementById("snapSubTabBar").addEventListener("keydown", (e) => {
-  const tabs = [...document.querySelectorAll("#snapSubTabBar [role='tab']")];
-  if (!tabs.length) return;
-  const idx = tabs.indexOf(e.target);
-  if (idx < 0) return;
-  let next = idx;
-  if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (idx + 1) % tabs.length;
-  else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (idx - 1 + tabs.length) % tabs.length;
-  else if (e.key === "Home") next = 0;
-  else if (e.key === "End") next = tabs.length - 1;
-  else return;
-  e.preventDefault();
-  showView("snap", tabs[next].dataset.action);
-  tabs[next].focus();
-});
+attachRovingTabindex(document.getElementById("snapSubTabBar"), (tab) => showView("snap", tab.dataset.action));
 
 
 // Run button: execute currently selected mode
@@ -158,8 +130,7 @@ els.downloadJson.addEventListener("click", () => {
 
 if (els.downloadMd) {
   els.downloadMd.addEventListener("click", () => {
-    const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
-    const envTag = `${originFrom(url) || "\u2014"} \u2022 ${detectEnv(url)}`;
+    const { url, envTag } = getCurrentScopeInfo();
     const _best = currentBestEntry();
     const md = buildMarkdown({
       inspectedUrl: url,
@@ -211,8 +182,7 @@ if (els.downloadJunitXml) {
     const bestEntry = raw.bestEntry || raw.best || null;
     const allFindings = Array.isArray(bestEntry?.result?.findings) ? bestEntry.result.findings : [];
     const findings = applyAllFindingFilters(allFindings);
-    const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
-    const env = detectEnv(url);
+    const { url, env, envTag } = getCurrentScopeInfo();
     const fk = bestEntry?.frameKey || "";
     const capturedAt = state._lastCapturedAt || "";
     const version = (typeof __FLOWLENS_VERSION__ !== "undefined") ? __FLOWLENS_VERSION__ : "dev";
@@ -228,7 +198,7 @@ if (els.downloadJunitXml) {
         frameKeyVersion: sessionState.current?.frameKeyVersion || 1,
         enMappingVersion: typeof EN_MAPPING_VERSION !== "undefined" ? EN_MAPPING_VERSION : 0,
         url,
-        envTag: `${originFrom(url) || "\u2014"} \u2022 ${env}`,
+        envTag,
         wcagLevel,
         capturedAt,
       },
@@ -247,8 +217,7 @@ if (els.exportSessionJunitMenu) {
     if (!session) { toast("No session available"); return; }
     const payload = compactSessionForExport(normalizeLoadedSession(session));
     if (!payload) { toast("Session JUnit export failed"); return; }
-    const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
-    const env = detectEnv(url);
+    const { url, env, envTag } = getCurrentScopeInfo();
     const version = (typeof __FLOWLENS_VERSION__ !== "undefined") ? __FLOWLENS_VERSION__ : "dev";
     const wcagLevel = els.wcagLevel ? els.wcagLevel.value : "";
     const ciOptions = getJunitCiOptionsFromUi();
@@ -262,7 +231,7 @@ if (els.exportSessionJunitMenu) {
         frameKeyVersion: payload.frameKeyVersion || 1,
         enMappingVersion: typeof EN_MAPPING_VERSION !== "undefined" ? EN_MAPPING_VERSION : 0,
         url,
-        envTag: `${originFrom(url) || "\u2014"} \u2022 ${env}`,
+        envTag,
         wcagLevel,
       },
       ciOptions,

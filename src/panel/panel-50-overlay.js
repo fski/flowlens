@@ -1562,8 +1562,7 @@ async function runAction(action, opts = {}) {
   setRunTelemetry({ usedFrames: "Running…", diff: "—" });
   setPersistentStatus("RUNNING", action.toUpperCase(), "Execution in progress");
 
-  const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
-  const envTag = `${originFrom(url) || "—"} • ${detectEnv(url)}`;
+  const { url, envTag } = getCurrentScopeInfo();
 
   const target = getTargetSpec();
   const match = buildMatch();
