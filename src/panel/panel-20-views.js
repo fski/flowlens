@@ -297,6 +297,16 @@ function resetFilters() {
   if (els.tabWalkQ) els.tabWalkQ.value = "";
   state.sevFilter = new Set();
   state.contrastFilter = "all";
+  // These two persisted across records and made a fresh run render zero rows
+  // under a misleading "no results" message — a record switch resets every
+  // row-hiding filter, and the chip/pill DOM state must follow.
+  state.reviewFilter = false;
+  if (els.reviewFilterChip) {
+    els.reviewFilterChip.setAttribute("aria-pressed", "false");
+    els.reviewFilterChip.classList.remove("isActive");
+  }
+  activeGroupFilter = null;
+  document.querySelectorAll(".integrityPill.active").forEach(b => b.classList.remove("active"));
 }
 
 function renderRecord(rec) {

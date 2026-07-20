@@ -365,6 +365,75 @@ function applyExplorerFilters(findings) {
   );
 }
 
+// ═══ SECTION VIEW CORE ═══════════════════════════════════════════════════
+// Single choke point for the three results tables (explorer / contrast /
+// tab walk). Every render computes the visible rows AND the empty-state
+// message from the SAME data in the same synchronous pass, then applies both
+// in one place. Nothing else may call VT.setData or touch a section's empty
+// <div> — letting the two diverge is exactly the bug class this kills
+// ("Run a check to see results" sitting on top of a populated table, or
+// "No results match your search" after a plain run).
+
+/**
+ * Pure empty-state decision for a results section.
+ * @param {"explorer"|"contrast"|"tabWalk"} section
+ * @param {{ran:boolean,total:number,shown:number,filters:string[],contrastFilter?:string}} ctx
+ *   ran     — this mode has produced a result in this session (or a restored record)
+ *   total   — rows before any user filter
+ *   shown   — rows actually rendered
+ *   filters — human-readable names of filters that are cutting rows
+ * @returns {string|null} message to show, or null when rows are visible
+ */
+function sectionEmptyText(section, ctx) {
+  const filters = ctx.filters || [];
+  if (!ctx.ran) {
+    if (section === "contrast") return "Run a Contrast check to see results";
+    if (section === "tabWalk") return "Run a Tab Walk to see results";
+    return "Run an Audit to see results";
+  }
+  if (ctx.total === 0) {
+    if (section === "contrast") return "Check finished — no measurable text found";
+    if (section === "tabWalk") return "No focusable elements were walked";
+    return "No issues found — this scan came back clean";
+  }
+  if (ctx.shown === 0) {
+    if (section === "contrast" && !filters.length) {
+      if (ctx.contrastFilter === "fail") return "No failures — all sampled text passes";
+      if (ctx.contrastFilter === "pass") return "No passing samples in this check";
+    }
+    const label = filters.length ? filters.join(" + ") : "active filters";
+    return `All ${ctx.total} rows hidden by ${label}`;
+  }
+  return null;
+}
+
+const SECTION_VIEWS = {
+  explorer: { vt: "all", tbody: () => els.allTableBody, empty: () => els.explorerEmpty, rowHtml: (f, i) => explorerRowHtml(f, i) },
+  contrast: { vt: "contrast", tbody: () => els.contrastTbody, empty: () => els.contrastEmpty, rowHtml: (f, i) => contrastRowHtml(f, i) },
+  tabWalk: { vt: "tab", tbody: () => els.tabTbody, empty: () => els.tabWalkEmpty, rowHtml: (e, i) => tabRowHtml(e, i) },
+};
+
+function applySectionView(section, rows, emptyText) {
+  const cfg = SECTION_VIEWS[section];
+  // initVirtualTables lives in the wireup part — absent under the test harness
+  if (!VT[cfg.vt] && typeof initVirtualTables === "function") initVirtualTables();
+  const vt = VT[cfg.vt];
+  if (vt) {
+    vt.setData(rows);
+  } else if (cfg.tbody()) {
+    cfg.tbody().innerHTML = rows.slice(0, 200).map(cfg.rowHtml).join("");
+  }
+  const emptyEl = cfg.empty();
+  if (emptyEl) {
+    if (emptyText) {
+      emptyEl.textContent = emptyText;
+      emptyEl.hidden = false;
+    } else {
+      emptyEl.hidden = true;
+    }
+  }
+}
+
 function renderContrast(res) {
   state.contrastData = Array.isArray(res?.failures) ? res.failures : [];
   state.contrastSamples = Array.isArray(res?.samples) ? res.samples : [];
@@ -394,28 +463,15 @@ function updateContrastView() {
     });
   }
   const sorted = applySortState(data, 'contrast');
-  if (!VT.contrast) initVirtualTables();
-  if (VT.contrast) {
-    VT.contrast.setData(sorted);
-  }
-  // Empty state synchronous with setData — an async (rAF) update here can lose
-  // the race with a second render call and leave the empty state visible on
-  // top of a populated table.
-  if (els.contrastEmpty) {
-    if (!hasData) {
-      els.contrastEmpty.textContent = "Run a Contrast check to see results";
-      els.contrastEmpty.hidden = false;
-    } else if (sorted.length === 0) {
-      els.contrastEmpty.textContent = "No results match your search";
-      els.contrastEmpty.hidden = false;
-    } else {
-      els.contrastEmpty.hidden = true;
-    }
-  }
-  if (VT.contrast) return;
-  const tbody = els.contrastTbody;
-  if (!tbody) return;
-  tbody.innerHTML = sorted.slice(0, 200).map(contrastRowHtml).join("");
+  const filters = [];
+  if (q) filters.push("search");
+  applySectionView("contrast", sorted, sectionEmptyText("contrast", {
+    ran: state.hasRunMode.has("contrast") || hasData,
+    total: Math.max(state.contrastData.length, state.contrastSamples.length),
+    shown: sorted.length,
+    filters,
+    contrastFilter: state.contrastFilter,
+  }));
 }
 
 
@@ -469,30 +525,12 @@ function renderTabWalk(res) {
     });
   }
   const events = applySortState(filtered, 'tab');
-  if (!VT.tab) initVirtualTables();
-  if (VT.tab) {
-    VT.tab.setData(events);
-  }
-  // Empty state synchronous with setData — see updateContrastView.
-  if (els.tabWalkEmpty) {
-    if (!walkRan) {
-      els.tabWalkEmpty.textContent = "Run a Tab Walk to see results";
-      els.tabWalkEmpty.hidden = false;
-    } else if (raw.length === 0) {
-      els.tabWalkEmpty.textContent = "No focusable elements were walked";
-      els.tabWalkEmpty.hidden = false;
-    } else if (events.length === 0) {
-      els.tabWalkEmpty.textContent = "No results match your search";
-      els.tabWalkEmpty.hidden = false;
-    } else {
-      els.tabWalkEmpty.hidden = true;
-    }
-  }
-  if (VT.tab) return;
-  // fallback (should not happen)
-  const tbody = els.tabTbody;
-  if (!tbody) return;
-  tbody.innerHTML = events.slice(0, 200).map(tabRowHtml).join("");
+  applySectionView("tabWalk", events, sectionEmptyText("tabWalk", {
+    ran: state.hasRunMode.has("tabWalk") || walkRan,
+    total: raw.length,
+    shown: events.length,
+    filters: q ? ["search"] : [],
+  }));
 }
 
 function renderWatch(res) {
@@ -867,18 +905,26 @@ function renderExplorer(findings) {
     els.findingsCount.textContent = review > 0 ? `${base} · ${review} need review` : base;
   }
 
-  if (!VT.all) initVirtualTables();
-  if (VT.all) {
-    VT.all.setData(filtered);
-  } else {
-    // fallback
-    els.allTableBody.innerHTML = filtered.slice(0, 200).map(explorerRowHtml).join("");
-  }
+  // Honest filter accounting across every layer that can cut rows: the raw
+  // record → depth/rule-pack → integrity pill → severity/review/search.
+  // The empty message names what is actually hiding rows instead of a
+  // catch-all "no results match your search".
+  const mode = state.activeMode === "observe" ? "observe" : "run";
+  const rawFindings = Array.isArray(state.findingsByMode[mode]) ? state.findingsByMode[mode] : null;
+  const rawTotal = rawFindings ? rawFindings.length : all.length;
+  const filters = [];
+  if (rawFindings && (state.currentFindings || []).length < rawFindings.length) filters.push("depth/rule-pack setting");
+  if (activeGroupFilter) filters.push("integrity pill");
+  if (state.sevFilter.size > 0) filters.push("severity tab");
+  if (state.reviewFilter) filters.push("needs-review chip");
+  if ((els.q?.value || "").trim()) filters.push("search");
 
-  // Empty state synchronous with setData — see updateContrastView.
-  if (els.explorerEmpty) {
-    els.explorerEmpty.hidden = filtered.length > 0 || all.length === 0;
-  }
+  applySectionView("explorer", filtered, sectionEmptyText("explorer", {
+    ran: state.hasRunMode.has("run") || state.hasRunMode.has("observe"),
+    total: rawTotal,
+    shown: filtered.length,
+    filters,
+  }));
 }
 
 
