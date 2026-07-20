@@ -434,6 +434,52 @@ function applySectionView(section, rows, emptyText) {
   }
 }
 
+// ═══ PER-STEP SCREENSHOT ══════════════════════════════════════════════════
+// Decide whether a viewport screenshot is worth attempting for a step. Skips
+// schemes captureVisibleTab can't grab so we don't fire a doomed capture.
+function shouldCaptureShot(scopeInfo) {
+  var url = scopeInfo && scopeInfo.url;
+  if (!url || typeof url !== "string") return false;
+  return /^https?:\/\//i.test(url);
+}
+
+/**
+ * Best-effort per-step screenshot. Never throws into the audit path: on any
+ * failure the step still records and the filmstrip shows a placeholder tile.
+ * Overlay hygiene is handled SW-side (clears __flowlens_annotations__ before
+ * captureVisibleTab) so FlowLens's own badges don't pollute the shot.
+ */
+async function captureStepShot(sessionId, stepIndex, scopeInfo, at) {
+  try {
+    if (!shouldCaptureShot(scopeInfo)) return;
+    const r = await send({ type: "CAPTURE_SHOT" });
+    if (!r || !r.ok || !r.dataUrl) {
+      markShotError(sessionId, stepIndex);
+      return;
+    }
+    const blob = await (await fetch(r.dataUrl)).blob();
+    const put = await flowMediaStore.putShot(sessionId, stepIndex, blob, { at: at || 0 });
+    if (put && put.ok) markShotDone(sessionId, stepIndex);
+    else markShotError(sessionId, stepIndex);
+  } catch (e) {
+    markShotError(sessionId, stepIndex);
+  }
+}
+
+function _findStep(sessionId, stepIndex) {
+  const sess = sessionState.current || sessionState.lastEndedSession;
+  if (!sess || sess.id !== sessionId) return null;
+  return (sess.steps || []).find(s => s.index === stepIndex) || null;
+}
+function markShotDone(sessionId, stepIndex) {
+  const step = _findStep(sessionId, stepIndex);
+  if (step) { step.hasShot = true; step.shotError = false; }
+}
+function markShotError(sessionId, stepIndex) {
+  const step = _findStep(sessionId, stepIndex);
+  if (step) { step.shotError = true; }
+}
+
 function renderContrast(res) {
   state.contrastData = Array.isArray(res?.failures) ? res.failures : [];
   state.contrastSamples = Array.isArray(res?.samples) ? res.samples : [];
@@ -1878,6 +1924,12 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     // Prune only after the new step is attached, so newly written raw refs are discoverable.
     pruneSessionRawAppendix(sessionState.current);
     updateSessionFramesIndex(sessionState.current, step);
+
+    // Best-effort per-step screenshot — fire-and-forget, never blocks or fails
+    // the step. Re-renders the filmstrip when the shot lands.
+    captureStepShot(sessionState.current.id, step.index, { url }, capturedAt)
+      .then(() => { if (typeof renderFlow === "function" && state.topTab === "flow") renderFlow(); })
+      .catch(() => {});
 
     const compacted = compactSessionForExport(sessionState.current);
     const estimatedBytes = estimateJsonBytes(compacted);

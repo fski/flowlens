@@ -13,7 +13,7 @@ const TAB_BLOCKING_EVENT_TYPES = new Set([
   "focus_on_body",
   "focus_failed",
 ]);
-const MESSAGE_TYPES = new Set(["LIST_FRAMES", "HIGHLIGHT", "RUN_AUDIT", "CAPTURE_STEP"]);
+const MESSAGE_TYPES = new Set(["LIST_FRAMES", "HIGHLIGHT", "RUN_AUDIT", "CAPTURE_STEP", "CAPTURE_SHOT"]);
 const AUDIT_ACTIONS = new Set(["run", "observe", "watch", "tabWalk", "contrast"]);
 const WCAG_LEVELS = new Set(["2.1-AA", "2.1-AAA", "2.2-AA", "2.2-AAA"]);
 
@@ -36,7 +36,7 @@ function validateIncomingMessage(msg, sender) {
   if (!isPlainObject(msg)) return { ok: false, error: "BAD_MESSAGE_SCHEMA" };
   if (!MESSAGE_TYPES.has(msg.type)) return { ok: false, error: "UNKNOWN_MESSAGE" };
 
-  if ((msg.type === "LIST_FRAMES" || msg.type === "RUN_AUDIT" || msg.type === "CAPTURE_STEP" || msg.type === "HIGHLIGHT")
+  if ((msg.type === "LIST_FRAMES" || msg.type === "RUN_AUDIT" || msg.type === "CAPTURE_STEP" || msg.type === "HIGHLIGHT" || msg.type === "CAPTURE_SHOT")
       && !isNonNegativeInt(msg.tabId)) {
     return { ok: false, error: "BAD_TAB_ID" };
   }
@@ -864,6 +864,33 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       let frames;
       try { frames = await chrome.webNavigation.getAllFrames({ tabId }); } catch { frames = []; }
       sendResponse({ ok: true, frames: frames || [] });
+      return;
+    }
+
+    if (msg.type === "CAPTURE_SHOT") {
+      const tabId = Number(msg.tabId);
+      // Overlay hygiene: strip FlowLens's own tab-stop/highlight overlay before
+      // the screenshot so it shows the real page, not our green badges.
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId, allFrames: true },
+          func: () => {
+            try {
+              if (window.A11YFlowAudit && window.A11YFlowAudit.clearAnnotations) window.A11YFlowAudit.clearAnnotations();
+              const el = document.getElementById("__flowlens_annotations__");
+              if (el) el.remove();
+            } catch (_) { /* best-effort */ }
+          },
+        });
+      } catch (_) { /* overlay clear is best-effort */ }
+      let dataUrl = null, reason = null;
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
+      } catch (e) {
+        reason = (e && e.message) || "capture-failed";
+      }
+      sendResponse(dataUrl ? { ok: true, dataUrl } : { ok: false, reason: reason || "no-dataurl" });
       return;
     }
 
