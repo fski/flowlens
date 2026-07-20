@@ -597,12 +597,14 @@ if (els.copyCiJson) {
   });
 }
 
-// Explorer reactive filters (debounced)
+// Explorer reactive filters (debounced). Routed through rerenderFindings so
+// the integrity-pill group filter stays applied — rendering straight from
+// state.currentFindings silently dropped it.
 let __explorerT = null;
 function scheduleExplorerRender() {
   clearTimeout(__explorerT);
   __explorerT = setTimeout(() => {
-    renderExplorer(state.currentFindings);
+    rerenderFindings("explorer_filter");
   }, 120);
 }
 
@@ -888,7 +890,7 @@ function initSortableHeaders() {
     {
       id: 'explorer',
       thead: document.querySelector('#allTable thead'),
-      render: () => renderExplorer(state.currentFindings),
+      render: () => rerenderFindings("sort"),
     },
     {
       id: 'contrast',

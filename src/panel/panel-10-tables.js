@@ -600,20 +600,17 @@ function showMode(mode) {
   if (watch) watch.hidden = mode !== "watch";
   if (els.sevTabs) els.sevTabs.hidden = !(runLike || mode === "contrast");
 
-  // Restore cached findings when switching between run/observe
+  // Recompute the revealed section through the central section-view pipeline
+  // on every switch. Sections are revealed here without going through
+  // renderRecord, so without this the default-visible empty <div> (and a
+  // stale virtual-table render from when the section was hidden) leak into
+  // view.
   if (runLike && state.findingsByMode[mode]) {
-    const filtered = applyAllFindingFilters(state.findingsByMode[mode]);
-    state.currentFindings = filtered;
-    renderSevTabs(filtered);
-    renderExplorer(filtered);
+    state.currentFindings = applyAllFindingFilters(state.findingsByMode[mode]);
+    rerenderFindings("mode_switch");
   } else if (runLike) {
     renderSevTabs();
   }
-
-  // Recompute section content + empty state on every switch. Sections are
-  // revealed here without going through renderRecord, so without this the
-  // default-visible empty <div> (and a stale virtual-table render from when
-  // the section was hidden) leak into view.
   if (mode === "contrast") {
     renderContrastSevTabs();
     updateContrastView();
