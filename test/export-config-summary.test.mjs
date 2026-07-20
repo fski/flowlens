@@ -290,12 +290,27 @@ describe("buildMachineReadableDiffReport", () => {
       id: "suspect",
       steps: [
         makeStep("baseline", [], {}),
-        makeStep("after", [], {}, { profileSuspect: true }),
+        // Suspect reduces confidence only when a profile was actually in play
+        // (same predicate as the verdict header — the two copies diverged once).
+        makeStep("after", [], {}, { profileSuspect: true, profileLabel: "Wizard" }),
       ],
     };
     const report = buildMachineReadableDiffReport(session);
     assert.equal(report.confidence.profileSuspect, true);
     assert.equal(report.confidence.reducedDiffConfidence, true);
+  });
+
+  it("bare profileSuspect without an applied profile does not reduce confidence", () => {
+    const session = {
+      id: "suspect-generic",
+      steps: [
+        makeStep("baseline", [], {}),
+        makeStep("after", [], {}, { profileSuspect: true }),
+      ],
+    };
+    const report = buildMachineReadableDiffReport(session);
+    assert.equal(report.confidence.profileSuspect, true, "raw flag still reported");
+    assert.equal(report.confidence.reducedDiffConfidence, false, "but confidence not reduced");
   });
 
   it("confidence.rootSelectorNotFound is true when any step has it", () => {

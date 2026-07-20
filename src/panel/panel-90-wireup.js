@@ -304,6 +304,9 @@ function stepIndicesForNav() {
           grp.setAttribute("aria-expanded", String(!body.hidden));
           const chev = grp.querySelector(".fGroupChevron");
           if (chev) chev.textContent = body.hidden ? "▸" : "▾";
+          // Persist so renderFlow's full rebuild (every captured step) doesn't
+          // collapse the group the user is reading.
+          state.expandedFGroups[grp.dataset.fgroup] = !body.hidden;
         }
         return;
       }
@@ -574,6 +577,12 @@ if (els.recipeSelect) {
 if (els.alsoConsole) {
   els.alsoConsole.addEventListener("change", async () => {
     await updateUiPrefs({ alsoConsole: !!els.alsoConsole.checked });
+  });
+}
+
+if (els.flowCaptureOverlay) {
+  els.flowCaptureOverlay.addEventListener("click", (e) => {
+    if (e.target.closest("[data-capture-end]")) endSession();
   });
 }
 
@@ -1087,9 +1096,21 @@ function logNavDecision(url, decision) {
   console.debug("[FlowLens] nav", decision, url);
 }
 
+// A top-level navigation drags its iframes along: every embedded frame emits
+// onCommitted while it (re)loads, often later than the auto-capture debounce.
+// Frame navs inside this window belong to the top nav's step, not a new one —
+// without it a slow-loading audited MFE double-captured every top navigation.
+const FRAME_NAV_SETTLE_MS = 2500;
+
 function maybeAutoCapture(url, { fromAuditedFrame = false } = {}) {
   if (!sessionState.current) { logNavDecision(url, "no-session"); return; }
   if (!els.autoCaptureNav?.checked) { logNavDecision(url, "auto-off"); return; }
+  if (!fromAuditedFrame) {
+    sessionState.lastTopNavAt = Date.now();
+  } else if (Date.now() - (sessionState.lastTopNavAt || 0) < FRAME_NAV_SETTLE_MS) {
+    logNavDecision(url, "skip-frame-settle");
+    return;
+  }
   // Navs from frames already in the audited set (targeted microfrontends)
   // bypass the site guard — the embedded app IS the audit target, and its
   // site routinely differs from the host page's.
@@ -1105,14 +1126,18 @@ function maybeAutoCapture(url, { fromAuditedFrame = false } = {}) {
     }
     return;
   }
-  if (!classifyNavForCapture(url, sessionState.lastAutoNavUrl)) { logNavDecision(url, "skip-not-a-step"); return; }
-  logNavDecision(url, "capture-scheduled");
+  // Per-source dedupe: top and frame URLs never alias or evict each other —
+  // one shared slot let a frame nav reopen dedupe for an identical top nav.
+  const lastForSource = fromAuditedFrame ? sessionState.lastFrameNavUrl : sessionState.lastAutoNavUrl;
+  if (!classifyNavForCapture(url, lastForSource)) { logNavDecision(url, "skip-not-a-step"); return; }
+  logNavDecision(url, fromAuditedFrame ? "frame-capture-scheduled" : "capture-scheduled");
   if (sessionState.autoCapturePending) clearTimeout(sessionState.autoCapturePending);
   const debounceMs = Number(els.autoCaptureDelay?.value) || 500;
   sessionState.autoCapturePending = setTimeout(async () => {
     sessionState.autoCapturePending = null;
     if (!sessionState.current) return;
-    sessionState.lastAutoNavUrl = url;
+    if (fromAuditedFrame) sessionState.lastFrameNavUrl = url;
+    else sessionState.lastAutoNavUrl = url;
     try {
       const autoLabel = await deriveAutoLabel(url);
       await captureStepOptionC(autoLabel, { isAutoCapture: true });
@@ -1143,6 +1168,24 @@ chrome.devtools.network.onNavigated.addListener(async () => {
 (function connectNavPort() {
   if (!hasRuntime() || typeof __runtime.connect !== "function") return;
   let attempt = 0;
+  function handleFrameNav(m, retried) {
+    if (!sessionState.current || !els.autoCaptureNav?.checked) return;
+    // Relevance is judged against the LAST step's audited frame set — during
+    // the baseline capture there is no step yet, so a first in-frame click
+    // would be dropped. Defer once instead of losing it.
+    if (!(sessionState.current.steps || []).length && sessionState.inFlight && !retried) {
+      setTimeout(() => handleFrameNav(m, true), 1500);
+      return;
+    }
+    if (!isRelevantFrameNav(m.url, m.frameId, sessionState.current)) {
+      // Site only — full third-party frame URLs (ads, widgets) don't
+      // belong in a debug log of a privacy-minded feature.
+      logNavDecision(registrableDomain(m.url), "skip-frame-not-audited");
+      return;
+    }
+    logNavDecision(m.url, "frame-nav");
+    maybeAutoCapture(m.url, { fromAuditedFrame: true });
+  }
   function schedule() {
     const delay = Math.min(30000, 1000 * Math.pow(2, attempt++));
     setTimeout(open, delay);
@@ -1161,13 +1204,7 @@ chrome.devtools.network.onNavigated.addListener(async () => {
       if (!m) return;
       if (m.type === "FRAME_NAV") {
         attempt = 0;
-        if (!sessionState.current || !els.autoCaptureNav?.checked) return;
-        if (!isRelevantFrameNav(m.url, m.frameId, sessionState.current)) {
-          logNavDecision(m.url, "skip-frame-not-audited");
-          return;
-        }
-        logNavDecision(m.url, "frame-nav");
-        maybeAutoCapture(m.url, { fromAuditedFrame: true });
+        handleFrameNav(m, false);
         return;
       }
       if (m.type !== "SPA_NAV") return;
