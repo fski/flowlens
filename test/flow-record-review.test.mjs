@@ -225,6 +225,55 @@ describe('deleteStep hygiene', () => {
   });
 });
 
+describe('media pipeline honesty', () => {
+  let ctx;
+  beforeEach(() => { ctx = createContext(); });
+
+  function armShot() {
+    ctx.send = async () => ({ ok: true, dataUrl: 'data:image/png;base64,AA==' });
+    ctx.fetch = async () => ({ blob: async () => ({ size: 2 }) });
+    const puts = [];
+    ctx.flowMediaStore.putShot = async (sid, stepId) => { puts.push(`${sid}::${stepId}`); return { ok: true }; };
+    return puts;
+  }
+
+  it('captureStepShot stores the shot while its session is still current', async () => {
+    const puts = armShot();
+    ctx.sessionState.current = { id: 'sess_live' };
+    const step = { id: 'step_1' };
+    const landed = await ctx.captureStepShot('sess_live', step, { url: 'https://x.com/a' }, 0);
+    assert.equal(landed, true);
+    assert.equal(step.hasShot, true);
+    assert.deepEqual(puts.join(','), 'sess_live::step_1');
+  });
+
+  it('captureStepShot discards a shot that resolves after End (no orphaned blob)', async () => {
+    const puts = armShot();
+    ctx.sessionState.current = null; // session ended while shot was in flight
+    const step = { id: 'step_1' };
+    const landed = await ctx.captureStepShot('sess_gone', step, { url: 'https://x.com/a' }, 0);
+    assert.equal(landed, false);
+    assert.equal(puts.length, 0, 'must not write an orphaned blob');
+    assert.ok(!step.hasShot);
+  });
+
+  it('handleRecorderAutoStop persists only a SAVED recording', async () => {
+    ctx.sessionState.current = { id: 'sess_v', inspectedOrigin: 'https://app.example.com', env: 'prod', steps: [] };
+    ctx.flowRecorder = { stop: async () => ({ ok: true, saved: true }) };
+    await ctx.handleRecorderAutoStop();
+    const stored = await ctx.storageGet(['session::active::https://app.example.com::prod']);
+    assert.ok(stored['session::active::https://app.example.com::prod'], 'saved recording → session persisted');
+  });
+
+  it('handleRecorderAutoStop does not persist when the store write failed', async () => {
+    ctx.sessionState.current = { id: 'sess_v', inspectedOrigin: 'https://app.example.com', env: 'prod', steps: [] };
+    ctx.flowRecorder = { stop: async () => ({ ok: true, saved: false }) };
+    await ctx.handleRecorderAutoStop();
+    const stored = await ctx.storageGet(['session::active::https://app.example.com::prod']);
+    assert.ok(!stored['session::active::https://app.example.com::prod'], 'failed save → nothing persisted');
+  });
+});
+
 describe('stable consolidated countsDelta merges run+active', () => {
   let ctx;
   beforeEach(() => { ctx = createContext(); });

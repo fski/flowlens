@@ -469,7 +469,7 @@ var flowRecorder = (function () {
     _rec = new MediaRecorder(_stream, mime ? { mimeType: mime } : undefined);
     _rec.ondataavailable = function (ev) { if (ev.data && ev.data.size) _chunks.push(ev.data); };
     // If the user stops sharing from Chrome's own bar, finalize gracefully.
-    _stream.getVideoTracks().forEach(function (t) { t.onended = function () { stop(); }; });
+    _stream.getVideoTracks().forEach(function (t) { t.onended = function () { handleRecorderAutoStop(); }; });
     _startAt = (typeof performance !== "undefined" && performance.now) ? performance.now() : 0;
     _rec.start();
     return { ok: true };
@@ -485,14 +485,21 @@ var flowRecorder = (function () {
         var mime = rec.mimeType || "video/webm";
         var blob = new Blob(chunks, { type: mime });
         var durationMs = startAt ? Math.round(((typeof performance !== "undefined" && performance.now) ? performance.now() : 0) - startAt) : 0;
+        var saved = false;
         if (typeof flowMediaStore !== "undefined" && sid) {
           try {
-            await flowMediaStore.putVideo(sid, blob, { mime: mime, durationMs: durationMs });
-            var sess = sessionState.current || sessionState.lastEndedSession;
-            if (sess && sess.id === sid) sess.hasVideo = true;
+            var put = await flowMediaStore.putVideo(sid, blob, { mime: mime, durationMs: durationMs });
+            saved = !!(put && put.ok);
+            // hasVideo drives the "download recording" affordance — claiming it
+            // on a failed (e.g. quota) write showed a control that can only say
+            // "No recording for this flow".
+            if (saved) {
+              var sess = sessionState.current || sessionState.lastEndedSession;
+              if (sess && sess.id === sid) sess.hasVideo = true;
+            }
           } catch (_) {}
         }
-        resolve({ ok: true, blob: blob, mime: mime, durationMs: durationMs });
+        resolve({ ok: true, saved: saved, blob: blob, mime: mime, durationMs: durationMs });
       };
       try { rec.stop(); } catch (_) { resolve({ ok: false, reason: "stop-failed" }); }
     });
@@ -500,6 +507,19 @@ var flowRecorder = (function () {
 
   return { start: start, stop: stop, isRecording: isRecording };
 })();
+
+// Stream ended outside our Stop button (user clicked Chrome's own "Stop
+// sharing" bar): finalize with the same side effects the button performs —
+// without this the button stayed on "Stop recording", hasVideo never got
+// persisted, and the header download control didn't appear until a re-render.
+async function handleRecorderAutoStop() {
+  var r = await flowRecorder.stop();
+  if (typeof setRecordVideoUi === "function") setRecordVideoUi(false);
+  if (r && r.ok && r.saved && sessionState.current) {
+    persistActiveSessionBestEffort(compactSessionForExport(sessionState.current)).catch(function () {});
+  }
+  if (typeof renderFlow === "function") renderFlow();
+}
 
 // ═══ PER-STEP SCREENSHOT ══════════════════════════════════════════════════
 // Decide whether a viewport screenshot is worth attempting for a step. Skips
@@ -525,6 +545,10 @@ async function captureStepShot(sessionId, step, scopeInfo, at) {
     const r = await send({ type: "CAPTURE_SHOT" });
     if (!r || !r.ok || !r.dataUrl) { step.shotError = true; return false; }
     const blob = await (await fetch(r.dataUrl)).blob();
+    // Session ended/replaced while the shot was in flight: the archived JSON
+    // already froze hasShot:false, so writing now would only orphan the blob
+    // in IndexedDB (invisible until the session ages out of the prune window).
+    if (!sessionState.current || sessionState.current.id !== sessionId) return false;
     const put = await flowMediaStore.putShot(sessionId, step.id, blob, { at: at || 0 });
     if (put && put.ok) { step.hasShot = true; step.shotError = false; return true; }
     step.shotError = true;

@@ -345,12 +345,13 @@ function stepIndicesForNav() {
         if (r?.ok && r.blob) {
           const sid = (sessionState.current || sessionState.lastEndedSession)?.id || "flow";
           downloadBlobFile(r.blob, `flowlens-flow-${sid}.webm`);
-          // stop() set session.hasVideo in-memory; persist so the stored-video
-          // download control survives a panel reload before the session ends.
-          if (sessionState.current) {
+          // stop() set session.hasVideo in-memory (only when the store write
+          // succeeded); persist so the stored-video download control survives
+          // a panel reload before the session ends.
+          if (r.saved && sessionState.current) {
             persistActiveSessionBestEffort(compactSessionForExport(sessionState.current)).catch(() => {});
           }
-          toast("Video saved & downloaded");
+          toast(r.saved ? "Video saved & downloaded" : "Video downloaded — saving to browser storage failed");
         } else {
           toast("Recording stopped");
         }
