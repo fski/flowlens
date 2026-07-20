@@ -99,8 +99,10 @@ describe("lifecycleSwimlaneHtml", () => {
   it("one labelled lane per recurring signature — severity by text, not colour only", () => {
     const sess = mkSess([mkStep(1, "/a", [A, B]), mkStep(2, "/b", [A])]);
     const html = ctx.lifecycleSwimlaneHtml(sess);
-    const lanes = html.match(/class="swimLane/g) || [];
+    // Data lanes only — the axis header row (swimLane--hdr) is chrome.
+    const lanes = html.match(/class="swimLane"/g) || [];
     assert.equal(lanes.length, 2);
+    assert.match(html, /swimLane--hdr/, "step-number axis header present");
     assert.match(html, /Missing alt/);
     assert.match(html, /high/i); // severity conveyed as text
   });

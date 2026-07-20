@@ -633,13 +633,26 @@ async function downloadFlowVideo(sessionId) {
   }
 }
 
+// One shot-read path for the download surfaces: stable id first, then the
+// numeric-index key pre-id sessions were written under — the SAME fallback
+// _hydrateFlowShots uses. Without it a legacy-keyed shot rendered a thumbnail
+// while the download said "not found".
+async function getStepShotBlob(sess, step) {
+  if (typeof flowMediaStore === "undefined" || !sess || !step) return null;
+  let blob = await flowMediaStore.getShot(sess.id, stepShotKey(step));
+  if (!blob && step.id != null && step.index != null) {
+    blob = await flowMediaStore.getShot(sess.id, Number(step.index));
+  }
+  return blob || null;
+}
+
 // Gather every stored screenshot for a session, in step order.
 async function collectSessionShots(sess) {
   if (typeof flowMediaStore === "undefined" || !sess) return [];
   const out = [];
   for (const step of sess.steps || []) {
     if (!step?.hasShot) continue;
-    const blob = await flowMediaStore.getShot(sess.id, stepShotKey(step));
+    const blob = await getStepShotBlob(sess, step);
     if (!blob || typeof blob.arrayBuffer !== "function") continue;
     out.push({ name: shotZipName(step), data: new Uint8Array(await blob.arrayBuffer()) });
   }
@@ -661,9 +674,9 @@ async function downloadStepShot(stepIndex) {
   const sess = sessionState.current || sessionState.lastEndedSession;
   const step = (sess?.steps || []).find(s => s.index === stepIndex);
   if (!sess || !step?.hasShot) { toast("No screenshot for this step"); return false; }
-  const blob = await flowMediaStore.getShot(sess.id, stepShotKey(step));
+  const blob = await getStepShotBlob(sess, step);
   if (!blob) { toast("Screenshot not found in storage"); return false; }
-  downloadBlobFile(blob, `flowlens-flow-${sess.id}-step-${String(step.index).padStart(2, "0")}.png`);
+  downloadBlobFile(blob, `flowlens-flow-${sess.id}-${shotZipName(step)}`);
   return true;
 }
 

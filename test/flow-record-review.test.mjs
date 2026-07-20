@@ -474,6 +474,15 @@ describe('screenshot export (store-only ZIP, zero deps)', () => {
     assert.equal(u32at(cdStart) >>> 0, 0x02014b50, 'central dir signature');
   });
 
+  it('download read path falls back to the legacy numeric key (drift window)', async () => {
+    // Shot persisted under the numeric index (pre-id session), step has an id.
+    ctx.flowMediaStore.getShot = async (sid, key) => (key === 2 ? { arrayBuffer: async () => new Uint8Array([9]).buffer } : null);
+    const sess = { id: 's1', steps: [] };
+    const step = { index: 2, id: 'step_x', hasShot: true };
+    const blob = await ctx.getStepShotBlob(sess, step);
+    assert.ok(blob, 'thumbnail-visible shot must also be downloadable');
+  });
+
   it('collectSessionShots gathers stored shots in step order with padded names', async () => {
     const mkBlob = (bytes) => ({ arrayBuffer: async () => new Uint8Array(bytes).buffer });
     ctx.flowMediaStore.getShot = async (sid, key) => (key === 'step_a' ? mkBlob([1]) : key === 'step_b' ? mkBlob([2]) : null);

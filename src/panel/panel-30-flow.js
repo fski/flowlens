@@ -130,6 +130,11 @@ function updateSessionButtons() {
     const hasShots = (sessShots?.steps || []).some(s => s?.hasShot);
     els.exportShotsMenu.hidden = !(hasExportableSession && hasShots);
   }
+  // Reviewing an ended session: the hero Record CTA shrinks to a normal button.
+  const flowRoot = typeof document !== "undefined" && document.getElementById ? document.getElementById("flowContent") : null;
+  if (flowRoot && flowRoot.classList && flowRoot.classList.toggle) {
+    flowRoot.classList.toggle("hasEnded", hasArchivedSession);
+  }
   if (els.exportAnchor) els.exportAnchor.hidden = !((state.records.length > 0) || hasExportableSession);
   renderSessionHud();
 }
