@@ -1077,17 +1077,33 @@ initScrollShadows();
 // devtools.network.onNavigated, and SPA route change pushed over the nav port).
 // classifyNavForCapture + lastAutoNavUrl dedupe so a single navigation that
 // fires both sources only captures once.
+// Ring buffer of auto-capture decisions — "record flow did nothing" is
+// undebuggable without knowing which nav events arrived and why each was
+// dropped. Inspect via window.__flowlensNavLog in the panel console.
+function logNavDecision(url, decision) {
+  const log = (window.__flowlensNavLog = window.__flowlensNavLog || []);
+  log.push({ at: new Date().toISOString(), url: String(url || "").slice(0, 200), decision });
+  if (log.length > 25) log.shift();
+  console.debug("[FlowLens] nav", decision, url);
+}
+
 function maybeAutoCapture(url) {
-  if (!sessionState.current || !els.autoCaptureNav?.checked) return;
+  if (!sessionState.current) { logNavDecision(url, "no-session"); return; }
+  if (!els.autoCaptureNav?.checked) { logNavDecision(url, "auto-off"); return; }
   if (isForeignAutoCaptureOrigin(url, sessionState.current)) {
-    // Fail loud (once per session): a silently skipped step reads as covered.
+    logNavDecision(url, "skip-foreign-site");
+    // Fail loud EVERY time on the persistent Flow line (a once-per-session
+    // toast was missable, and a silently skipped step reads as covered).
+    sessionState.foreignSkips = (sessionState.foreignSkips || 0) + 1;
+    setPersistentStatus("PARTIAL", "AUTO_SKIPPED", `${sessionState.foreignSkips} nav(s) on other sites not captured (privacy)`);
     if (!sessionState.foreignSkipNotified) {
       sessionState.foreignSkipNotified = true;
-      toast("Auto-capture paused on third-party origin (privacy)");
+      toast("Auto-capture skips other sites (privacy) — use Mark step to capture them");
     }
     return;
   }
-  if (!classifyNavForCapture(url, sessionState.lastAutoNavUrl)) return;
+  if (!classifyNavForCapture(url, sessionState.lastAutoNavUrl)) { logNavDecision(url, "skip-not-a-step"); return; }
+  logNavDecision(url, "capture-scheduled");
   if (sessionState.autoCapturePending) clearTimeout(sessionState.autoCapturePending);
   const debounceMs = Number(els.autoCaptureDelay?.value) || 500;
   sessionState.autoCapturePending = setTimeout(async () => {

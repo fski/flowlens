@@ -1797,10 +1797,18 @@ async function startSession() {
   sessionState.lastMarkStep = null;
   sessionState.lastAutoNavUrl = null;
   sessionState.foreignSkipNotified = false;
+  sessionState.foreignSkips = 0;
   await persistActiveSessionBestEffort(sessionState.current);
   updateSessionButtons();
   setPersistentStatus("OK", "SESSION_STARTED", "Session active");
   toast("Session started");
+  // Baseline step: capture the page you started on. Without it a click-driven
+  // flow (modals, in-place wizards — no URL change) produced ZERO steps and
+  // the whole recorder looked dead; nav flows also lacked their start state.
+  if (els.autoCaptureNav?.checked) {
+    sessionState.lastAutoNavUrl = url;
+    captureStepOptionC(null, { isAutoCapture: true }).catch(() => {});
+  }
   return true;
 }
 

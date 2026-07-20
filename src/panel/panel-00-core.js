@@ -344,6 +344,7 @@ const sessionState = {
   lastAutoNavUrl: null,
   queuedCapture: null,
   foreignSkipNotified: false,
+  foreignSkips: 0,
 };
 
 function debugSession(...args) {

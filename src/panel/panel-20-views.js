@@ -106,14 +106,28 @@ function renderResultsShell(shell) {
   }
 }
 
-// Foreign-origin navigations are SKIPPED by auto-capture (decision: Piotr,
+// Naive registrable domain (eTLD+1): last two labels, three when the second
+// level is a common shared SLD (co.uk, com.au, …). Not a full PSL — good
+// enough to tell "same product, different subdomain" from "different site".
+var _SHARED_SLD = { co: 1, com: 1, org: 1, net: 1, gov: 1, edu: 1, ac: 1 };
+function registrableDomain(originOrUrl) {
+  var host;
+  try { host = new URL(String(originOrUrl)).hostname; } catch (_) { return String(originOrUrl || ""); }
+  var parts = host.split(".");
+  if (parts.length <= 2) return host;
+  return parts.slice(_SHARED_SLD[parts[parts.length - 2]] ? -3 : -2).join(".");
+}
+
+// Cross-SITE navigations are SKIPPED by auto-capture (decision: Piotr,
 // 2026-07-20). Auto-captured steps include viewport screenshots, and the
 // third-party pages a flow crosses (SSO login, payment gateways) routinely
-// show credentials/card data that must not land in IndexedDB. Manual Mark on
-// a foreign page still works — that's a deliberate user action.
+// show credentials/card data that must not land in IndexedDB. Same-SITE
+// subdomain hops (www ↔ login ↔ city.example.com) are the same product flow —
+// comparing full origins silently killed auto-capture on ordinary flows.
+// Manual Mark on a foreign page still works — that's a deliberate action.
 function isForeignAutoCaptureOrigin(url, session) {
   if (!session || !session.inspectedOrigin) return false;
-  return originFrom(url || "") !== session.inspectedOrigin;
+  return registrableDomain(url || "") !== registrableDomain(session.inspectedOrigin);
 }
 
 // Decide whether a navigation event is a real new step for auto-capture.

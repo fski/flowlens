@@ -274,21 +274,52 @@ describe('media pipeline honesty', () => {
   });
 });
 
-describe('auto-capture skips third-party origins (privacy decision 2026-07-20)', () => {
+describe('auto-capture skips third-party SITES (privacy decision 2026-07-20)', () => {
   let ctx;
   beforeEach(() => { ctx = createContext(); });
 
-  it('foreign origin detected against the session origin', () => {
-    const session = { inspectedOrigin: 'https://app.example.com' };
+  it('cross-site is foreign; same-site subdomain hops are NOT', () => {
+    const session = { inspectedOrigin: 'https://www.foodora.se' };
     assert.equal(ctx.isForeignAutoCaptureOrigin('https://accounts.google.com/signin', session), true);
-    assert.equal(ctx.isForeignAutoCaptureOrigin('https://app.example.com/checkout', session), false);
-    // Same host, different scheme/port = different origin = foreign.
-    assert.equal(ctx.isForeignAutoCaptureOrigin('http://app.example.com/x', session), true);
+    // Subdomain hops are the same product flow — full-origin comparison
+    // silently killed auto-capture on ordinary sessions (Piotr, 20.07).
+    assert.equal(ctx.isForeignAutoCaptureOrigin('https://login.foodora.se/auth', session), false);
+    assert.equal(ctx.isForeignAutoCaptureOrigin('https://foodora.se/x', session), false);
+  });
+
+  it('registrableDomain handles shared SLDs and bare hosts', () => {
+    assert.equal(ctx.registrableDomain('https://shop.example.co.uk/x'), 'example.co.uk');
+    assert.equal(ctx.registrableDomain('https://a.b.example.com/x'), 'example.com');
+    assert.equal(ctx.registrableDomain('https://example.com'), 'example.com');
   });
 
   it('no session origin → not foreign (no false blocking)', () => {
     assert.equal(ctx.isForeignAutoCaptureOrigin('https://x.com/a', null), false);
     assert.equal(ctx.isForeignAutoCaptureOrigin('https://x.com/a', {}), false);
+  });
+});
+
+describe('session start captures a baseline step', () => {
+  let ctx;
+  beforeEach(() => { ctx = createContext(); });
+
+  it('startSession triggers an auto baseline capture when Auto is on', async () => {
+    ctx.document._elCache['inspectedUrl'].dataset.full = 'https://app.example.com/home';
+    ctx.document.getElementById('autoCaptureNav').checked = true;
+    const calls = [];
+    ctx.captureStepOptionC = async (label, opts) => { calls.push({ label, opts }); return true; };
+    await ctx.startSession();
+    assert.equal(calls.length, 1, 'baseline capture fired');
+    assert.equal(calls[0].opts.isAutoCapture, true);
+  });
+
+  it('no baseline capture when Auto is off', async () => {
+    ctx.document._elCache['inspectedUrl'].dataset.full = 'https://app.example.com/home';
+    ctx.document.getElementById('autoCaptureNav').checked = false;
+    const calls = [];
+    ctx.captureStepOptionC = async () => { calls.push(1); return true; };
+    await ctx.startSession();
+    assert.equal(calls.length, 0);
   });
 });
 
