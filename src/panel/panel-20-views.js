@@ -1226,7 +1226,7 @@ function normalizeLoadedSession(session) {
     // it from the (still present) run snapshot so resumed flows show real
     // issues + diff instead of an empty PASS.
     if (!step.findingIndex || typeof step.findingIndex !== "object") {
-      step.findingIndex = buildStepFindingIndex(step.snapshots.run, out.rawAppendix);
+      step.findingIndex = buildFindingIndexForStep(step.snapshots, out.rawAppendix);
     }
   }
   if (!out.frames || typeof out.frames !== "object") out.frames = { frameKeys: [], frameKeyToLastFrameId: {} };

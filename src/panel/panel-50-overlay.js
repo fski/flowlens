@@ -2140,7 +2140,7 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
       active: stableActive,
     };
     // Signature → finding metadata for the per-step diff + lifecycle swimlane.
-    step.findingIndex = buildStepFindingIndex(step.snapshots?.run, sessionState.current.rawAppendix || {});
+    step.findingIndex = buildFindingIndexForStep(step.snapshots, sessionState.current.rawAppendix || {});
     step.diffs = buildStepDiffs(step, prevStep, sessionState.current.rawAppendix || {});
 
     // Profiles v2 — deterministic profile match scoring

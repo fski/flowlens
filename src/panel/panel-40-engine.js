@@ -607,20 +607,55 @@ function buildStepFindingIndex(snapshot, rawAppendix = null) {
   const frameKeyStable = snapshot.best.frameKeyStable || snapshot.best.frameKey || "fk::unknown";
   const mode = snapshot.mode || "run";
   const raw = resolveSnapshotRaw(snapshot, rawAppendix) || {};
-  const findings = Array.isArray(raw.findings) ? raw.findings : [];
-  for (const f of findings) {
-    const sig = buildStableSignature(f, frameKeyStable, mode);
-    if (out[sig]) continue; // first finding wins for a given identity
-    out[sig] = {
-      sig: sig,
-      name: (f && (f.name || f.testId)) || "",
-      type: (f && f.type) || "UNKNOWN_RULE",
-      severity: (f && f.severity) || "info",
-      wcag: (f && f.wcag) || "",
-      // Confidence is needed to classify a blocker the same way Snap/CI do
-      // (isRunFindingBlocking): medium is blocking only at strict confidence.
-      confidence: (f && f.confidence) || "",
-    };
+  const put = (sig, meta) => { if (!out[sig]) out[sig] = meta; }; // first wins per identity
+  if (mode === "run" || mode === "observe") {
+    const findings = Array.isArray(raw.findings) ? raw.findings : [];
+    for (const f of findings) {
+      put(buildStableSignature(f, frameKeyStable, mode), {
+        sig: buildStableSignature(f, frameKeyStable, mode),
+        name: (f && (f.name || f.testId)) || "",
+        type: (f && f.type) || "UNKNOWN_RULE",
+        severity: (f && f.severity) || "info",
+        wcag: (f && f.wcag) || "",
+        // Confidence is needed to classify a blocker the same way Snap/CI do
+        // (isRunFindingBlocking): medium is blocking only at strict confidence.
+        confidence: (f && f.confidence) || "",
+      });
+    }
+    return out;
+  }
+  // Active-mode items — the index used to be run-only, so the verdict numbers
+  // (from stableSignatures, run+active) and the Appeared/Persisting lists +
+  // lifecycle (from this index) could disagree on the same step. Severity
+  // mapping mirrors computeStableSignatureSet; confidence "strict" because
+  // these are deterministic checks (keeps blocking classification aligned).
+  if (mode === "contrast") {
+    for (const f of (Array.isArray(raw.failures) ? raw.failures : [])) {
+      const sig = buildStableItemSignature(f, frameKeyStable, mode);
+      put(sig, { sig, name: normalizeWs(f?.text, 60) || f?.path || "", type: "CONTRAST_FAIL", severity: "high", wcag: "1.4.3", confidence: "strict" });
+    }
+  } else if (mode === "tabWalk") {
+    for (const e of (Array.isArray(raw.events) ? raw.events : [])) {
+      const sig = buildStableItemSignature(e, frameKeyStable, mode);
+      const blocking = TAB_BLOCKING_TYPES.has(normalizeWs(e?.type, 40));
+      put(sig, { sig, name: normalizeWs(e?.name, 60) || e?.path || "", type: (e && e.type) || "TAB_EVENT", severity: blocking ? "medium" : "info", wcag: "2.1.2", confidence: "strict" });
+    }
+  } else if (mode === "watch") {
+    for (const v of (Array.isArray(raw.verdicts) ? raw.verdicts : [])) {
+      const sig = buildStableItemSignature(v, frameKeyStable, mode);
+      put(sig, { sig, name: normalizeWs(v?.note, 60) || "", type: (v && v.type) || "WATCH_VERDICT", severity: "medium", wcag: "4.1.3", confidence: "strict" });
+    }
+  }
+  return out;
+}
+
+// The per-step index over BOTH snapshots (run + active) — what the Flow view
+// (bucketStepDiff, lifecycle, issues-now) reads.
+function buildFindingIndexForStep(snapshots, rawAppendix = null) {
+  const out = buildStepFindingIndex(snapshots?.run, rawAppendix);
+  if (snapshots?.active) {
+    const act = buildStepFindingIndex(snapshots.active, rawAppendix);
+    for (const k in act) if (!out[k]) out[k] = act[k];
   }
   return out;
 }

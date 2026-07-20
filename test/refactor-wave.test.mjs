@@ -45,6 +45,50 @@ describe('R2: decideNavAction — full auto-capture precedence, pure and testabl
   });
 });
 
+describe('R4: findingIndex covers run + active — view lists match verdict numbers', () => {
+  let ctx;
+  beforeEach(() => { ctx = createContext(); });
+
+  const runSnap = (findings) => ({
+    mode: 'run', capturedAt: '2026-07-20T10:00:00.000Z',
+    best: { frameKey: 'fk::v1::https://x.com::/:://', frameKeyStable: 'fk::v1::https://x.com::/:://', normalized: { raw: { findings } } },
+    perFrame: [],
+  });
+  const contrastSnap = (n) => ({
+    mode: 'contrast', capturedAt: '2026-07-20T10:00:00.000Z',
+    best: { frameKey: 'fk::v1::https://x.com::/:://', frameKeyStable: 'fk::v1::https://x.com::/:://', normalized: { raw: { failures: Array.from({ length: n }, (_, i) => ({ path: `p${i}`, text: `sample ${i}`, fg: '#111', bg: '#222' })) } } },
+    perFrame: [],
+  });
+
+  it('active contrast failures land in the index with blocking-aligned meta', () => {
+    const finding = { type: 'MISSING_LABEL', name: 'x', severity: 'medium', confidence: 'strict', wcag: '3.3.2', path: 'html>body>a', product: 'axe', role: '', level: 'AA' };
+    const idx = ctx.buildFindingIndexForStep({ run: runSnap([finding]), active: contrastSnap(2) }, {});
+    const entries = Object.values(idx);
+    assert.equal(entries.length, 3, 'run finding + 2 contrast failures');
+    const contrast = entries.filter(e => e.type === 'CONTRAST_FAIL');
+    assert.equal(contrast.length, 2);
+    assert.equal(contrast[0].severity, 'high');
+    assert.equal(contrast[0].wcag, '1.4.3');
+    // Blocking classification agrees with the stable engine's counts.
+    assert.ok(ctx.isRunFindingBlocking(contrast[0]));
+  });
+
+  it('issues-now (index size) now equals the consolidated stable universe', () => {
+    const step = {
+      id: 'step_1', index: 1,
+      snapshots: { run: runSnap([]), active: contrastSnap(2) },
+    };
+    step.stableSignatures = {
+      run: ctx.computeStableSignatureSet(step.snapshots.run, {}),
+      active: ctx.computeStableSignatureSet(step.snapshots.active, {}),
+    };
+    step.findingIndex = ctx.buildFindingIndexForStep(step.snapshots, {});
+    const universe = step.stableSignatures.run.stableFindingSignatureSet.length
+      + step.stableSignatures.active.stableFindingSignatureSet.length;
+    assert.equal(Object.keys(step.findingIndex).length, universe);
+  });
+});
+
 describe('R3: uniqueRawRef — one ref scheme for session + export paths', () => {
   let ctx;
   beforeEach(() => { ctx = createContext(); });
