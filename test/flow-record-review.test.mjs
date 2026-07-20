@@ -299,6 +299,41 @@ describe('auto-capture skips third-party SITES (privacy decision 2026-07-20)', (
   });
 });
 
+describe('microfrontend flows: subframe navs gated by the audited frame set', () => {
+  let ctx;
+  beforeEach(() => { ctx = createContext(); });
+
+  function sessionWithLastStep(frameSelections) {
+    return { inspectedOrigin: 'https://host.example.com', steps: [{ index: 1, frameSelections }] };
+  }
+
+  it('frameKeyOrigin extracts the origin from fk::vN::origin::path', () => {
+    assert.equal(ctx.frameKeyOrigin('fk::v1::https://mfe.vendor.com::/checkout:://'), 'https://mfe.vendor.com');
+    assert.equal(ctx.frameKeyOrigin('garbage'), '');
+  });
+
+  it('matches by audited frameId (stable frame)', () => {
+    const sess = sessionWithLastStep({ usedFrameIds: [7], usedFrameKeys: [] });
+    assert.equal(ctx.isRelevantFrameNav('https://anything.example/x', 7, sess), true);
+    assert.equal(ctx.isRelevantFrameNav('https://anything.example/x', 8, sess), false);
+  });
+
+  it('matches by SITE of an audited frameKey when the iframe was recreated (new frameId)', () => {
+    const sess = sessionWithLastStep({
+      usedFrameIds: [7],
+      usedFrameKeys: ['fk::v1::https://mfe.vendor.com::/checkout:://'],
+    });
+    // New frameId (iframe recreated on nav), same vendor site → still the target.
+    assert.equal(ctx.isRelevantFrameNav('https://mfe.vendor.com/checkout/step-2', 99, sess), true);
+    // An ad iframe on a different site matches nothing.
+    assert.equal(ctx.isRelevantFrameNav('https://ads.doubleclick.net/rotate', 99, sess), false);
+  });
+
+  it('no steps yet → nothing is relevant (baseline defines the audited set)', () => {
+    assert.equal(ctx.isRelevantFrameNav('https://mfe.vendor.com/x', 1, { inspectedOrigin: 'https://h.com', steps: [] }), false);
+  });
+});
+
 describe('session start captures a baseline step', () => {
   let ctx;
   beforeEach(() => { ctx = createContext(); });
