@@ -599,10 +599,10 @@ function normalizeFindingConfidence(confidence) {
 
 function isRunFindingBlocking(finding) {
   const severity = normalizeWs(finding?.severity, 12);
-  if (severity !== "high" && severity !== "medium") return false;
+  if (severity !== "critical" && severity !== "high" && severity !== "medium") return false;
   const confidence = normalizeFindingConfidence(finding?.confidence);
   if (confidence === "advisory") return false;
-  if (severity === "high") return true;
+  if (severity === "critical" || severity === "high") return true;
   return confidence === "strict";
 }
 
@@ -1043,7 +1043,7 @@ function getSessionKeys(origin, env, sessionId = null) {
  */
 function migrateStepStableSignatures(snapshot, rawAppendix, step) {
   if (!snapshot || !snapshot.best) {
-    return { stableFindingSignatureSet: [], severityCounts: { high: 0, medium: 0, low: 0, info: 0 }, blockingSet: [], summaryScore: 0, stepQuality: { degraded: false } };
+    return { stableFindingSignatureSet: [], severityCounts: { critical: 0, high: 0, medium: 0, low: 0, info: 0 }, blockingSet: [], summaryScore: 0, stepQuality: { degraded: false } };
   }
   const raw = resolveSnapshotRaw(snapshot, rawAppendix);
   const frameKeyStable = snapshot.best.frameKeyStable || snapshot.best.frameKey || "fk::unknown";
@@ -1067,7 +1067,7 @@ function migrateStepStableSignatures(snapshot, rawAppendix, step) {
   // Degraded fallback: rawAppendix missing (raw_capped case).
   // Build degraded signatures from whatever metadata is available.
   const signatures = [];
-  const severityCounts = { high: 0, medium: 0, low: 0, info: 0 };
+  const severityCounts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
   const blockingSet = [];
   let summaryScore = 0;
 
@@ -1083,7 +1083,7 @@ function migrateStepStableSignatures(snapshot, rawAppendix, step) {
       signatures.push(sig);
       const sev = normalizeWs(f?.severity, 10) || "info";
       if (sev in severityCounts) severityCounts[sev]++;
-      if (sev === "high" || sev === "medium") { blockingSet.push(sig); }
+      if (isRunFindingBlocking(f)) { blockingSet.push(sig); }
       summaryScore += SEV_SCORE[sev] || 0;
     }
     return { stableFindingSignatureSet: signatures, severityCounts, blockingSet, summaryScore, stepQuality: { degraded: false } };
@@ -1094,13 +1094,15 @@ function migrateStepStableSignatures(snapshot, rawAppendix, step) {
   if (counts.findings > 0 || counts.high > 0 || counts.medium > 0) {
     // We know there were findings but don't have their details.
     // Build a single degraded signature per severity bucket.
-    for (const [sev, count] of Object.entries({ high: counts.high || 0, medium: counts.medium || 0, low: counts.low || 0, info: counts.info || 0 })) {
+    for (const [sev, count] of Object.entries({ critical: counts.critical || 0, high: counts.high || 0, medium: counts.medium || 0, low: counts.low || 0, info: counts.info || 0 })) {
       for (let i = 0; i < count; i++) {
         const degradedHash = fnv1aHash8(`${mode}|${frameKeyStable}|${sev}|${i}`);
         const sig = `${mode}|degraded|${sev}|${degradedHash}`;
         signatures.push(sig);
         if (sev in severityCounts) severityCounts[sev]++;
-        if (sev === "high" || sev === "medium") blockingSet.push(sig);
+        // Degraded buckets carry no confidence — normalizeFindingConfidence
+        // defaults to strict, so medium stays blocking (same as before).
+        if (isRunFindingBlocking({ severity: sev })) blockingSet.push(sig);
         summaryScore += SEV_SCORE[sev] || 0;
       }
     }
@@ -1124,6 +1126,9 @@ function normalizeLoadedSession(session) {
 
   out.signatureVersion = asNumber(out.signatureVersion, 1);
   out.frameKeyVersion = asNumber(out.frameKeyVersion, 1);
+  // Sessions persisted before session.env existed derive it from their own
+  // origin (env is a pure function of hostname) — storage keys depend on it.
+  if (!out.env) out.env = detectEnv(out.inspectedOrigin || "");
   if (!out.rawAppendix || typeof out.rawAppendix !== "object") out.rawAppendix = {};
   if (!Array.isArray(out.steps)) out.steps = [];
   for (const step of out.steps) {
@@ -1211,33 +1216,6 @@ function setLastMarkStatus(status, reasonCode = "-") {
     at: nowIso(),
   };
   setPersistentStatus(status, code, reasonDetail(code));
-}
-
-function formatElapsedHms(startIso, endIso = null) {
-  const start = Date.parse(startIso || "");
-  if (!Number.isFinite(start)) return "0:00";
-  const end = endIso ? Date.parse(endIso) : Date.now();
-  const totalSec = Math.max(0, Math.round((end - start) / 1000));
-  const mins = Math.floor(totalSec / 60);
-  const secs = totalSec % 60;
-  return `${mins}:${String(secs).padStart(2, "0")}`;
-}
-
-function ensureSessionHudTicker() {
-  const hasSession = !!sessionState.current;
-  // Always clear first to prevent stacking if called multiple times rapidly
-  if (!hasSession || sessionState.hudTimer) {
-    if (sessionState.hudTimer) {
-      window.clearInterval(sessionState.hudTimer);
-      sessionState.hudTimer = null;
-    }
-  }
-  if (hasSession && !sessionState.hudTimer) {
-    sessionState.hudTimer = window.setInterval(() => {
-      if (!sessionState.current) return;
-      renderSessionHud();
-    }, 1000);
-  }
 }
 
 function expandAccordion(sectionEl) {
@@ -1360,13 +1338,20 @@ function flowVerdictHeaderHtml(sess) {
     + '</div>' + systemicNote;
 }
 
+// Single source for a step's screenshot storage key: the stable step.id, with
+// the numeric-index fallback pre-id sessions were written under. Write side
+// (captureStepShot) and both read sites must agree — they drifted before.
+function stepShotKey(step) {
+  return String((step && (step.id || step.index)) || "");
+}
+
 function filmstripHtml(sess, selectedIndex) {
   var views = flowStepViews(sess);
   if (!views.length) return "";
   return views.map(function (v) {
     var sel = v.index === selectedIndex;
     var thumb = v.hasShot
-      ? '<div class="filmstripThumb" data-shot-step="' + escapeHtml(v.id) + '" data-shot-idx="' + v.index + '"></div>'
+      ? '<div class="filmstripThumb" data-shot-step="' + escapeHtml(stepShotKey(v)) + '" data-shot-idx="' + v.index + '"></div>'
       : '<div class="filmstripThumb filmstripThumb--empty" aria-hidden="true">' + (v.shotError ? "!" : "▢") + '</div>';
     var cls = "filmstripTile" + (sel ? " isSelected" : "") + (v.hasShot ? "" : " filmstripTile--noshot")
       + (v.blockingAdded > 0 ? " filmstripTile--blocking" : "");
@@ -1428,7 +1413,7 @@ function stepDetailHtml(sess, selectedIndex) {
   var step = steps[pos];
   var prev = pos > 0 ? steps[pos - 1] : null;
   var d = bucketStepDiff(step, prev);
-  var shotKey = step.id || String(step.index);
+  var shotKey = stepShotKey(step);
   var shot = step.hasShot
     ? '<div class="flowDetailShot" data-shot-step="' + escapeHtml(shotKey) + '" data-shot-idx="' + step.index + '"></div>'
     : '<div class="flowDetailShot flowDetailShot--empty">' + (step.shotError ? "screenshot unavailable" : "no screenshot") + '</div>';
@@ -1513,13 +1498,20 @@ function renderFlow() {
 }
 
 // Load screenshots (Blobs → object URLs) into the slots renderFlow drew.
-// Revokes previous URLs first to avoid leaks. Best-effort; a missing shot just
-// leaves its placeholder.
-var _flowShotUrls = [];
+// Object URLs are CACHED per (session, step): a re-render re-applies the
+// cached URL synchronously (no blank-frame flicker, no repeated IndexedDB
+// reads), and URLs are revoked only when the session changes — the old
+// revoke-everything-then-refetch pass raced overlapping renders into blank
+// thumbnails. Best-effort; a missing shot just leaves its placeholder.
+var _flowShotUrlCache = { sessionId: null, byKey: {} };
+function _flushFlowShotCache() {
+  for (var k in _flowShotUrlCache.byKey) { try { URL.revokeObjectURL(_flowShotUrlCache.byKey[k]); } catch (_) {} }
+  _flowShotUrlCache = { sessionId: null, byKey: {} };
+}
 function _hydrateFlowShots(sess) {
   if (typeof flowMediaStore === "undefined" || !sess) return;
-  for (var i = 0; i < _flowShotUrls.length; i++) { try { URL.revokeObjectURL(_flowShotUrls[i]); } catch (_) {} }
-  _flowShotUrls = [];
+  if (_flowShotUrlCache.sessionId !== sess.id) _flushFlowShotCache();
+  _flowShotUrlCache.sessionId = sess.id;
   var slots = document.querySelectorAll("[data-shot-step]");
   slots.forEach(function (slot) {
     // Keys are the STABLE string step.id — read as a string, NOT Number()
@@ -1527,17 +1519,27 @@ function _hydrateFlowShots(sess) {
     // change stored shots under the numeric step.index, so fall back to that.
     var id = slot.getAttribute("data-shot-step");
     var legacyIdx = slot.getAttribute("data-shot-idx");
-    var apply = function (blob) {
-      if (!blob) return;
-      var url = URL.createObjectURL(blob);
-      _flowShotUrls.push(url);
+    var apply = function (url) {
       slot.style.backgroundImage = 'url("' + url + '")';
       slot.classList.add("hasImage");
     };
+    if (_flowShotUrlCache.byKey[id]) { apply(_flowShotUrlCache.byKey[id]); return; }
     flowMediaStore.getShot(sess.id, id).then(function (blob) {
-      if (blob) { apply(blob); return; }
-      if (legacyIdx == null || legacyIdx === id) return;
-      return flowMediaStore.getShot(sess.id, Number(legacyIdx)).then(apply);
+      if (!blob && legacyIdx != null && legacyIdx !== id) {
+        return flowMediaStore.getShot(sess.id, Number(legacyIdx));
+      }
+      return blob;
+    }).then(function (blob) {
+      if (!blob) return;
+      // The cache may have been flushed for a newer session while this read
+      // was in flight — don't resurrect a URL for a dead session.
+      if (_flowShotUrlCache.sessionId !== sess.id) return;
+      var url = _flowShotUrlCache.byKey[id];
+      if (!url) {
+        url = URL.createObjectURL(blob);
+        _flowShotUrlCache.byKey[id] = url;
+      }
+      apply(url);
     }).catch(function () {});
   });
 }

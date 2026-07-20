@@ -77,6 +77,23 @@ describe("flowMediaStore", () => {
     assert.notEqual(await store.getShot("s2", 1), null);
   });
 
+  it("deleteShot removes exactly one step's shot (deleteStep cleanup path)", async () => {
+    const { store } = loadStore();
+    await store.putShot("s1", "step_a", { size: 1 });
+    await store.putShot("s1", "step_b", { size: 1 });
+    const r = await store.deleteShot("s1", "step_a");
+    assert.equal(r.ok, true);
+    assert.equal(await store.getShot("s1", "step_a"), null);
+    assert.notEqual(await store.getShot("s1", "step_b"), null);
+  });
+
+  it("deleteShot reports failure status instead of throwing", async () => {
+    const { store } = loadStore();
+    store._openDb = () => Promise.reject(new Error("no-db"));
+    const r = await store.deleteShot("s1", "step_a");
+    assert.equal(r.ok, false);
+  });
+
   it("pruneToSessions keeps only the given sessions' media", async () => {
     const { store } = loadStore();
     await store.putShot("keep", 1, { size: 1 });

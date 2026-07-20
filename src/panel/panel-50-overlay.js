@@ -469,7 +469,7 @@ var flowRecorder = (function () {
     _rec = new MediaRecorder(_stream, mime ? { mimeType: mime } : undefined);
     _rec.ondataavailable = function (ev) { if (ev.data && ev.data.size) _chunks.push(ev.data); };
     // If the user stops sharing from Chrome's own bar, finalize gracefully.
-    _stream.getVideoTracks().forEach(function (t) { t.onended = function () { stop(); }; });
+    _stream.getVideoTracks().forEach(function (t) { t.onended = function () { handleRecorderAutoStop(); }; });
     _startAt = (typeof performance !== "undefined" && performance.now) ? performance.now() : 0;
     _rec.start();
     return { ok: true };
@@ -485,14 +485,21 @@ var flowRecorder = (function () {
         var mime = rec.mimeType || "video/webm";
         var blob = new Blob(chunks, { type: mime });
         var durationMs = startAt ? Math.round(((typeof performance !== "undefined" && performance.now) ? performance.now() : 0) - startAt) : 0;
+        var saved = false;
         if (typeof flowMediaStore !== "undefined" && sid) {
           try {
-            await flowMediaStore.putVideo(sid, blob, { mime: mime, durationMs: durationMs });
-            var sess = sessionState.current || sessionState.lastEndedSession;
-            if (sess && sess.id === sid) sess.hasVideo = true;
+            var put = await flowMediaStore.putVideo(sid, blob, { mime: mime, durationMs: durationMs });
+            saved = !!(put && put.ok);
+            // hasVideo drives the "download recording" affordance — claiming it
+            // on a failed (e.g. quota) write showed a control that can only say
+            // "No recording for this flow".
+            if (saved) {
+              var sess = sessionState.current || sessionState.lastEndedSession;
+              if (sess && sess.id === sid) sess.hasVideo = true;
+            }
           } catch (_) {}
         }
-        resolve({ ok: true, blob: blob, mime: mime, durationMs: durationMs });
+        resolve({ ok: true, saved: saved, blob: blob, mime: mime, durationMs: durationMs });
       };
       try { rec.stop(); } catch (_) { resolve({ ok: false, reason: "stop-failed" }); }
     });
@@ -500,6 +507,19 @@ var flowRecorder = (function () {
 
   return { start: start, stop: stop, isRecording: isRecording };
 })();
+
+// Stream ended outside our Stop button (user clicked Chrome's own "Stop
+// sharing" bar): finalize with the same side effects the button performs —
+// without this the button stayed on "Stop recording", hasVideo never got
+// persisted, and the header download control didn't appear until a re-render.
+async function handleRecorderAutoStop() {
+  var r = await flowRecorder.stop();
+  if (typeof setRecordVideoUi === "function") setRecordVideoUi(false);
+  if (r && r.ok && r.saved && sessionState.current) {
+    persistActiveSessionBestEffort(compactSessionForExport(sessionState.current)).catch(function () {});
+  }
+  if (typeof renderFlow === "function") renderFlow();
+}
 
 // ═══ PER-STEP SCREENSHOT ══════════════════════════════════════════════════
 // Decide whether a viewport screenshot is worth attempting for a step. Skips
@@ -525,7 +545,11 @@ async function captureStepShot(sessionId, step, scopeInfo, at) {
     const r = await send({ type: "CAPTURE_SHOT" });
     if (!r || !r.ok || !r.dataUrl) { step.shotError = true; return false; }
     const blob = await (await fetch(r.dataUrl)).blob();
-    const put = await flowMediaStore.putShot(sessionId, step.id, blob, { at: at || 0 });
+    // Session ended/replaced while the shot was in flight: the archived JSON
+    // already froze hasShot:false, so writing now would only orphan the blob
+    // in IndexedDB (invisible until the session ages out of the prune window).
+    if (!sessionState.current || sessionState.current.id !== sessionId) return false;
+    const put = await flowMediaStore.putShot(sessionId, stepShotKey(step), blob, { at: at || 0 });
     if (put && put.ok) { step.hasShot = true; step.shotError = false; return true; }
     step.shotError = true;
     return false;
@@ -555,8 +579,7 @@ async function downloadFlowVideo(sessionId) {
   try {
     var rec = await flowMediaStore.getVideo(sessionId);
     if (!rec || !rec.blob) { toast("No recording for this flow"); return false; }
-    var ext = (rec.meta && /vp9|vp8|webm/.test(rec.meta.mime || "")) ? "webm" : "webm";
-    downloadBlobFile(rec.blob, "flowlens-flow-" + sessionId + "." + ext);
+    downloadBlobFile(rec.blob, "flowlens-flow-" + sessionId + ".webm");
     return true;
   } catch (_) {
     toast("Could not load recording");
@@ -1699,7 +1722,7 @@ async function startSession() {
     toast("Session already active");
     return false;
   }
-  const { url, origin, envTag } = getCurrentScopeInfo();
+  const { url, origin, env, envTag } = getCurrentScopeInfo();
   if (!origin) {
     toast("Open a page before starting a session");
     return false;
@@ -1713,6 +1736,7 @@ async function startSession() {
     endedAt: null,
     frameKeyVersion: 1,
     inspectedOrigin: origin,
+    env,
     envTag,
     settings: buildSessionSettings(),
     frames: { frameKeys: [], frameKeyToLastFrameId: {} },
@@ -1743,6 +1767,11 @@ async function endSession() {
   if (flowRecorder.isRecording()) { try { await flowRecorder.stop(); } catch (_) {} }
   const exportableEndedSession = compactSessionForExport(normalizeLoadedSession(sessionState.current));
   const archived = await archiveSessionBestEffort(compactSessionForExport(sessionState.current));
+  if (archived === "in-flight") {
+    // A concurrent End (double-click / hotkey repeat) is already archiving this
+    // session — let it finish; don't undo its endedAt or scare the user.
+    return false;
+  }
   if (!archived) {
     // Keep active in-memory session so user can retry archive/export without data loss.
     sessionState.current.endedAt = previousEndedAt;
@@ -1953,6 +1982,15 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
       toast("Raw appendix capped; continuing without raw");
     }
     const routeHint = await deriveStepRouteHint(url, baseTargeting.profileIds);
+    // R1 (second check): deriveStepRouteHint can await a DevTools eval
+    // round-trip (title fallback), so End/Start can interleave here exactly
+    // like during CAPTURE_STEP — without this, the step below would crash on
+    // null or land in the wrong session.
+    if (!sessionState.current || sessionState.current.id !== _captureSessionId) {
+      console.warn("captureStepOptionC: session changed during route-hint derivation — discarding result");
+      toast("Session was ended during capture");
+      return false;
+    }
 
     const step = {
       id: makeId("step"),
@@ -1977,9 +2015,9 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     sessionState.current.schemaVersion = asNumber(r?.schemaVersion, sessionState.current.schemaVersion || 1);
     sessionState.current.signatureVersion = asNumber(r?.signatureVersion, sessionState.current.signatureVersion || 1);
     sessionState.current.frameKeyVersion = asNumber(r?.run?.frameKeyVersion, sessionState.current.frameKeyVersion || 1);
-    step.diffs = buildStepDiffs(step, prevStep, sessionState.current.rawAppendix || {});
-
-    // Stable signatures (shadow mode) — compute alongside legacy diff
+    // Stable signatures BEFORE buildStepDiffs so capture takes the same
+    // (stable) diff branch as deleteStep's recompute — with the old order the
+    // two paths diffed with different engines.
     const stableRun = computeStableSignatureSet(step.snapshots?.run, sessionState.current.rawAppendix || {});
     const stableActive = step.snapshots?.active
       ? computeStableSignatureSet(step.snapshots.active, sessionState.current.rawAppendix || {})
@@ -1990,10 +2028,7 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     };
     // Signature → finding metadata for the per-step diff + lifecycle swimlane.
     step.findingIndex = buildStepFindingIndex(step.snapshots?.run, sessionState.current.rawAppendix || {});
-    // Parallel validation (shadow mode) — log mismatches, never break production
-    if (prevStep?.stableSignatures?.run) {
-      validateDiffParity(step, prevStep, sessionState.current.rawAppendix || {}, stableRun, prevStep.stableSignatures.run);
-    }
+    step.diffs = buildStepDiffs(step, prevStep, sessionState.current.rawAppendix || {});
 
     // Profiles v2 — deterministic profile match scoring
     const bestFrameProbe = r?.run?.bestFrameProbe || null;

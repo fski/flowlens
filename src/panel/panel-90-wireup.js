@@ -345,12 +345,13 @@ function stepIndicesForNav() {
         if (r?.ok && r.blob) {
           const sid = (sessionState.current || sessionState.lastEndedSession)?.id || "flow";
           downloadBlobFile(r.blob, `flowlens-flow-${sid}.webm`);
-          // stop() set session.hasVideo in-memory; persist so the stored-video
-          // download control survives a panel reload before the session ends.
-          if (sessionState.current) {
+          // stop() set session.hasVideo in-memory (only when the store write
+          // succeeded); persist so the stored-video download control survives
+          // a panel reload before the session ends.
+          if (r.saved && sessionState.current) {
             persistActiveSessionBestEffort(compactSessionForExport(sessionState.current)).catch(() => {});
           }
-          toast("Video saved & downloaded");
+          toast(r.saved ? "Video saved & downloaded" : "Video downloaded — saving to browser storage failed");
         } else {
           toast("Recording stopped");
         }
@@ -556,6 +557,17 @@ if (els.recipeSelect) {
 if (els.alsoConsole) {
   els.alsoConsole.addEventListener("change", async () => {
     await updateUiPrefs({ alsoConsole: !!els.alsoConsole.checked });
+  });
+}
+
+if (els.autoCaptureNav) {
+  els.autoCaptureNav.addEventListener("change", async () => {
+    await updateUiPrefs({ autoCaptureNav: !!els.autoCaptureNav.checked });
+  });
+}
+if (els.autoCaptureDelay) {
+  els.autoCaptureDelay.addEventListener("change", async () => {
+    await updateUiPrefs({ autoCaptureDelay: Number(els.autoCaptureDelay.value) || 500 });
   });
 }
 
@@ -1074,20 +1086,36 @@ chrome.devtools.network.onNavigated.addListener(async () => {
 // so the SW watches webNavigation.onHistoryStateUpdated for this tab and pushes
 // the new URL over a dedicated port. Refresh the inspected URL first so scope
 // info reflects the new route, then run the same debounced capture.
+// MV3 reaps the SW at will and every reap disconnects this port — without the
+// onDisconnect reconnect below, SPA auto-capture silently died for the rest of
+// the panel's life while full-nav capture kept working.
 (function connectNavPort() {
   if (!hasRuntime() || typeof __runtime.connect !== "function") return;
-  try {
-    const port = __runtime.connect({ name: "flowlens-nav" });
-    port.postMessage({ tabId });
+  let attempt = 0;
+  function schedule() {
+    const delay = Math.min(30000, 1000 * Math.pow(2, attempt++));
+    setTimeout(open, delay);
+  }
+  function open() {
+    let port;
+    try {
+      port = __runtime.connect({ name: "flowlens-nav" });
+      port.postMessage({ tabId });
+    } catch (e) {
+      console.warn("nav port connect failed", e);
+      schedule();
+      return;
+    }
     port.onMessage.addListener(async (m) => {
       if (!m || m.type !== "SPA_NAV") return;
+      attempt = 0; // live traffic proves the connection — reset backoff
       if (!sessionState.current || !els.autoCaptureNav?.checked) return;
       await refreshInspectedUrl();
       maybeAutoCapture(getCurrentScopeInfo().url);
     });
-  } catch (e) {
-    console.warn("nav port connect failed", e);
+    port.onDisconnect.addListener(() => { schedule(); });
   }
+  open();
 })();
 
 // Bottom sheet toggles

@@ -175,7 +175,7 @@ const ORDER = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
 const SEV_LIST = ["critical", "high", "medium", "low", "info"];
 // Severity → summaryScore weight. Feeds step summaryScore in signatures/CI
 // diffing — changing a weight changes scores in exported reports.
-const SEV_SCORE = { high: 5, medium: 3, low: 1, info: 0 };
+const SEV_SCORE = { critical: 8, high: 5, medium: 3, low: 1, info: 0 };
 let activeGroupFilter = null;
 
 // ═══ PERF COUNTERS (safe in prod; display gated by localStorage flag) ═══
@@ -334,8 +334,6 @@ const sessionState = {
   captureSlowTimer: null,
   captureSlow: false,
   lastPersistReasonCode: "-",
-  hudTimer: null,
-  expandedStepIndex: null,
   selectedStepIndex: null,
   autoCapturePending: null,
   lastAutoNavUrl: null,

@@ -35,148 +35,6 @@ function saveStepLabel() {
   hideStepLabelInput();
 }
 
-// ---- Step drill-down ----
-
-function buildStepDrillDownData(stepIndex) {
-  const sess = sessionState.current || sessionState.lastEndedSession;
-  if (!sess) return null;
-  const steps = Array.isArray(sess.steps) ? sess.steps : [];
-  const step = steps.find(s => s.index === stepIndex);
-  if (!step) return null;
-  const prevStep = steps.find(s => s.index === stepIndex - 1) || null;
-  const rawAppendix = sess.rawAppendix || {};
-
-  const currRunRaw = resolveSnapshotRaw(step?.snapshots?.run, rawAppendix);
-  const prevRunRaw = resolveSnapshotRaw(prevStep?.snapshots?.run, rawAppendix);
-  const currFindings = Array.isArray(currRunRaw?.findings) ? currRunRaw.findings : [];
-  const prevFindings = Array.isArray(prevRunRaw?.findings) ? prevRunRaw.findings : [];
-
-  const currEntries = runSignatureEntries(step?.snapshots?.run, rawAppendix);
-  const prevEntries = runSignatureEntries(prevStep?.snapshots?.run, rawAppendix);
-
-  const currSigToFinding = new Map();
-  for (let i = 0; i < Math.min(currEntries.length, currFindings.length); i++) {
-    currSigToFinding.set(currEntries[i].sig, currFindings[i]);
-  }
-  const prevSigSet = new Set(prevEntries.map(e => e.sig));
-  const currSigSet = new Set(currEntries.map(e => e.sig));
-
-  const added = [];
-  const fixed = [];
-  const persisting = [];
-
-  for (const [sig, finding] of currSigToFinding) {
-    if (prevSigSet.has(sig)) {
-      persisting.push(finding);
-    } else {
-      added.push(finding);
-    }
-  }
-  // Fixed: in prev but not in current
-  const prevSigToFinding = new Map();
-  for (let i = 0; i < Math.min(prevEntries.length, prevFindings.length); i++) {
-    prevSigToFinding.set(prevEntries[i].sig, prevFindings[i]);
-  }
-  for (const [sig, finding] of prevSigToFinding) {
-    if (!currSigSet.has(sig)) {
-      fixed.push(finding);
-    }
-  }
-
-  return { step, added, fixed, persisting, diff: step.diffs?.consolidated || {} };
-}
-
-function renderStepDrillDown(stepIndex) {
-  const tbody = document.querySelector("#flowTimelineTable tbody");
-  if (!tbody) return;
-
-  // --- Batch DOM reads ---
-  const existing = tbody.querySelector(".stepDetailRow");
-  const expandedRows = tbody.querySelectorAll("tr.isExpanded");
-  let targetRow = null;
-  for (const r of tbody.querySelectorAll("tr.trow")) {
-    if (Number(r.dataset.stepIndex) === stepIndex) { targetRow = r; break; }
-  }
-
-  // --- Batch DOM writes ---
-  if (existing) existing.remove();
-  expandedRows.forEach(r => r.classList.remove("isExpanded"));
-
-  // Toggle: if same step, just collapse
-  if (sessionState.expandedStepIndex === stepIndex) {
-    sessionState.expandedStepIndex = null;
-    return;
-  }
-
-  sessionState.expandedStepIndex = stepIndex;
-  const data = buildStepDrillDownData(stepIndex);
-  if (!data) return;
-  if (!targetRow) return;
-  targetRow.classList.add("isExpanded");
-
-  const s = data.step;
-  const d = data.diff;
-
-  // Collect all findings for highlight click handler
-  const _drillFindings = [];
-  const renderFindingList = (findings, max = 30) => {
-    if (!findings.length) return '<span style="color:var(--tx3);font-size:12px;">None</span>';
-    const startIdx = _drillFindings.length;
-    const sliced = findings.slice(0, max);
-    _drillFindings.push(...sliced);
-    return `<ul class="stepFindingList">${sliced.map((f, i) => {
-      const sev = escapeHtml(f.severity || "info");
-      const type = escapeHtml(f.type || f.product || "");
-      const note = escapeHtml(txt(f.note || f.name || "", 100));
-      return `<li class="stepFindingItem"><span class="stepFindingSev ${sev}">${sev}</span><span class="stepFindingType">${type}</span><span class="stepFindingNote">${note}</span><button class="rowAct stepHighlight" type="button" data-drill-i="${startIdx + i}" aria-label="Highlight">Highlight</button></li>`;
-    }).join("")}${findings.length > max ? `<li class="stepFindingItem"><span class="stepFindingNote">…and ${findings.length - max} more</span></li>` : ""}</ul>`;
-  };
-
-  const detailHtml = `
-    <dl class="stepDetailMeta">
-      <dt>Step</dt><dd>${s.index}</dd>
-      <dt>Label</dt><dd>${escapeHtml(s.label || "—")}</dd>
-      <dt>Time</dt><dd>${s.at ? new Date(s.at).toLocaleTimeString() : "—"}</dd>
-      <dt>Mode</dt><dd>${escapeHtml(s.activeModeCaptured || "run")}</dd>
-      <dt>URL</dt><dd title="${escapeHtml(s.url || "")}">${escapeHtml(txt(s.routeHint || s.url || "—", 60))}</dd>
-      <dt>Diff</dt><dd>+${d.added || 0} new, -${d.fixed || 0} fixed, ${d.persisting || 0} persisting</dd>
-      ${(() => { const _cov = s.snapshots?.run?.best?.shadowCoverage; const _fmt = formatShadowCoverage(_cov); if (!_fmt.text) return ""; const _b = _fmt.badges.map(b => `<span class="shadowCoverageBadge shadowCoverageBadge--${escapeHtml(b.kind)}">${escapeHtml(b.label)}</span>`).join(" "); return `<dt>Shadow</dt><dd>${escapeHtml(_fmt.text)} ${_b}</dd>`; })()}
-    </dl>
-    <div class="stepDetailSection">
-      <div class="stepDetailSectionTitle">Added (${data.added.length})</div>
-      ${renderFindingList(data.added)}
-    </div>
-    <div class="stepDetailSection">
-      <div class="stepDetailSectionTitle">Fixed (${data.fixed.length})</div>
-      ${renderFindingList(data.fixed)}
-    </div>
-  `;
-
-  const detailRow = document.createElement("tr");
-  detailRow.className = "stepDetailRow";
-  detailRow.innerHTML = `<td colspan="7"><div class="stepDetail">${detailHtml}</div></td>`;
-  targetRow.after(detailRow);
-
-  // Delegate highlight clicks on drill-down findings. Use the STEP's own
-  // frame context — the global _activeHighlightCtx belongs to the last Snap
-  // audit and may point at a different frame than this captured step.
-  const stepTargeting = s?.snapshots?.run?.targeting || null;
-  const stepHighlightCtx = {
-    bestFrameId: s?.snapshots?.run?.best?.frameId ?? state._activeHighlightCtx?.bestFrameId ?? state.bestFrameId ?? 0,
-    usedFrameIds: Array.isArray(stepTargeting?.usedFrameIds) && stepTargeting.usedFrameIds.length
-      ? [...stepTargeting.usedFrameIds]
-      : (state._activeHighlightCtx?.usedFrameIds || []),
-  };
-  detailRow.addEventListener("click", async (e) => {
-    const btn = e.target.closest(".stepHighlight");
-    if (!btn) return;
-    e.stopPropagation();
-    const fi = Number(btn.dataset.drillI);
-    const finding = Number.isFinite(fi) ? _drillFindings[fi] : null;
-    if (finding) await highlightFinding(finding, stepHighlightCtx);
-  });
-}
-
 // ---- Delete step ----
 
 async function deleteStep(stepIndex) {
@@ -190,6 +48,7 @@ async function deleteStep(stepIndex) {
     toast("Step not found");
     return;
   }
+  const removedStep = steps[idx];
   steps.splice(idx, 1);
   const rawAppendix = sessionState.current.rawAppendix || {};
   for (let i = 0; i < steps.length; i++) {
@@ -197,12 +56,24 @@ async function deleteStep(stepIndex) {
     const prevStep = i > 0 ? steps[i - 1] : null;
     steps[i].diffs = buildStepDiffs(steps[i], prevStep, rawAppendix);
   }
+  // Selection is positional (step.index): deleting an earlier step shifts every
+  // later index down, so remap or the selection silently jumps to another step.
+  const sel = sessionState.selectedStepIndex;
+  if (sel != null) {
+    if (sel === stepIndex) sessionState.selectedStepIndex = null;
+    else if (sel > stepIndex) sessionState.selectedStepIndex = sel - 1;
+  }
+  // Best-effort: drop the deleted step's screenshot so it doesn't sit orphaned
+  // in IndexedDB until the whole session is pruned.
+  if (typeof flowMediaStore !== "undefined" && removedStep?.id) {
+    flowMediaStore.deleteShot(sessionState.current.id, removedStep.id);
+  }
   pruneSessionRawAppendix(sessionState.current);
   const compacted = compactSessionForExport(sessionState.current);
-  await persistActiveSessionBestEffort(compacted);
-  sessionState.expandedStepIndex = null;
+  const persisted = await persistActiveSessionBestEffort(compacted);
   renderSessionHud();
-  toast(`Step deleted, ${steps.length} remaining`);
+  if (persisted) toast(`Step deleted, ${steps.length} remaining`);
+  else toast("Step deleted in memory — save failed, it may reappear after reload");
 }
 
 function updateSessionButtons() {
@@ -211,7 +82,6 @@ function updateSessionButtons() {
   const hasArchivedSession = !sessionState.current && !!sessionState.lastEndedSession;
   const inFlight = !!sessionState.inFlight;
   const panelBusy = inFlight || state.running;
-  ensureSessionHudTicker();
   if (els.sessionStart) {
     els.sessionStart.disabled = panelBusy || hasSession;
     els.sessionStart.hidden = hasSession;
@@ -259,10 +129,20 @@ function updateSessionButtons() {
   renderSessionHud();
 }
 
+// Storage keys derive from the SESSION's own scope, not the live inspected
+// URL — mid-session cross-origin navigation (OAuth hop, hosted checkout) used
+// to re-key the active session under the foreign origin, leaving a stale copy
+// under the original key that got resurrected as a zombie "active" session.
+function sessionScopeKeys(session, sessionId = null) {
+  const scope = getCurrentScopeInfo();
+  const origin = session?.inspectedOrigin || scope.origin || "";
+  const env = session?.env || scope.env || "prod";
+  return getSessionKeys(origin, env, sessionId);
+}
+
 async function persistActiveSessionBestEffort(session) {
   if (!session) return false;
-  const { origin, env } = getCurrentScopeInfo();
-  const keys = getSessionKeys(origin || session.inspectedOrigin || "", env || "prod");
+  const keys = sessionScopeKeys(session);
   const estimatedBytes = estimateJsonBytes(session);
   renderSaveStatus("saving");
   try {
@@ -304,18 +184,19 @@ async function archiveSessionBestEffort(session) {
   const sessionId = session.id || "";
   if (_archiveInFlight.has(sessionId)) {
     debugSession("archive_skipped_inflight", { sessionId });
-    return false;
+    // Distinct sentinel: a concurrent End is already archiving this session —
+    // callers must NOT treat this as a storage failure.
+    return "in-flight";
   }
   _archiveInFlight.add(sessionId);
   try {
-    const { origin, env } = getCurrentScopeInfo();
-    const keys = getSessionKeys(origin || session.inspectedOrigin || "", env || "prod", session.id);
+    const keys = sessionScopeKeys(session, session.id);
     const estimatedBytes = estimateJsonBytes(session);
     renderSaveStatus("saving");
     try {
       await storageSet({
         [keys.archive]: session,
-        [getSessionKeys(origin || session.inspectedOrigin || "", env || "prod").active]: null
+        [sessionScopeKeys(session).active]: null
       });
       sessionState.lastArchiveId = session.id;
       debugSession("archive_ok", { estimatedBytes });
@@ -1010,7 +891,11 @@ function buildStepDiffs(step, prevStep, rawAppendix = null) {
     ]);
     consolidated.blockingAdded = [...allCurrBlocking].filter(s => !allPrevBlocking.has(s)).length;
     consolidated.blockingFixed = [...allPrevBlocking].filter(s => !allCurrBlocking.has(s)).length;
-    consolidated.countsDelta = countsDelta;
+    // Consolidated delta merges run+active counts — run-only here under-reported
+    // active-mode severity shifts in the summary line.
+    const mergedCurrCounts = sumSeverityCounts(step.stableSignatures.run?.severityCounts, step.stableSignatures.active?.severityCounts);
+    const mergedPrevCounts = sumSeverityCounts(prevStep.stableSignatures.run?.severityCounts, prevStep.stableSignatures.active?.severityCounts);
+    consolidated.countsDelta = computeCountsDelta(mergedCurrCounts, mergedPrevCounts);
     consolidated.text = summarizeDiff(consolidated);
 
     return {
@@ -1029,11 +914,33 @@ function buildStepDiffs(step, prevStep, rawAppendix = null) {
     : { set: new Set(), blockingSet: new Set(), metaBySig: new Map(), counts: {} };
   const consolidatedNext = mergeSignatureBundles([runNext, activeNext]);
   const consolidatedPrev = mergeSignatureBundles([runPrev, activePrev]);
-  return {
+  const result = {
     run: step?.snapshots?.run ? diffModeBundles(runPrev, runNext) : undefined,
     active: step?.snapshots?.active ? diffModeBundles(activePrev, activeNext) : undefined,
     consolidated: diffModeBundles(consolidatedPrev, consolidatedNext),
   };
+  // First step = baseline, not regression: with no predecessor every blocking
+  // finding diffed as "added", so a one-step flow could never PASS. The verdict
+  // sums consolidated.blockingAdded, so zero the blocking deltas here (the
+  // producer), not in the view.
+  if (!prevStep) {
+    for (const d of [result.run, result.active, result.consolidated]) {
+      if (!d) continue;
+      d.blockingAdded = 0;
+      d.blockingFixed = 0;
+      d.text = summarizeDiff(d);
+    }
+  }
+  return result;
+}
+
+// Element-wise sum of two severityCounts maps (missing keys = 0).
+function sumSeverityCounts(a = {}, b = {}) {
+  const out = {};
+  for (const src of [a || {}, b || {}]) {
+    for (const [k, v] of Object.entries(src)) out[k] = (out[k] || 0) + asNumber(v, 0);
+  }
+  return out;
 }
 
 function updateSessionFramesIndex(session, step) {
@@ -1056,6 +963,7 @@ function updateSessionFramesIndex(session, step) {
 
 function severityWeight(severity) {
   const s = String(severity || "").toLowerCase();
+  if (s === "critical") return 4;
   if (s === "high") return 3;
   if (s === "medium") return 2;
   return 1;
