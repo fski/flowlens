@@ -97,4 +97,11 @@ describe("P1#4 — screenshots keyed by stable step.id", () => {
     const detail = ctx.stepDetailHtml(sess, 2);
     assert.match(detail, /data-shot-step="step_2"/);
   });
+
+  it("emits data-shot-idx alongside the id for legacy numeric-key fallback", () => {
+    const A = { sig: "A", name: "n", type: "T", severity: "high", wcag: "", confidence: "strict" };
+    const sess = { id: "s", steps: [mkStep(1, [A], { hasShot: true })] };
+    assert.match(ctx.filmstripHtml(sess, 1), /data-shot-step="step_1" data-shot-idx="1"/);
+    assert.match(ctx.stepDetailHtml(sess, 1), /data-shot-idx="1"/);
+  });
 });

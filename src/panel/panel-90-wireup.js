@@ -362,6 +362,11 @@ function stepIndicesForNav() {
         if (r?.ok && r.blob) {
           const sid = (sessionState.current || sessionState.lastEndedSession)?.id || "flow";
           downloadBlobFile(r.blob, `flowlens-flow-${sid}.webm`);
+          // stop() set session.hasVideo in-memory; persist so the stored-video
+          // download control survives a panel reload before the session ends.
+          if (sessionState.current) {
+            persistActiveSessionBestEffort(compactSessionForExport(sessionState.current)).catch(() => {});
+          }
           toast("Video saved & downloaded");
         } else {
           toast("Recording stopped");

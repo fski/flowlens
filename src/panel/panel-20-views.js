@@ -1345,7 +1345,7 @@ function filmstripHtml(sess, selectedIndex) {
   return views.map(function (v) {
     var sel = v.index === selectedIndex;
     var thumb = v.hasShot
-      ? '<div class="filmstripThumb" data-shot-step="' + escapeHtml(v.id) + '"></div>'
+      ? '<div class="filmstripThumb" data-shot-step="' + escapeHtml(v.id) + '" data-shot-idx="' + v.index + '"></div>'
       : '<div class="filmstripThumb filmstripThumb--empty" aria-hidden="true">' + (v.shotError ? "!" : "▢") + '</div>';
     var cls = "filmstripTile" + (sel ? " isSelected" : "") + (v.hasShot ? "" : " filmstripTile--noshot")
       + (v.blockingAdded > 0 ? " filmstripTile--blocking" : "");
@@ -1409,7 +1409,7 @@ function stepDetailHtml(sess, selectedIndex) {
   var d = bucketStepDiff(step, prev);
   var shotKey = step.id || String(step.index);
   var shot = step.hasShot
-    ? '<div class="flowDetailShot" data-shot-step="' + escapeHtml(shotKey) + '"></div>'
+    ? '<div class="flowDetailShot" data-shot-step="' + escapeHtml(shotKey) + '" data-shot-idx="' + step.index + '"></div>'
     : '<div class="flowDetailShot flowDetailShot--empty">' + (step.shotError ? "screenshot unavailable" : "no screenshot") + '</div>';
   var hasPrev = pos > 0, hasNext = pos < steps.length - 1;
   var nav = '<div class="flowStepNav">'
@@ -1494,13 +1494,22 @@ function _hydrateFlowShots(sess) {
   _flowShotUrls = [];
   var slots = document.querySelectorAll("[data-shot-step]");
   slots.forEach(function (slot) {
-    var idx = Number(slot.getAttribute("data-shot-step"));
-    flowMediaStore.getShot(sess.id, idx).then(function (blob) {
+    // Keys are the STABLE string step.id — read as a string, NOT Number()
+    // (which yields NaN for "step_..."). Sessions captured before the id-key
+    // change stored shots under the numeric step.index, so fall back to that.
+    var id = slot.getAttribute("data-shot-step");
+    var legacyIdx = slot.getAttribute("data-shot-idx");
+    var apply = function (blob) {
       if (!blob) return;
       var url = URL.createObjectURL(blob);
       _flowShotUrls.push(url);
       slot.style.backgroundImage = 'url("' + url + '")';
       slot.classList.add("hasImage");
+    };
+    flowMediaStore.getShot(sess.id, id).then(function (blob) {
+      if (blob) { apply(blob); return; }
+      if (legacyIdx == null || legacyIdx === id) return;
+      return flowMediaStore.getShot(sess.id, Number(legacyIdx)).then(apply);
     }).catch(function () {});
   });
 }
