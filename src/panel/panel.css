@@ -687,7 +687,8 @@ kbd {
   max-width: 520px;
   padding: 20px 16px;
 }
-.aboutHeading {
+.aboutHeading,
+.settingsHeading {
   font-size: 15px;
   font-weight: 600;
   color: var(--tx);
@@ -1545,13 +1546,6 @@ kbd {
 /* ═══ SETTINGS ═══ */
 .settingsPane {
   padding: 16px;
-}
-
-.settingsHeading {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--tx);
-  margin: 0 0 12px;
 }
 
 .settingsPane .settingsHeading + .settingsGrid {

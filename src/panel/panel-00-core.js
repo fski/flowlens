@@ -231,12 +231,38 @@ const RAW_SOFT_COMPACT_KEEP_RECENT = 30;
 const MAX_SESSION_BYTES_ESTIMATE = 4_500_000;
 const CAPTURE_SLOW_MS = 4000;
 
-const MODE_LABELS = {
-  run: "Audit",
-  contrast: "Contrast",
-  tabWalk: "Tab\u00A0Walk",
-  watch: "Watch",
-  observe: "Observe",
+// \u2550\u2550\u2550 MODE REGISTRY \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// Single source of truth for per-mode metadata. Anything keyed by audit mode
+// (labels, colors, durations, progress/busy texts, CTA config) lives HERE \u2014
+// the previous per-file lookup tables (MODE_LABELS, MODE_COLORS, DURATIONS,
+// PROGRESS_LABELS, SNAP_CTA, SNAP_CTA_RERUN, inline busyLabels) drifted
+// independently and adding a mode meant finding six of them.
+const MODES = {
+  run: {
+    label: "Audit", color: "var(--orange)", duration: 2,
+    progressLabel: "Scanning\u2026", busyLabel: "Running\u2026",
+    cta: { label: "Run Audit", rerun: "Rerun Audit", cls: "ctaBtn--amber", helper: "Perform a strict WCAG Audit" },
+  },
+  contrast: {
+    label: "Contrast", color: "#54B8A6", duration: 3,
+    progressLabel: "Checking contrast\u2026", busyLabel: "Checking\u2026",
+    cta: { label: "Check Contrast", rerun: "Recheck Contrast", cls: "ctaBtn--cyan", helper: "Check contrast on up to 250 text nodes" },
+  },
+  tabWalk: {
+    label: "Tab\u00A0Walk", color: "#7BB85E", duration: 5,
+    progressLabel: "Walking focusables\u2026", busyLabel: "Walking\u2026",
+    cta: { label: "Run Tab\u00A0Walk", rerun: "Rerun Tab\u00A0Walk", cls: "ctaBtn--lime", helper: "Walk 80 focusable elements" },
+  },
+  observe: {
+    label: "Observe", color: "#5AADDB", duration: 12,
+    progressLabel: "Observing\u2026", busyLabel: "Observing\u2026",
+    cta: { label: "Start Observe", rerun: "Restart Observe", cls: "ctaBtn--teal", helper: "Re-run WCAG check every ~1s for 12s" },
+  },
+  watch: {
+    label: "Watch", color: "#8B8EDB", duration: 40,
+    progressLabel: "Monitoring\u2026", busyLabel: "Watching\u2026",
+    cta: { label: "Start Watch", rerun: "Restart Watch", cls: "ctaBtn--mint", helper: "Monitor loaders and focus bar for 40s" },
+  },
 };
 
 
