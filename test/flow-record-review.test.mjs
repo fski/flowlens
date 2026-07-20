@@ -372,6 +372,40 @@ describe('UX audit 2026-07-20 (foodora session feedback)', () => {
   });
 });
 
+describe('recorder error classification (policy block must be loud)', () => {
+  let ctx;
+  beforeEach(() => { ctx = createContext(); });
+
+  function err(name, message) { const e = new Error(message); e.name = name; return e; }
+
+  it('permissions-policy blocks are "blocked", not "cancelled"', () => {
+    assert.equal(ctx.classifyDisplayMediaError(err('NotAllowedError', 'display-capture is not allowed in this document.')), 'blocked');
+    assert.equal(ctx.classifyDisplayMediaError(err('NotAllowedError', 'Access disallowed by permissions policy')), 'blocked');
+  });
+
+  it('user dismissal stays a silent cancel', () => {
+    assert.equal(ctx.classifyDisplayMediaError(err('NotAllowedError', 'Permission denied')), 'cancelled');
+    assert.equal(ctx.classifyDisplayMediaError(err('AbortError', 'The user aborted the request')), 'cancelled');
+  });
+
+  it('anything else is a plain failure', () => {
+    assert.equal(ctx.classifyDisplayMediaError(err('TypeError', 'boom')), 'failed');
+  });
+
+  it('flowRecorder.start surfaces the classification and error detail', async () => {
+    ctx.navigator = {
+      mediaDevices: {
+        getDisplayMedia: async () => { throw err('NotAllowedError', 'display-capture is not allowed in this document.'); },
+      },
+    };
+    const r = await ctx.flowRecorder.start('sess_x');
+    assert.equal(r.ok, false);
+    assert.equal(r.reason, 'blocked');
+    assert.equal(r.errorName, 'NotAllowedError');
+    assert.match(r.errorMessage, /not allowed in this document/);
+  });
+});
+
 describe('stable consolidated countsDelta merges run+active', () => {
   let ctx;
   beforeEach(() => { ctx = createContext(); });
