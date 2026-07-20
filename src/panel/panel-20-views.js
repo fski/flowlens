@@ -1294,6 +1294,7 @@ function flowVerdictHeaderHtml(sess) {
   }
   var last = views[views.length - 1];
   var issuesNow = last ? (last.appeared + last.persisting) : 0;
+  void newTotal; void worst; // retained for future detail; not shown in the slim header
   var pass = totalBlockingAdded === 0;
   var badge = pass ? "PASS" : "FAIL";
   var badgeCls = pass ? "flowVerdictBadge--pass" : "flowVerdictBadge--fail";
@@ -1308,9 +1309,6 @@ function flowVerdictHeaderHtml(sess) {
     var items = systemic.map(function (x) { return (x.label || x.wcag || "issue") + " in " + x.occurrences + "/" + steps.length; }).join(" · ");
     systemicNote = '<div class="flowSystemic" title="Blocking issues recurring across steps — likely systemic">Systemic: ' + escapeHtml(items) + '</div>';
   }
-  var worstNote = worst && worst.appeared > 0
-    ? '<span class="flowStat"><span class="flowStatV">Step ' + worst.index + '</span><span class="flowStatL">Worst</span></span>'
-    : '';
   var videoNote = (sess && sess.hasVideo)
     ? '<button class="btn xs flowVideoDownload" type="button" data-flow-download-video aria-label="Download flow recording">⤓ Video</button>'
     : '';
@@ -1327,13 +1325,14 @@ function flowVerdictHeaderHtml(sess) {
     if (hasSuspect) reasons.push("low profile confidence");
     diffConfNote = ' <span class="diffConfidenceReduced" title="' + escapeHtml(reasons.join("; ")) + '">Diff confidence: reduced</span>';
   }
+  // Slim header (progressive disclosure): verdict badge + step count + the two
+  // decision-relevant numbers (Issues now, Blocking). New-total / worst-step
+  // are discoverable from the step list, not crowded into the header.
   return '<div class="flowVerdict ' + wrapCls + '">'
     + '<span class="flowVerdictBadge ' + badgeCls + '">' + badge + '</span>'
-    + '<span class="flowVerdictText">' + steps.length + ' step' + (steps.length !== 1 ? "s" : "")
-    + (pass ? ", 0 blocking regressions" : ", " + totalBlockingAdded + " blocking introduced") + '</span>'
+    + '<span class="flowVerdictText">' + steps.length + ' step' + (steps.length !== 1 ? "s" : "") + '</span>'
     + '<span class="flowStat"><span class="flowStatV">' + issuesNow + '</span><span class="flowStatL">Issues now</span></span>'
-    + '<span class="flowStat"><span class="flowStatV">' + newTotal + '</span><span class="flowStatL">New total</span></span>'
-    + worstNote
+    + '<span class="flowStat' + (totalBlockingAdded > 0 ? ' flowStat--bad' : '') + '"><span class="flowStatV">' + totalBlockingAdded + '</span><span class="flowStatL">Blocking</span></span>'
     + videoNote
     + diffConfNote
     + '</div>' + systemicNote;
@@ -1479,6 +1478,13 @@ function renderFlow() {
   if (els.flowLifecycle) els.flowLifecycle.innerHTML = lifecycleSwimlaneHtml(sess);
   if (els.flowStepList) els.flowStepList.innerHTML = stepListHtml(sess, selected, unresolvedOnly);
   if (els.flowStepDetail) els.flowStepDetail.innerHTML = stepDetailHtml(sess, selected);
+
+  // Collapsed-section counts (filmstrip = steps, lifecycle = recurring issues).
+  if (els.flowFilmstripCount) els.flowFilmstripCount.textContent = "(" + steps.length + ")";
+  if (els.flowLifecycleCount) {
+    var laneCount = (buildIssueLifecycle(steps).lanes || []).length;
+    els.flowLifecycleCount.textContent = "(" + laneCount + ")";
+  }
 
   // Fill screenshot thumbnails/details asynchronously from the media store.
   _hydrateFlowShots(sess);

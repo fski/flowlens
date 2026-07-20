@@ -1760,8 +1760,16 @@ async function endSession() {
   }
   sessionState.lastAutoNavUrl = null;
   sessionState.queuedCapture = null;
+  // An in-flight capture will discard its own result (session-id guard); drop
+  // the busy flag now so End takes effect immediately and the view is clean.
+  sessionState.inFlight = false;
+  sessionState.selectedStepIndex = null;
   updateSessionButtons();
   setPersistentStatus("OK", "SESSION_ENDED", "Session archived");
+  // Refresh the Flow view to the ended state — the HUD ticker stops once
+  // current is null, so without this the results area stays frozen on the
+  // active session's last frame and End looks like it did nothing.
+  renderSessionHud();
   populateCompareSelects();
 
   // Bound media disk: keep screenshots/video only for the most recent sessions.
@@ -2072,7 +2080,6 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     updateSessionButtons();
     toast(`Step ${step.index} captured (${baselineFindings} baseline findings)`);
     if (!label && !isAutoCapture) showStepLabelInput(step.index);
-    expandAccordion(document.getElementById("flowTimeline"));
     return true;
   } finally {
     sessionState.inFlight = false;

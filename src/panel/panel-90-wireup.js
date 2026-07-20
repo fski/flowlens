@@ -343,6 +343,20 @@ function stepIndicesForNav() {
     els.flowUnresolvedOnly.addEventListener("change", () => renderFlow());
   }
 
+  // Collapse toggles for the filmstrip + lifecycle sections (default collapsed,
+  // progressive disclosure). Pure DOM show/hide — the body content is always
+  // rendered by renderFlow, the toggle only reveals it.
+  document.querySelectorAll(".flowCollapseToggle").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const body = document.getElementById(btn.getAttribute("aria-controls"));
+      const open = btn.getAttribute("aria-expanded") === "true";
+      btn.setAttribute("aria-expanded", String(!open));
+      if (body) body.hidden = open;
+      const chev = btn.querySelector(".chevron");
+      if (chev) chev.textContent = open ? "▸" : "▾";
+    });
+  });
+
   // Download a stored flow recording from the verdict header.
   if (els.flowVerdictHeader) {
     els.flowVerdictHeader.addEventListener("click", (e) => {

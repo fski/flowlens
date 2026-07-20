@@ -224,7 +224,12 @@ function updateSessionButtons() {
       : 'Mark step <kbd class="keycap" aria-hidden="true">s</kbd>';
   }
   if (els.sessionEnd) {
-    els.sessionEnd.disabled = !hasSession || panelBusy;
+    // End must always be reachable while a session exists — NOT gated on
+    // panelBusy. Otherwise a running/queued auto-capture keeps End disabled
+    // and the flow feels impossible to finish. endSession() tolerates an
+    // in-flight capture (the capture discards its result once the session is
+    // gone via its session-id guard).
+    els.sessionEnd.disabled = !hasSession;
   }
   // Toggle recording banner and actions in Flow Record view
   if (els.flowRecordingBanner) els.flowRecordingBanner.hidden = !hasSession;

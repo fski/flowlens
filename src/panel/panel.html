@@ -330,11 +330,27 @@
         <!-- Flow results (populated by renderFlow — the single writer) -->
         <div class="flowResults" id="flowResults" hidden>
           <div class="flowVerdictHeader" id="flowVerdictHeader"></div>
-          <div class="flowFilmstrip" id="flowFilmstrip" role="listbox" aria-label="Flow steps filmstrip" tabindex="0"></div>
-          <section class="flowLifecycle" aria-label="Issue lifecycle across steps">
-            <h2 class="flowSectionLabel">Issue lifecycle</h2>
-            <div class="flowLifecycleBody" id="flowLifecycle"></div>
+
+          <!-- Filmstrip (collapsed by default — progressive disclosure) -->
+          <section class="flowCollapse">
+            <button class="flowCollapseToggle" type="button" data-collapse="filmstrip" aria-expanded="false" aria-controls="flowFilmstrip">
+              <span class="chevron" aria-hidden="true">&#x25B8;</span>
+              <span class="flowCollapseLabel">Filmstrip</span>
+              <span class="flowCollapseCount" id="flowFilmstripCount"></span>
+            </button>
+            <div class="flowFilmstrip" id="flowFilmstrip" role="listbox" aria-label="Flow steps filmstrip" tabindex="0" hidden></div>
           </section>
+
+          <!-- Issue lifecycle (collapsed by default) -->
+          <section class="flowCollapse">
+            <button class="flowCollapseToggle" type="button" data-collapse="lifecycle" aria-expanded="false" aria-controls="flowLifecycle">
+              <span class="chevron" aria-hidden="true">&#x25B8;</span>
+              <span class="flowCollapseLabel">Issue lifecycle</span>
+              <span class="flowCollapseCount" id="flowLifecycleCount"></span>
+            </button>
+            <div class="flowLifecycleBody" id="flowLifecycle" hidden></div>
+          </section>
+
           <div class="flowMain">
             <div class="flowStepListWrap">
               <label class="flowFilterToggle"><input type="checkbox" id="flowUnresolvedOnly" /> <span>Only steps with unresolved blockers</span></label>
