@@ -63,15 +63,15 @@
 | `src/manifest/manifest.base.json` | 25 | MV3 config: permissions (`scripting`, `webNavigation`, `storage`), `host_permissions` (`http://*/*`, `https://*/*`), service worker, devtools page |
 | `src/devtools/` | ~10 | DevTools panel registration (`chrome.devtools.panels.create`) |
 | `src/panel/panel.html` | 549 | Panel HTML: 3 top tabs (Snap/Flow/Settings), mode toolbar, severity filters, findings, bottom sheets |
-| `src/panel/panel-00-core.js` | 487 | Globals, `els`, state, HostConfig, profiles, recipes, sorting |
-| `src/panel/panel-10-tables.js` | 618 | Virtualized tables, JSON syntax highlighting |
-| `src/panel/panel-20-views.js` | 1407 | View routing, severity tabs, past runs sheet |
-| `src/panel/panel-30-flow.js` | 1077 | Flow steps: labels, drill-down, delete, session comparison |
-| `src/panel/panel-40-engine.js` | 672 | Review status, deterministic export sort, JUnit export, shadow coverage, stable signature engine |
-| `src/panel/panel-50-overlay.js` | 1923 | Overlay/highlight, determinism metadata, fix suggestions, diagnostics |
-| `src/panel/panel-60-export.js` | 709 | Presets, exports, WCAG coverage summary |
-| `src/panel/panel-90-wireup.js` | 1118 | Event wiring, delegated table clicks, keyboard shortcuts (excluded from the test harness) |
-| `src/panel/panel.css` | 2527 | Styles: dark theme only (per Figma), severity colors, responsive layout |
+| `src/panel/panel-00-core.js` | 534 | Globals, `els`, state, HostConfig, profiles, recipes, sorting |
+| `src/panel/panel-10-tables.js` | 613 | Virtualized tables, JSON syntax highlighting |
+| `src/panel/panel-20-views.js` | 1546 | View routing, severity tabs, past runs sheet |
+| `src/panel/panel-30-flow.js` | 993 | Flow steps: labels, delete, session persistence/diffs, session comparison |
+| `src/panel/panel-40-engine.js` | 760 | Review status, deterministic export sort, JUnit export, shadow coverage, stable signature engine |
+| `src/panel/panel-50-overlay.js` | 2203 | Overlay/highlight, determinism metadata, fix suggestions, diagnostics |
+| `src/panel/panel-60-export.js` | 720 | Presets, exports, WCAG coverage summary |
+| `src/panel/panel-90-wireup.js` | 1189 | Event wiring, delegated table clicks, keyboard shortcuts (excluded from the test harness) |
+| `src/panel/panel.css` | 2657 | Styles: dark theme only (per Figma), severity colors, responsive layout |
 | `src/sw/sw.js` | 1605 | Service worker: message validation, frame scope resolution, frame scoring, script injection, result normalization, frame key generation |
 | `src/snippet/a11y-audit-snippet.js` | 4285 | WCAG audit engine: ~120 rule types (124 in RULE_TO_WCAG), `run()`, `observe()`, `watch()`, `tabWalk()`, `contrastScan()`, profile-aware checks |
 | `fixtures/a11y-rule-fixtures.html` | 178 | Test page with fixtures for FP verification |
