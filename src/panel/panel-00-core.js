@@ -110,6 +110,11 @@ const els = {
   diagFrameScope: document.getElementById("diagFrameScope"),
   diagBestFrameId: document.getElementById("diagBestFrameId"),
   diagBestFrameKey: document.getElementById("diagBestFrameKey"),
+  // These three were read by renderDiagnostics but missing from els → the rows
+  // never populated (silent dead branches). Registered so they render.
+  diagFrameGating: document.getElementById("diagFrameGating"),
+  diagExcludedFrames: document.getElementById("diagExcludedFrames"),
+  diagDepth3Engine: document.getElementById("diagDepth3Engine"),
   diagScope: document.getElementById("diagScope"),
   diagShadowCoverage: document.getElementById("diagShadowCoverage"),
   diagActiveProfile: document.getElementById("diagActiveProfile"),

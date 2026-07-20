@@ -272,7 +272,7 @@ function cellHtml(value, maxLen = 60) {
 /** Shared row renderers — used by both VirtualTable and fallback paths. */
 function explorerRowHtml(f, idx) {
   const sev = f.severity || 'info';
-  const isCrossFrame = !f.el && (typeof RULE_TO_WCAG !== "undefined") && RULE_TO_WCAG[f.type]?.group === "depth3/multiframe";
+  const isCrossFrame = isCrossFrameFinding(f);
   const crossBadge = isCrossFrame ? ' <span class="badge crossFrame">Cross-frame</span>' : '';
   return `<tr class="trow" data-i="${idx}" data-sev="${escapeHtml(sev)}"${isCrossFrame ? ' data-crossframe="1"' : ''}><td><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span></td><td>${escapeHtml(f.wcag ?? "")}</td><td>${cellHtml(f.name, 50)}${crossBadge}</td><td>${cellHtml(f.type ?? "", 30)}</td></tr>`;
 }
