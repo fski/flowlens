@@ -944,23 +944,27 @@ function isMeaningfulSelectionReason(reason = "") {
   return !defaultReasons.has(normalized);
 }
 
-function setPersistentStatus(status = "IDLE", reason = "-", detail = "") {
+function setPersistentStatus(status = "IDLE", reason = "-", detail = "", surface = "flow") {
   const normalized = String(status || "IDLE").toUpperCase();
   const reasonLabel = normalizeReasonLabel(reason);
   state.lastPersistentStatus = { status: normalized, reason: reasonLabel, detail: String(detail || "") };
-  if (!els.lastStatusLine) return;
+  // Two surfaces: Snap-run statuses render inside Snap; the Flow line shows
+  // ONLY session events — a "Last status: OK • TABWALK" line in the Flow tab
+  // was Snap state leaking into the wrong context.
+  const line = surface === "snap" ? els.snapStatusLine : els.lastStatusLine;
+  if (!line) return;
   const isIdle = normalized === "IDLE";
   if (!isIdle) state.hasPersistentStatus = true;
   const shouldShow = !isIdle || state.hasPersistentStatus;
-  els.lastStatusLine.hidden = !shouldShow;
+  line.hidden = !shouldShow;
   if (!shouldShow) return;
-  els.lastStatusLine.classList.remove("ok", "partial", "failed");
-  if (normalized === "OK") els.lastStatusLine.classList.add("ok");
-  else if (normalized === "PARTIAL") els.lastStatusLine.classList.add("partial");
-  else if (normalized === "FAILED") els.lastStatusLine.classList.add("failed");
+  line.classList.remove("ok", "partial", "failed");
+  if (normalized === "OK") line.classList.add("ok");
+  else if (normalized === "PARTIAL") line.classList.add("partial");
+  else if (normalized === "FAILED") line.classList.add("failed");
   const reasonPart = reasonLabel && reasonLabel !== "—" ? ` • ${reasonLabel}` : "";
   const tail = detail ? ` • ${detail}` : "";
-  els.lastStatusLine.textContent = `Last status: ${normalized}${reasonPart}${tail}`;
+  line.textContent = `Last status: ${normalized}${reasonPart}${tail}`;
 }
 
 function setRunTelemetry({ usedFrames, diff } = {}) {
@@ -1272,6 +1276,7 @@ function flowStepViews(sess) {
       label: step.label || null,
       hasShot: step.hasShot === true,
       shotError: step.shotError === true,
+      shotErrorReason: step.shotErrorReason || null,
       appeared: d.appeared.length,
       persisting: d.persisting.length,
       resolved: d.resolved.length,
@@ -1287,6 +1292,12 @@ function _shortRoute(route) {
   return r.length > 42 ? "…" + r.slice(-40) : r;
 }
 function _badgeTriplet(v) {
+  // The first step has nothing to diff against — "+13 new" on a baseline read
+  // as 13 regressions. Show it as what it is.
+  if (v.index === 1) {
+    return '<span class="flowBadge flowBadge--baseline" title="Issues present at the start of the flow">'
+      + (v.appeared + v.persisting) + ' · baseline</span>';
+  }
   return '<span class="flowBadge flowBadge--new" title="New issues">+' + v.appeared + '</span>'
     + '<span class="flowBadge flowBadge--persist" title="Persisting">~' + v.persisting + '</span>'
     + '<span class="flowBadge flowBadge--resolved" title="Resolved">-' + v.resolved + '</span>';
@@ -1311,9 +1322,19 @@ function flowVerdictHeaderHtml(sess) {
   var wrapCls = pass ? "flowVerdict--pass" : "flowVerdict--fail";
   // Systemic rollup (blocking issues recurring across steps)
   var rawAppendix = (sess && sess.rawAppendix && typeof sess.rawAppendix === "object") ? sess.rawAppendix : {};
-  var systemic = (typeof computeFlowBlockingRollup === "function")
-    ? computeFlowBlockingRollup(steps, rawAppendix).filter(function (x) { return x.occurrences >= 2; }).slice(0, 3)
-    : [];
+  // Rollup is keyed by signature — two elements failing the same rule are two
+  // entries; dedupe by display label so the note never repeats a rule name.
+  var systemic = [];
+  if (typeof computeFlowBlockingRollup === "function") {
+    var seenLabels = new Set();
+    computeFlowBlockingRollup(steps, rawAppendix).forEach(function (x) {
+      if (x.occurrences < 2 || systemic.length >= 3) return;
+      var key = x.label || x.wcag || "issue";
+      if (seenLabels.has(key)) return;
+      seenLabels.add(key);
+      systemic.push(x);
+    });
+  }
   var systemicNote = "";
   if (systemic.length) {
     var items = systemic.map(function (x) { return (x.label || x.wcag || "issue") + " in " + x.occurrences + "/" + steps.length; }).join(" · ");
@@ -1325,7 +1346,10 @@ function flowVerdictHeaderHtml(sess) {
   // Reduced-diff-confidence note: preserved from the old verdict — flags that
   // the appeared/resolved diff may be unreliable for structural reasons.
   var diffConfNote = "";
-  var hasSuspect = steps.some(function (s) { return s.profileSuspect === true; });
+  // Suspect only counts when a profile/root selector was actually in play —
+  // generic pages with no matching profile are always "low confidence" and
+  // flagged every ordinary session as reduced.
+  var hasSuspect = steps.some(function (s) { return s.profileSuspect === true && (s.profileLabel || s.rootSelector); });
   var hasDegraded = steps.some(function (s) { return s.stableSignatures && s.stableSignatures.run && s.stableSignatures.run.stepQuality && s.stableSignatures.run.stepQuality.degraded === true; });
   var hasRootMissing = steps.some(function (s) { return s.rootSelectorNotFound === true; });
   if (hasSuspect || hasDegraded || hasRootMissing) {
@@ -1360,9 +1384,12 @@ function filmstripHtml(sess, selectedIndex) {
   if (!views.length) return "";
   return views.map(function (v) {
     var sel = v.index === selectedIndex;
+    var shotFailTitle = v.shotError
+      ? ' title="Screenshot failed' + (v.shotErrorReason ? ": " + escapeHtml(v.shotErrorReason) : "") + '"'
+      : '';
     var thumb = v.hasShot
       ? '<div class="filmstripThumb" data-shot-step="' + escapeHtml(stepShotKey(v)) + '" data-shot-idx="' + v.index + '"></div>'
-      : '<div class="filmstripThumb filmstripThumb--empty" aria-hidden="true">' + (v.shotError ? "!" : "▢") + '</div>';
+      : '<div class="filmstripThumb filmstripThumb--empty" aria-hidden="true"' + shotFailTitle + '>' + (v.shotError ? "!" : "▢") + '</div>';
     var cls = "filmstripTile" + (sel ? " isSelected" : "") + (v.hasShot ? "" : " filmstripTile--noshot")
       + (v.blockingAdded > 0 ? " filmstripTile--blocking" : "");
     var aria = "Step " + v.index + ", " + _shortRoute(v.label || v.route)
@@ -1406,10 +1433,48 @@ function _findingLineHtml(f) {
     + (f.wcag ? '<span class="flowDiffWcag">' + escapeHtml(f.wcag) + '</span>' : '')
     + '</li>';
 }
+
+// Cluster a diff bucket by rule type: a 99-row flat list was unreadable.
+// Groups sort by severity, then size; instances expand on demand.
+function groupDiffFindings(items) {
+  var by = new Map();
+  (items || []).forEach(function (f) {
+    var type = String(f.type || f.name || "issue");
+    var severity = String(f.severity || "info");
+    var key = type + "|" + severity + "|" + String(f.wcag || "");
+    if (!by.has(key)) by.set(key, { type: type, severity: severity, wcag: String(f.wcag || ""), items: [] });
+    by.get(key).items.push(f);
+  });
+  return [...by.values()].sort(function (a, b) {
+    return ((ORDER[b.severity] || 0) - (ORDER[a.severity] || 0))
+      || (b.items.length - a.items.length)
+      || a.type.localeCompare(b.type);
+  });
+}
+
 function _diffGroupHtml(title, cls, items) {
+  var groups = groupDiffFindings(items);
+  var body;
+  if (!groups.length) {
+    body = '<div class="flowDiffEmpty">none</div>';
+  } else {
+    body = groups.map(function (g, gi) {
+      var gid = cls + "-" + gi;
+      return '<div class="fGroup">'
+        + '<button type="button" class="fGroupHdr flowDiffItem--' + escapeHtml(g.severity) + '" data-fgroup="' + gid + '" aria-expanded="false">'
+        + '<span class="flowDiffSev">' + escapeHtml(g.severity) + '</span>'
+        + '<span class="fGroupType">' + escapeHtml(g.type) + '</span>'
+        + '<span class="fGroupCount">×' + g.items.length + '</span>'
+        + (g.wcag ? '<span class="flowDiffWcag">' + escapeHtml(g.wcag) + '</span>' : '')
+        + '<span class="fGroupChevron" aria-hidden="true">▸</span>'
+        + '</button>'
+        + '<ul class="flowDiffList fGroupBody" data-fgroup-body="' + gid + '" hidden>' + g.items.map(_findingLineHtml).join("") + '</ul>'
+        + '</div>';
+    }).join("");
+  }
   return '<div class="flowDiffGroup flowDiffGroup--' + cls + '">'
-    + '<div class="flowDiffTitle">' + title + ' <span class="flowDiffCount">' + items.length + '</span></div>'
-    + (items.length ? '<ul class="flowDiffList">' + items.map(_findingLineHtml).join("") + '</ul>' : '<div class="flowDiffEmpty">none</div>')
+    + '<div class="flowDiffTitle">' + title + ' <span class="flowDiffCount">' + (items ? items.length : 0) + '</span></div>'
+    + body
     + '</div>';
 }
 function stepDetailHtml(sess, selectedIndex) {
@@ -1482,6 +1547,24 @@ function renderFlow() {
   var sess = sessionState.current || sessionState.lastEndedSession;
   var steps = (sess && Array.isArray(sess.steps)) ? sess.steps : [];
   var hasSteps = steps.length > 0;
+
+  // Capture-in-progress cover — one loud "wait" signal instead of a small
+  // button-label change nobody notices. Runs before the early return so it
+  // also covers the very first step of a session.
+  if (els.flowCaptureOverlay) {
+    var busy = !!(sessionState.current && sessionState.inFlight);
+    els.flowCaptureOverlay.hidden = !busy;
+    if (busy) {
+      var stepNo = ((sessionState.current.steps || []).length) + 1;
+      var extra = (sessionState.queuedCapture ? " One more step is queued." : "")
+        + (sessionState.captureSlow ? " Still working — large page." : "");
+      els.flowCaptureOverlay.innerHTML = '<div class="flowCaptureBox">'
+        + '<div class="flowCaptureSpin" aria-hidden="true"></div>'
+        + '<div class="flowCaptureTitle">Analyzing step ' + stepNo + '…</div>'
+        + '<div class="flowCaptureSub">Keep the page as-is for a few seconds.' + escapeHtml(extra) + '</div>'
+        + '</div>';
+    }
+  }
   if (els.flowResults) els.flowResults.hidden = !hasSteps;
   if (els.flowPlaceholder) els.flowPlaceholder.hidden = hasSteps;
   if (!hasSteps) return;

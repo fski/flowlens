@@ -415,6 +415,13 @@ const SECTION_VIEWS = {
 
 function applySectionView(section, rows, emptyText) {
   const cfg = SECTION_VIEWS[section];
+  // INVARIANT: an empty-state message and visible rows are mutually exclusive.
+  // A stale re-render path once showed "No focusable elements were walked"
+  // above a fully populated table — if rows exist, the message loses.
+  if (Array.isArray(rows) && rows.length > 0 && emptyText) {
+    console.warn("[FlowLens] section empty/rows contradiction", { section, rows: rows.length, emptyText });
+    emptyText = null;
+  }
   // initVirtualTables lives in the wireup part — absent under the test harness
   if (!VT[cfg.vt] && typeof initVirtualTables === "function") initVirtualTables();
   const vt = VT[cfg.vt];
@@ -543,18 +550,26 @@ async function captureStepShot(sessionId, step, scopeInfo, at) {
   try {
     if (!shouldCaptureShot(scopeInfo)) return false;
     const r = await send({ type: "CAPTURE_SHOT" });
-    if (!r || !r.ok || !r.dataUrl) { step.shotError = true; return false; }
+    if (!r || !r.ok || !r.dataUrl) {
+      step.shotError = true;
+      // Keep the WHY — "!" tiles with no reason made a permission problem
+      // undiagnosable from the UI.
+      step.shotErrorReason = (r && r.reason) || "transport";
+      return false;
+    }
     const blob = await (await fetch(r.dataUrl)).blob();
     // Session ended/replaced while the shot was in flight: the archived JSON
     // already froze hasShot:false, so writing now would only orphan the blob
     // in IndexedDB (invisible until the session ages out of the prune window).
     if (!sessionState.current || sessionState.current.id !== sessionId) return false;
     const put = await flowMediaStore.putShot(sessionId, stepShotKey(step), blob, { at: at || 0 });
-    if (put && put.ok) { step.hasShot = true; step.shotError = false; return true; }
+    if (put && put.ok) { step.hasShot = true; step.shotError = false; delete step.shotErrorReason; return true; }
     step.shotError = true;
+    step.shotErrorReason = (put && put.reason) || "store-failed";
     return false;
   } catch (e) {
     step.shotError = true;
+    step.shotErrorReason = (e && e.message) || "exception";
     return false;
   }
 }
@@ -625,6 +640,22 @@ function updateContrastView() {
     filters,
     contrastFilter: state.contrastFilter,
   }));
+
+  // Clean check → table collapsed by default: half a page of passing samples
+  // buried the "no problems" answer. The samples stay one click away.
+  const clean = hasData && state.contrastData.length === 0;
+  const collapsed = clean && !state.contrastSamplesExpanded && !q && state.contrastFilter !== "fail";
+  if (els.contrastTableWrap) els.contrastTableWrap.hidden = collapsed;
+  if (els.contrastShowSamples) {
+    els.contrastShowSamples.hidden = !clean;
+    els.contrastShowSamples.textContent = (state.contrastSamplesExpanded ? "Hide " : "Show ")
+      + state.contrastSamples.length + " passing samples";
+    els.contrastShowSamples.setAttribute("aria-expanded", String(!collapsed));
+  }
+  if (collapsed && els.contrastEmpty) {
+    els.contrastEmpty.textContent = "No contrast failures — all " + state.contrastSamples.length + " sampled texts pass";
+    els.contrastEmpty.hidden = false;
+  }
 }
 
 
@@ -1583,7 +1614,7 @@ async function runAction(action, opts = {}) {
   state.activeMode = action;
   setPressed(action);
   setRunTelemetry({ usedFrames: "Running…", diff: "—" });
-  setPersistentStatus("RUNNING", action.toUpperCase(), "Execution in progress");
+  setPersistentStatus("RUNNING", action.toUpperCase(), "Execution in progress", "snap");
 
   const { url, envTag } = getCurrentScopeInfo();
 
@@ -1613,7 +1644,7 @@ async function runAction(action, opts = {}) {
     state.lastResult = failed;
     renderRawJson(els.json, els.rawJsonBody, pretty(failed));
     setRunTelemetry({ usedFrames: "—", diff: "(run failed)" });
-    setPersistentStatus("FAILED", "TRANSPORT", "Run transport failure");
+    setPersistentStatus("FAILED", "TRANSPORT", "Run transport failure", "snap");
     console.error("RUN_AUDIT transport failure", err);
     toast(`${action} failed`);
     if (!state.records.length) showErrorEmptyState(`${action} failed — connection error`);
@@ -1632,7 +1663,7 @@ async function runAction(action, opts = {}) {
     const manualMissing = r?.reason === "MANUAL_FRAMES_MISSING" || r?.error === "MANUAL_FRAMES_MISSING";
     if (manualMissing) {
       setRunTelemetry({ usedFrames: "\u2014", diff: "(pinned frame not available)" });
-      setPersistentStatus("FAILED", "MANUAL_FRAMES_MISSING", "Pinned frame not available");
+      setPersistentStatus("FAILED", "MANUAL_FRAMES_MISSING", "Pinned frame not available", "snap");
       console.warn("RUN_AUDIT: pinned frame missing", r);
       toast("Pinned frame not available. Clear pin to continue.", {
         label: "Clear Pin",
@@ -1645,7 +1676,7 @@ async function runAction(action, opts = {}) {
       ? "This page can't be audited (browser-restricted URL)"
       : noScope ? "No frame matches selected scope" : `${action} failed`;
     setRunTelemetry({ usedFrames: "\u2014", diff: notScriptable ? "(page not scriptable)" : noScope ? "(no frame matches selected scope)" : "(run failed)" });
-    setPersistentStatus("FAILED", notScriptable ? "PAGE_NOT_SCRIPTABLE" : noScope ? "NO_SCOPE_MATCH" : "BACKEND", failMsg);
+    setPersistentStatus("FAILED", notScriptable ? "PAGE_NOT_SCRIPTABLE" : noScope ? "NO_SCOPE_MATCH" : "BACKEND", failMsg, "snap");
     console.error("RUN_AUDIT backend failure", r);
     toast(failMsg);
     if (!state.records.length) showErrorEmptyState(failMsg);
@@ -1712,7 +1743,7 @@ async function runAction(action, opts = {}) {
   const _cc = bestResult?.failuresCount ?? bestResult?.failures?.length;
   const _ec = bestResult?.events?.length;
   const detail = _fc ? ` — ${_fc} findings` : _cc != null ? ` — ${_cc} failures` : _ec != null ? ` — ${_ec} events` : "";
-  setPersistentStatus("OK", action.toUpperCase(), `${_fc || _cc || _ec || 0} issues`);
+  setPersistentStatus("OK", action.toUpperCase(), `${_fc || _cc || _ec || 0} issues`, "snap");
   toast(`${modeLabel(action)} done${detail}`);
   return true;
 }

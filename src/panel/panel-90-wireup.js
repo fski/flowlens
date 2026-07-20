@@ -293,9 +293,20 @@ function stepIndicesForNav() {
   if (els.flowFilmstrip) { els.flowFilmstrip.addEventListener("click", onSelectClick); els.flowFilmstrip.addEventListener("keydown", onSelectKey); }
   if (els.flowStepList) { els.flowStepList.addEventListener("click", onSelectClick); els.flowStepList.addEventListener("keydown", onSelectKey); }
 
-  // Prev/Next nav in the detail pane.
+  // Prev/Next nav + finding-group expanders in the detail pane.
   if (els.flowStepDetail) {
     els.flowStepDetail.addEventListener("click", (e) => {
+      const grp = e.target.closest("[data-fgroup]");
+      if (grp) {
+        const body = els.flowStepDetail.querySelector('[data-fgroup-body="' + grp.dataset.fgroup + '"]');
+        if (body) {
+          body.hidden = !body.hidden;
+          grp.setAttribute("aria-expanded", String(!body.hidden));
+          const chev = grp.querySelector(".fGroupChevron");
+          if (chev) chev.textContent = body.hidden ? "▸" : "▾";
+        }
+        return;
+      }
       const nav = e.target.closest("[data-step-nav]");
       if (!nav) return;
       const order = stepIndicesForNav();
@@ -557,6 +568,13 @@ if (els.recipeSelect) {
 if (els.alsoConsole) {
   els.alsoConsole.addEventListener("change", async () => {
     await updateUiPrefs({ alsoConsole: !!els.alsoConsole.checked });
+  });
+}
+
+if (els.contrastShowSamples) {
+  els.contrastShowSamples.addEventListener("click", () => {
+    state.contrastSamplesExpanded = !state.contrastSamplesExpanded;
+    updateContrastView();
   });
 }
 

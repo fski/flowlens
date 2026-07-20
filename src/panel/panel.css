@@ -131,6 +131,43 @@ body {
   flex: 1;
   min-height: 0;
 }
+#flowContent { position: relative; }
+
+/* ═══ CAPTURE-IN-PROGRESS COVER ═══ */
+.flowCaptureOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg, #111) 78%, transparent);
+  backdrop-filter: blur(2px);
+}
+.flowCaptureOverlay[hidden] { display: none; }
+.flowCaptureBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 24px 32px;
+  border: 1px solid var(--line, #333);
+  border-radius: 6px;
+  background: var(--raised, #1c1c1c);
+  text-align: center;
+  max-width: 320px;
+}
+.flowCaptureTitle { font: 700 14px/1.3 var(--font-mono); }
+.flowCaptureSub { font: 500 11px/1.5 var(--font-mono); color: var(--tx3, #999); }
+.flowCaptureSpin {
+  width: 22px;
+  height: 22px;
+  border: 3px solid var(--line, #333);
+  border-top-color: var(--cyan, #4cc);
+  border-radius: 50%;
+  animation: flowCaptureSpin 0.9s linear infinite;
+}
+@keyframes flowCaptureSpin { to { transform: rotate(360deg); } }
 #settingsContent {
   flex: 1;
   min-height: 0;
@@ -1478,6 +1515,35 @@ kbd {
 .flowDiffCount { color: var(--tx3); }
 .flowDiffList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .flowDiffItem { display: flex; align-items: center; gap: 6px; font: 500 11px/1.4 var(--font-mono); }
+
+/* Finding groups (per-type clusters in the step detail) */
+.fGroup { margin: 2px 0; }
+.fGroupHdr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 4px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font: 600 11px/1.4 var(--font-mono);
+  border-radius: 3px;
+}
+.fGroupHdr:hover { background: var(--raised, #1c1c1c); }
+.fGroupHdr:focus-visible { outline: 2px solid var(--cyan, #4cc); outline-offset: -2px; }
+.fGroupType { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fGroupCount { color: var(--tx3, #999); flex-shrink: 0; }
+.fGroupChevron { margin-left: auto; color: var(--tx3, #999); flex-shrink: 0; }
+.fGroupBody { margin: 0 0 4px 18px; }
+
+/* Baseline badge (first step has nothing to diff against) */
+.flowBadge--baseline { color: var(--tx3, #999); }
+
+/* Collapsed clean-contrast samples toggle */
+.contrastSamplesToggle { align-self: flex-start; margin: 4px 8px; }
 .flowDiffSev { padding: 0 4px; border-radius: var(--radius-xs); font: 700 9px/1.6 var(--font-mono); text-transform: uppercase; background: var(--raised); color: var(--tx3); }
 .flowDiffItem--high .flowDiffSev, .flowDiffItem--critical .flowDiffSev { background: rgba(255,85,113,0.15); color: var(--red); }
 .flowDiffItem--medium .flowDiffSev { background: rgba(219,159,62,0.15); color: var(--orange); }

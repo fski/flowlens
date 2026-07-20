@@ -165,7 +165,8 @@
               </div>
             </div>
             <div class="sectionEmpty" id="contrastEmpty">Run a Contrast check to see results</div>
-            <div class="tableWrap vscroll">
+            <button class="btn xs contrastSamplesToggle" id="contrastShowSamples" type="button" hidden>Show samples</button>
+            <div class="tableWrap vscroll" id="contrastTableWrap">
               <table class="tbl" id="contrastTable">
                 <caption class="sr-only">Contrast results</caption>
                 <thead>
@@ -281,11 +282,18 @@
           </section>
         </div>
 
+        <!-- Snap-scoped status line (Flow's lastStatusLine shows only session events) -->
+        <div class="lastStatusLine mono" id="snapStatusLine" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+
       </div><!-- /snapContent -->
 
 
       <!-- ═══════════════════════ FLOW PANEL ═══════════════════════ -->
       <div id="flowContent" role="tabpanel" aria-labelledby="topTabFlow" hidden inert>
+
+        <!-- Capture-in-progress cover: a step capture takes a few seconds and the
+             user needs one loud signal to wait before interacting further. -->
+        <div class="flowCaptureOverlay" id="flowCaptureOverlay" role="status" aria-live="polite" hidden></div>
 
         <!-- CTA slot -->
         <div class="ctaSlot" id="flowRecordCta">
