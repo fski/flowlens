@@ -6,6 +6,7 @@
     "panel-20-views.js",
     "panel-30-flow.js",
     "panel-40-engine.js",
+    "panel-45-capture.js",
     "panel-50-overlay.js",
     "panel-60-export.js",
     "panel-90-wireup.js"

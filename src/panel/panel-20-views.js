@@ -163,6 +163,30 @@ function isForeignAutoCaptureOrigin(url, session) {
   return registrableDomain(url || "") !== registrableDomain(session.inspectedOrigin);
 }
 
+// A top-level navigation drags its iframes along: every embedded frame emits
+// onCommitted while it (re)loads, often later than the auto-capture debounce.
+// Frame navs inside this window belong to the top nav's step, not a new one.
+var FRAME_NAV_SETTLE_MS = 2500;
+
+// Pure auto-capture decision — the whole precedence lives here so the harness
+// can assert it (it used to sit in the untestable wireup zone, where every
+// comment documented a shipped regression). The executor (maybeAutoCapture)
+// only applies side effects: nav-state writeback, debounce, toast/status/log.
+function decideNavAction(url, fromAuditedFrame, nav, session, autoOn, now) {
+  var next = Object.assign({}, nav);
+  if (!session) return { action: "skip", reason: "no-session", nav: next };
+  if (!autoOn) return { action: "skip", reason: "auto-off", nav: next };
+  if (!fromAuditedFrame) {
+    next.lastTopNavAt = now;
+    if (isForeignAutoCaptureOrigin(url, session)) return { action: "skip", reason: "skip-foreign-site", nav: next };
+  } else if (now - (nav.lastTopNavAt || 0) < FRAME_NAV_SETTLE_MS) {
+    return { action: "skip", reason: "skip-frame-settle", nav: next };
+  }
+  var last = fromAuditedFrame ? nav.lastFrameNavUrl : nav.lastAutoNavUrl;
+  if (!classifyNavForCapture(url, last)) return { action: "skip", reason: "skip-not-a-step", nav: next };
+  return { action: "capture", reason: fromAuditedFrame ? "frame-nav" : "top-nav", nav: next };
+}
+
 // Decide whether a navigation event is a real new step for auto-capture.
 // Accepts path/query changes (incl. SPA route changes) and the first nav;
 // rejects self-navigation and hash-only jumps that would just add noise.
@@ -1202,7 +1226,7 @@ function normalizeLoadedSession(session) {
     // it from the (still present) run snapshot so resumed flows show real
     // issues + diff instead of an empty PASS.
     if (!step.findingIndex || typeof step.findingIndex !== "object") {
-      step.findingIndex = buildStepFindingIndex(step.snapshots.run, out.rawAppendix);
+      step.findingIndex = buildFindingIndexForStep(step.snapshots, out.rawAppendix);
     }
   }
   if (!out.frames || typeof out.frames !== "object") out.frames = { frameKeys: [], frameKeyToLastFrameId: {} };

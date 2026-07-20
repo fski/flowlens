@@ -343,13 +343,21 @@ const sessionState = {
   lastPersistReasonCode: "-",
   selectedStepIndex: null,
   autoCapturePending: null,
-  lastAutoNavUrl: null,
-  lastFrameNavUrl: null,
-  lastTopNavAt: 0,
   queuedCapture: null,
-  foreignSkipNotified: false,
-  foreignSkips: 0,
+  // Auto-capture nav state (dedupe slots, settle timestamp, skip telemetry) —
+  // grouped so the pure decideNavAction can take it as one slice.
+  nav: {
+    lastAutoNavUrl: null,
+    lastFrameNavUrl: null,
+    lastTopNavAt: 0,
+    foreignSkips: 0,
+    foreignSkipNotified: false,
+  },
 };
+
+function freshNavState() {
+  return { lastAutoNavUrl: null, lastFrameNavUrl: null, lastTopNavAt: 0, foreignSkips: 0, foreignSkipNotified: false };
+}
 
 function debugSession(...args) {
   if (!DEBUG_SESSION) return;
