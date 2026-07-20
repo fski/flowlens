@@ -310,6 +310,10 @@ async function loadUiPrefs() {
     applyRecipe(uiPrefs.recipeId);
   }
   if (els.depthMax && uiPrefs.depthMax) els.depthMax.value = String(uiPrefs.depthMax);
+  // Auto-capture: default ON (HTML default) — undefined must not read as false,
+  // but a deliberate OFF has to survive a panel reload.
+  if (els.autoCaptureNav) els.autoCaptureNav.checked = uiPrefs.autoCaptureNav !== false;
+  if (els.autoCaptureDelay && uiPrefs.autoCaptureDelay) els.autoCaptureDelay.value = String(uiPrefs.autoCaptureDelay);
   const ciOpts = uiPrefs.junitCiOptions || {};
   if (els.ciFailOnBlocking) els.ciFailOnBlocking.checked = ciOpts.failOnBlocking !== false;
   if (els.ciTreatNeedsReview) els.ciTreatNeedsReview.checked = !!ciOpts.treatNeedsReviewAsFailure;

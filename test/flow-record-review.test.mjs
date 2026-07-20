@@ -274,6 +274,23 @@ describe('media pipeline honesty', () => {
   });
 });
 
+describe('auto-capture settings survive a panel reload', () => {
+  let ctx;
+  beforeEach(() => { ctx = createContext(); });
+
+  it('a deliberate OFF is restored; undefined defaults ON', async () => {
+    const nav = ctx.document.getElementById('autoCaptureNav');
+    nav.checked = true;
+    await ctx.storageSet({ uiPrefs: { autoCaptureNav: false, autoCaptureDelay: 2000 } });
+    await ctx.loadUiPrefs();
+    assert.equal(nav.checked, false, 'deliberate OFF restored');
+    assert.equal(ctx.document.getElementById('autoCaptureDelay').value, '2000');
+    await ctx.storageSet({ uiPrefs: {} });
+    await ctx.loadUiPrefs();
+    assert.equal(nav.checked, true, 'undefined → HTML default ON');
+  });
+});
+
 describe('stable consolidated countsDelta merges run+active', () => {
   let ctx;
   beforeEach(() => { ctx = createContext(); });
