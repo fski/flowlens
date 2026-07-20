@@ -1024,6 +1024,29 @@ initScrollShadows();
 })();
 
 // auto refresh on navigation
+// Debounced auto-capture shared by the two nav sources (full navigation via
+// devtools.network.onNavigated, and SPA route change pushed over the nav port).
+// classifyNavForCapture + lastAutoNavUrl dedupe so a single navigation that
+// fires both sources only captures once.
+function maybeAutoCapture(url) {
+  if (!sessionState.current || !els.autoCaptureNav?.checked) return;
+  if (!classifyNavForCapture(url, sessionState.lastAutoNavUrl)) return;
+  if (sessionState.autoCapturePending) clearTimeout(sessionState.autoCapturePending);
+  const debounceMs = Number(els.autoCaptureDelay?.value) || 500;
+  sessionState.autoCapturePending = setTimeout(async () => {
+    sessionState.autoCapturePending = null;
+    if (!sessionState.current) return;
+    sessionState.lastAutoNavUrl = url;
+    try {
+      const autoLabel = await deriveAutoLabel(url);
+      await captureStepOptionC(autoLabel, { isAutoCapture: true });
+    } catch (e) {
+      console.error("Auto-capture failed:", e);
+      toast("Auto-capture failed");
+    }
+  }, debounceMs);
+}
+
 chrome.devtools.network.onNavigated.addListener(async () => {
   state.findingsByMode = {};
   state.hasRunMode = new Set();
@@ -1031,29 +1054,28 @@ chrome.devtools.network.onNavigated.addListener(async () => {
   await refreshInspectedUrl();
   await refreshFrames();
   toast("Navigated — refreshed frames");
-
-  // Auto-capture if enabled (R4: guarded against timer stacking and inFlight races)
-  if (sessionState.current && els.autoCaptureNav?.checked) {
-    const { url } = getCurrentScopeInfo();
-    if (url && url !== sessionState.lastAutoNavUrl) {
-      if (sessionState.autoCapturePending) clearTimeout(sessionState.autoCapturePending);
-      const debounceMs = Number(els.autoCaptureDelay?.value) || 500;
-      sessionState.autoCapturePending = setTimeout(async () => {
-        sessionState.autoCapturePending = null;
-        // Skip if session ended, or capture already in flight (will be queued by captureStepOptionC)
-        if (!sessionState.current) return;
-        sessionState.lastAutoNavUrl = url;
-        try {
-          const autoLabel = await deriveAutoLabel(url);
-          await captureStepOptionC(autoLabel, { isAutoCapture: true });
-        } catch (e) {
-          console.error("Auto-capture failed:", e);
-          toast("Auto-capture failed");
-        }
-      }, debounceMs);
-    }
-  }
+  maybeAutoCapture(getCurrentScopeInfo().url);
 });
+
+// SPA route changes (History API) don't reliably fire devtools.network.onNavigated,
+// so the SW watches webNavigation.onHistoryStateUpdated for this tab and pushes
+// the new URL over a dedicated port. Refresh the inspected URL first so scope
+// info reflects the new route, then run the same debounced capture.
+(function connectNavPort() {
+  if (!hasRuntime() || typeof __runtime.connect !== "function") return;
+  try {
+    const port = __runtime.connect({ name: "flowlens-nav" });
+    port.postMessage({ tabId });
+    port.onMessage.addListener(async (m) => {
+      if (!m || m.type !== "SPA_NAV") return;
+      if (!sessionState.current || !els.autoCaptureNav?.checked) return;
+      await refreshInspectedUrl();
+      maybeAutoCapture(getCurrentScopeInfo().url);
+    });
+  } catch (e) {
+    console.warn("nav port connect failed", e);
+  }
+})();
 
 // Bottom sheet toggles
 if (els.pastRunsToggle) {

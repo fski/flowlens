@@ -1299,6 +1299,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
+// SPA route capture: the panel opens a "flowlens-nav" port and sends its tabId.
+// We watch webNavigation.onHistoryStateUpdated for that tab (History API route
+// changes that don't trigger a full navigation) and push the new URL to the
+// panel, which runs its debounced auto-capture. One listener per connected
+// panel; cleaned up on disconnect.
+if (chrome.runtime.onConnect && typeof chrome.runtime.onConnect.addListener === "function") {
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "flowlens-nav") return;
+  let watchedTabId = null;
+  const onHistory = (details) => {
+    if (details.frameId !== 0) return; // top frame only
+    if (watchedTabId == null || details.tabId !== watchedTabId) return;
+    try { port.postMessage({ type: "SPA_NAV", url: details.url }); } catch (_) { /* port closed */ }
+  };
+  port.onMessage.addListener((m) => {
+    if (m && isNonNegativeInt(m.tabId)) watchedTabId = Number(m.tabId);
+  });
+  chrome.webNavigation.onHistoryStateUpdated.addListener(onHistory);
+  port.onDisconnect.addListener(() => {
+    try { chrome.webNavigation.onHistoryStateUpdated.removeListener(onHistory); } catch (_) {}
+  });
+});
+}
+
 async function computeFrameScores({ tabId, frames, match, legacyAutoFanout = false }) {
   const selectors = Array.isArray(match?.domSelectorsAny) ? match.domSelectorsAny : [];
   const urlIncludes = Array.isArray(match?.urlIncludes) ? match.urlIncludes : [];

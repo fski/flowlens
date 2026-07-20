@@ -86,6 +86,24 @@ function renderResultsShell(shell) {
   }
 }
 
+// Decide whether a navigation event is a real new step for auto-capture.
+// Accepts path/query changes (incl. SPA route changes) and the first nav;
+// rejects self-navigation and hash-only jumps that would just add noise.
+function classifyNavForCapture(url, lastUrl) {
+  if (!url || typeof url !== "string") return false;
+  if (!lastUrl) return true;
+  if (url === lastUrl) return false;
+  try {
+    const a = new URL(url);
+    const b = new URL(lastUrl);
+    // Same origin + path + search, differing only in hash → in-page anchor.
+    if (a.origin === b.origin && a.pathname === b.pathname && a.search === b.search) return false;
+  } catch (_) {
+    // Unparseable — fall back to a raw inequality (already known non-equal).
+  }
+  return true;
+}
+
 function updateResultsVisibility(forceValue = null) {
   const hasResults = typeof forceValue === "boolean" ? forceValue : state.records.length > 0;
   renderResultsShell({ view: hasResults ? "results" : "idle" });
