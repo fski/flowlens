@@ -674,14 +674,14 @@ function buildIssueLifecycle(steps) {
 }
 
 function computeStableSignatureSet(snapshot, rawAppendix = null) {
-  const empty = { stableFindingSignatureSet: [], severityCounts: { high: 0, medium: 0, low: 0, info: 0 }, blockingSet: [], summaryScore: 0 };
+  const empty = { stableFindingSignatureSet: [], severityCounts: { critical: 0, high: 0, medium: 0, low: 0, info: 0 }, blockingSet: [], summaryScore: 0 };
   if (!snapshot || !snapshot.best) return empty;
 
   const frameKeyStable = snapshot.best.frameKeyStable || snapshot.best.frameKey || "fk::unknown";
   const mode = snapshot.mode || "run";
   const raw = resolveSnapshotRaw(snapshot, rawAppendix) || {};
   const signatures = [];
-  const severityCounts = { high: 0, medium: 0, low: 0, info: 0 };
+  const severityCounts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
   const blockingSet = [];
   let summaryScore = 0;
 
@@ -692,8 +692,9 @@ function computeStableSignatureSet(snapshot, rawAppendix = null) {
       signatures.push(sig);
       const sev = normalizeWs(f?.severity, 10) || "info";
       if (sev in severityCounts) severityCounts[sev]++;
-      const isBlocking = sev === "high" || sev === "medium";
-      if (isBlocking) blockingSet.push(sig);
+      // Blocking MUST match the legacy/CI predicate (confidence-aware) — a bare
+      // severity check here made deleteStep's recompute flip verdicts vs capture.
+      if (isRunFindingBlocking(f)) blockingSet.push(sig);
       summaryScore += SEV_SCORE[sev] || 0;
     }
   } else if (mode === "contrast") {
@@ -756,31 +757,4 @@ function computeStableDiff(prevSignatures, currSignatures, prevBlocking = null, 
   return { added, fixed, persisting, blockingAdded, blockingFixed };
 }
 
-/**
- * Run parallel diff validation (shadow mode): compares legacy diff with stable diff.
- * Logs mismatches in non-production. Does NOT break production.
- */
-function validateDiffParity(step, prevStep, rawAppendix, stableRun, stablePrev) {
-  if (!step || !prevStep) return;
-  try {
-    const legacy = buildStepDiffs(step, prevStep, rawAppendix);
-    const legacyRun = legacy?.run || {};
-    const stableDiff = computeStableDiff(
-      stablePrev?.stableFindingSignatureSet || [],
-      stableRun?.stableFindingSignatureSet || [],
-      stablePrev?.blockingSet || [],
-      stableRun?.blockingSet || []
-    );
-
-    if (legacyRun.blockingAdded !== stableDiff.blockingAdded ||
-        legacyRun.blockingFixed !== stableDiff.blockingFixed) {
-      console.warn("[FlowLens] Diff parity mismatch (shadow mode)", {
-        legacy: { blockingAdded: legacyRun.blockingAdded, blockingFixed: legacyRun.blockingFixed },
-        stable: { blockingAdded: stableDiff.blockingAdded, blockingFixed: stableDiff.blockingFixed },
-      });
-    }
-  } catch (e) {
-    console.warn("[FlowLens] Diff parity validation error", e);
-  }
-}
 

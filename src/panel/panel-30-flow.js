@@ -1010,7 +1010,11 @@ function buildStepDiffs(step, prevStep, rawAppendix = null) {
     ]);
     consolidated.blockingAdded = [...allCurrBlocking].filter(s => !allPrevBlocking.has(s)).length;
     consolidated.blockingFixed = [...allPrevBlocking].filter(s => !allCurrBlocking.has(s)).length;
-    consolidated.countsDelta = countsDelta;
+    // Consolidated delta merges run+active counts — run-only here under-reported
+    // active-mode severity shifts in the summary line.
+    const mergedCurrCounts = sumSeverityCounts(step.stableSignatures.run?.severityCounts, step.stableSignatures.active?.severityCounts);
+    const mergedPrevCounts = sumSeverityCounts(prevStep.stableSignatures.run?.severityCounts, prevStep.stableSignatures.active?.severityCounts);
+    consolidated.countsDelta = computeCountsDelta(mergedCurrCounts, mergedPrevCounts);
     consolidated.text = summarizeDiff(consolidated);
 
     return {
@@ -1029,11 +1033,33 @@ function buildStepDiffs(step, prevStep, rawAppendix = null) {
     : { set: new Set(), blockingSet: new Set(), metaBySig: new Map(), counts: {} };
   const consolidatedNext = mergeSignatureBundles([runNext, activeNext]);
   const consolidatedPrev = mergeSignatureBundles([runPrev, activePrev]);
-  return {
+  const result = {
     run: step?.snapshots?.run ? diffModeBundles(runPrev, runNext) : undefined,
     active: step?.snapshots?.active ? diffModeBundles(activePrev, activeNext) : undefined,
     consolidated: diffModeBundles(consolidatedPrev, consolidatedNext),
   };
+  // First step = baseline, not regression: with no predecessor every blocking
+  // finding diffed as "added", so a one-step flow could never PASS. The verdict
+  // sums consolidated.blockingAdded, so zero the blocking deltas here (the
+  // producer), not in the view.
+  if (!prevStep) {
+    for (const d of [result.run, result.active, result.consolidated]) {
+      if (!d) continue;
+      d.blockingAdded = 0;
+      d.blockingFixed = 0;
+      d.text = summarizeDiff(d);
+    }
+  }
+  return result;
+}
+
+// Element-wise sum of two severityCounts maps (missing keys = 0).
+function sumSeverityCounts(a = {}, b = {}) {
+  const out = {};
+  for (const src of [a || {}, b || {}]) {
+    for (const [k, v] of Object.entries(src)) out[k] = (out[k] || 0) + asNumber(v, 0);
+  }
+  return out;
 }
 
 function updateSessionFramesIndex(session, step) {
@@ -1056,6 +1082,7 @@ function updateSessionFramesIndex(session, step) {
 
 function severityWeight(severity) {
   const s = String(severity || "").toLowerCase();
+  if (s === "critical") return 4;
   if (s === "high") return 3;
   if (s === "medium") return 2;
   return 1;

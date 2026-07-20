@@ -1977,9 +1977,9 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     sessionState.current.schemaVersion = asNumber(r?.schemaVersion, sessionState.current.schemaVersion || 1);
     sessionState.current.signatureVersion = asNumber(r?.signatureVersion, sessionState.current.signatureVersion || 1);
     sessionState.current.frameKeyVersion = asNumber(r?.run?.frameKeyVersion, sessionState.current.frameKeyVersion || 1);
-    step.diffs = buildStepDiffs(step, prevStep, sessionState.current.rawAppendix || {});
-
-    // Stable signatures (shadow mode) — compute alongside legacy diff
+    // Stable signatures BEFORE buildStepDiffs so capture takes the same
+    // (stable) diff branch as deleteStep's recompute — with the old order the
+    // two paths diffed with different engines.
     const stableRun = computeStableSignatureSet(step.snapshots?.run, sessionState.current.rawAppendix || {});
     const stableActive = step.snapshots?.active
       ? computeStableSignatureSet(step.snapshots.active, sessionState.current.rawAppendix || {})
@@ -1990,10 +1990,7 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     };
     // Signature → finding metadata for the per-step diff + lifecycle swimlane.
     step.findingIndex = buildStepFindingIndex(step.snapshots?.run, sessionState.current.rawAppendix || {});
-    // Parallel validation (shadow mode) — log mismatches, never break production
-    if (prevStep?.stableSignatures?.run) {
-      validateDiffParity(step, prevStep, sessionState.current.rawAppendix || {}, stableRun, prevStep.stableSignatures.run);
-    }
+    step.diffs = buildStepDiffs(step, prevStep, sessionState.current.rawAppendix || {});
 
     // Profiles v2 — deterministic profile match scoring
     const bestFrameProbe = r?.run?.bestFrameProbe || null;

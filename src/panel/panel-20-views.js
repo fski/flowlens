@@ -599,10 +599,10 @@ function normalizeFindingConfidence(confidence) {
 
 function isRunFindingBlocking(finding) {
   const severity = normalizeWs(finding?.severity, 12);
-  if (severity !== "high" && severity !== "medium") return false;
+  if (severity !== "critical" && severity !== "high" && severity !== "medium") return false;
   const confidence = normalizeFindingConfidence(finding?.confidence);
   if (confidence === "advisory") return false;
-  if (severity === "high") return true;
+  if (severity === "critical" || severity === "high") return true;
   return confidence === "strict";
 }
 
@@ -1043,7 +1043,7 @@ function getSessionKeys(origin, env, sessionId = null) {
  */
 function migrateStepStableSignatures(snapshot, rawAppendix, step) {
   if (!snapshot || !snapshot.best) {
-    return { stableFindingSignatureSet: [], severityCounts: { high: 0, medium: 0, low: 0, info: 0 }, blockingSet: [], summaryScore: 0, stepQuality: { degraded: false } };
+    return { stableFindingSignatureSet: [], severityCounts: { critical: 0, high: 0, medium: 0, low: 0, info: 0 }, blockingSet: [], summaryScore: 0, stepQuality: { degraded: false } };
   }
   const raw = resolveSnapshotRaw(snapshot, rawAppendix);
   const frameKeyStable = snapshot.best.frameKeyStable || snapshot.best.frameKey || "fk::unknown";
@@ -1067,7 +1067,7 @@ function migrateStepStableSignatures(snapshot, rawAppendix, step) {
   // Degraded fallback: rawAppendix missing (raw_capped case).
   // Build degraded signatures from whatever metadata is available.
   const signatures = [];
-  const severityCounts = { high: 0, medium: 0, low: 0, info: 0 };
+  const severityCounts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
   const blockingSet = [];
   let summaryScore = 0;
 
@@ -1083,7 +1083,7 @@ function migrateStepStableSignatures(snapshot, rawAppendix, step) {
       signatures.push(sig);
       const sev = normalizeWs(f?.severity, 10) || "info";
       if (sev in severityCounts) severityCounts[sev]++;
-      if (sev === "high" || sev === "medium") { blockingSet.push(sig); }
+      if (isRunFindingBlocking(f)) { blockingSet.push(sig); }
       summaryScore += SEV_SCORE[sev] || 0;
     }
     return { stableFindingSignatureSet: signatures, severityCounts, blockingSet, summaryScore, stepQuality: { degraded: false } };
@@ -1094,13 +1094,15 @@ function migrateStepStableSignatures(snapshot, rawAppendix, step) {
   if (counts.findings > 0 || counts.high > 0 || counts.medium > 0) {
     // We know there were findings but don't have their details.
     // Build a single degraded signature per severity bucket.
-    for (const [sev, count] of Object.entries({ high: counts.high || 0, medium: counts.medium || 0, low: counts.low || 0, info: counts.info || 0 })) {
+    for (const [sev, count] of Object.entries({ critical: counts.critical || 0, high: counts.high || 0, medium: counts.medium || 0, low: counts.low || 0, info: counts.info || 0 })) {
       for (let i = 0; i < count; i++) {
         const degradedHash = fnv1aHash8(`${mode}|${frameKeyStable}|${sev}|${i}`);
         const sig = `${mode}|degraded|${sev}|${degradedHash}`;
         signatures.push(sig);
         if (sev in severityCounts) severityCounts[sev]++;
-        if (sev === "high" || sev === "medium") blockingSet.push(sig);
+        // Degraded buckets carry no confidence — normalizeFindingConfidence
+        // defaults to strict, so medium stays blocking (same as before).
+        if (isRunFindingBlocking({ severity: sev })) blockingSet.push(sig);
         summaryScore += SEV_SCORE[sev] || 0;
       }
     }

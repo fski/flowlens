@@ -1,0 +1,173 @@
+/**
+ * Record-flow review regressions (2026-07-20 audit).
+ *
+ * 1. Blocking predicate is SINGLE-SOURCE: the stable signature engine must
+ *    classify blocking through isRunFindingBlocking (confidence-aware), not a
+ *    bare severity check — the bare check made deleteStep's recompute flip the
+ *    Flow verdict PASS→FAIL vs capture for medium+heuristic findings.
+ * 2. First step is a BASELINE: buildStepDiffs(step, null) must report zero
+ *    blocking deltas at the producer, or a one-step flow can never PASS.
+ * 3. critical severity participates in blocking/weights (was invisible).
+ * 4. Stable consolidated countsDelta merges run+active counts (was run-only).
+ */
+import { describe, it, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { createContext } from './harness.mjs';
+
+function finding(type, severity, confidence, opts = {}) {
+  return {
+    severity,
+    confidence,
+    type,
+    name: opts.name || type,
+    testId: opts.testId || '',
+    wcag: opts.wcag || '4.1.2',
+    path: opts.path || 'html>body>div>button',
+    product: 'axe',
+    role: '',
+    level: 'AA',
+  };
+}
+
+function stepSnapshot(findings, mode = 'run') {
+  return {
+    mode,
+    capturedAt: '2026-07-20T10:00:00.000Z',
+    best: {
+      frameKey: 'fk::v1::https://example.com::/:://',
+      frameKeyStable: 'fk::v1::https://example.com::/:://',
+      normalized: { raw: { findings } },
+    },
+    perFrame: [],
+  };
+}
+
+// A step as it exists post-capture: snapshots + stableSignatures.
+function mkStep(ctx, index, findings) {
+  const step = {
+    id: `step_${index}`,
+    index,
+    snapshots: { run: stepSnapshot(findings), active: null },
+  };
+  step.stableSignatures = {
+    run: ctx.computeStableSignatureSet(step.snapshots.run, {}),
+    active: null,
+  };
+  return step;
+}
+
+describe('blocking predicate is single-source (stable engine)', () => {
+  let ctx;
+  beforeEach(() => { ctx = createContext(); });
+
+  it('medium+heuristic is non-blocking in BOTH engines', () => {
+    const f = finding('MISSING_LABEL', 'medium', 'heuristic');
+    assert.equal(ctx.isRunFindingBlocking(f), false);
+    const stable = ctx.computeStableSignatureSet(stepSnapshot([f]), {});
+    assert.equal(stable.blockingSet.length, 0, 'stable engine must agree with isRunFindingBlocking');
+    assert.equal(stable.severityCounts.medium, 1);
+  });
+
+  it('medium+strict and high+heuristic are blocking in both engines', () => {
+    for (const f of [finding('A', 'medium', 'strict'), finding('B', 'high', 'heuristic')]) {
+      assert.equal(ctx.isRunFindingBlocking(f), true);
+      assert.equal(ctx.computeStableSignatureSet(stepSnapshot([f]), {}).blockingSet.length, 1);
+    }
+  });
+
+  it('deleteStep-style recompute matches capture: no verdict flip on unrelated delete', () => {
+    // step2 introduces a medium+heuristic finding that persists into step3.
+    const s1 = mkStep(ctx, 1, []);
+    const s2 = mkStep(ctx, 2, [finding('MISSING_LABEL', 'medium', 'heuristic')]);
+    const s3 = mkStep(ctx, 3, [finding('MISSING_LABEL', 'medium', 'heuristic')]);
+    // Capture-order diffs (stable branch for s2/s3 since prev has stableSignatures).
+    s1.diffs = ctx.buildStepDiffs(s1, null, {});
+    s2.diffs = ctx.buildStepDiffs(s2, s1, {});
+    s3.diffs = ctx.buildStepDiffs(s3, s2, {});
+    const total = [s1, s2, s3].reduce((n, s) => n + s.diffs.consolidated.blockingAdded, 0);
+    assert.equal(total, 0, 'PASS at capture');
+    // Delete the last step → recompute survivors exactly like deleteStep does.
+    const steps = [s1, s2];
+    for (let i = 0; i < steps.length; i++) {
+      steps[i].index = i + 1;
+      steps[i].diffs = ctx.buildStepDiffs(steps[i], i > 0 ? steps[i - 1] : null, {});
+    }
+    const totalAfter = steps.reduce((n, s) => n + s.diffs.consolidated.blockingAdded, 0);
+    assert.equal(totalAfter, 0, 'verdict must not flip after an unrelated delete');
+  });
+});
+
+describe('first step is a baseline (blockingAdded=0 at the producer)', () => {
+  let ctx;
+  beforeEach(() => { ctx = createContext(); });
+
+  it('one-step flow with a high+strict blocker yields zero blocking deltas', () => {
+    const s1 = mkStep(ctx, 1, [finding('BROKEN_NAME', 'high', 'strict')]);
+    const diffs = ctx.buildStepDiffs(s1, null, {});
+    assert.equal(diffs.consolidated.blockingAdded, 0);
+    assert.equal(diffs.consolidated.blockingFixed, 0);
+    assert.equal(diffs.run.blockingAdded, 0);
+    assert.match(diffs.consolidated.text, /blocking \+0\/-0/);
+  });
+
+  it('second step still reports regressions normally', () => {
+    const s1 = mkStep(ctx, 1, []);
+    const s2 = mkStep(ctx, 2, [finding('BROKEN_NAME', 'high', 'strict')]);
+    s1.diffs = ctx.buildStepDiffs(s1, null, {});
+    const diffs = ctx.buildStepDiffs(s2, s1, {});
+    assert.equal(diffs.consolidated.blockingAdded, 1);
+  });
+});
+
+describe('critical severity participates', () => {
+  let ctx;
+  beforeEach(() => { ctx = createContext(); });
+
+  it('critical is blocking, counted, weighted and scored', () => {
+    const f = finding('CRITICAL_THING', 'critical', 'heuristic');
+    assert.equal(ctx.isRunFindingBlocking(f), true);
+    const stable = ctx.computeStableSignatureSet(stepSnapshot([f]), {});
+    assert.equal(stable.blockingSet.length, 1);
+    assert.equal(stable.severityCounts.critical, 1);
+    assert.ok(stable.summaryScore > 0, 'SEV_SCORE must cover critical');
+    assert.ok(ctx.severityWeight('critical') > ctx.severityWeight('high'));
+  });
+
+  it('critical+advisory stays non-blocking (advisory always demotes)', () => {
+    assert.equal(ctx.isRunFindingBlocking(finding('X', 'critical', 'advisory')), false);
+  });
+});
+
+describe('stable consolidated countsDelta merges run+active', () => {
+  let ctx;
+  beforeEach(() => { ctx = createContext(); });
+
+  it('active-mode severity shifts appear in consolidated.countsDelta', () => {
+    const mkContrast = (n) => ({
+      mode: 'contrast',
+      capturedAt: '2026-07-20T10:00:00.000Z',
+      best: {
+        frameKey: 'fk::v1::https://example.com::/:://',
+        frameKeyStable: 'fk::v1::https://example.com::/:://',
+        normalized: { raw: { failures: Array.from({ length: n }, (_, i) => ({ path: `p${i}`, fg: '#111', bg: '#222' })) } },
+      },
+      perFrame: [],
+    });
+    const mk = (index, contrastN) => {
+      const step = {
+        id: `step_${index}`,
+        index,
+        snapshots: { run: stepSnapshot([]), active: mkContrast(contrastN) },
+      };
+      step.stableSignatures = {
+        run: ctx.computeStableSignatureSet(step.snapshots.run, {}),
+        active: ctx.computeStableSignatureSet(step.snapshots.active, {}),
+      };
+      return step;
+    };
+    const s1 = mk(1, 0);
+    const s2 = mk(2, 2); // two new contrast failures (counted as high in stable engine)
+    const diffs = ctx.buildStepDiffs(s2, s1, {});
+    assert.equal(diffs.consolidated.countsDelta.high, 2, 'contrast failures must reach consolidated delta');
+  });
+});
