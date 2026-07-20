@@ -694,7 +694,7 @@ function computeStableSignatureSet(snapshot, rawAppendix = null) {
       if (sev in severityCounts) severityCounts[sev]++;
       const isBlocking = sev === "high" || sev === "medium";
       if (isBlocking) blockingSet.push(sig);
-      summaryScore += ({ high: 5, medium: 3, low: 1, info: 0 })[sev] || 0;
+      summaryScore += SEV_SCORE[sev] || 0;
     }
   } else if (mode === "contrast") {
     const failures = Array.isArray(raw.failures) ? raw.failures : [];

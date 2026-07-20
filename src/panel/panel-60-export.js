@@ -2,8 +2,7 @@
 
 // --- Export ---
 async function copyMarkdown() {
-  const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
-  const envTag = `${originFrom(url) || "—"} • ${detectEnv(url)}`;
+  const { url, envTag } = getCurrentScopeInfo();
   const _best = currentBestEntry();
   const md = buildMarkdown({
     inspectedUrl: url,
