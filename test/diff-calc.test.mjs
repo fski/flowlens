@@ -105,12 +105,6 @@ describe('Diff calculation', () => {
       assert.equal(ctx.asNumber(Infinity, -1), -1);
     });
 
-    it('formatElapsedHms formats duration', () => {
-      const start = '2024-01-01T00:00:00.000Z';
-      const end = '2024-01-01T00:02:30.000Z';
-      const result = ctx.formatElapsedHms(start, end);
-      assert.equal(result, '2:30');
-    });
   });
 
   describe('isRunFindingBlocking()', () => {

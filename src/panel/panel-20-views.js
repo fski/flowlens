@@ -1218,33 +1218,6 @@ function setLastMarkStatus(status, reasonCode = "-") {
   setPersistentStatus(status, code, reasonDetail(code));
 }
 
-function formatElapsedHms(startIso, endIso = null) {
-  const start = Date.parse(startIso || "");
-  if (!Number.isFinite(start)) return "0:00";
-  const end = endIso ? Date.parse(endIso) : Date.now();
-  const totalSec = Math.max(0, Math.round((end - start) / 1000));
-  const mins = Math.floor(totalSec / 60);
-  const secs = totalSec % 60;
-  return `${mins}:${String(secs).padStart(2, "0")}`;
-}
-
-function ensureSessionHudTicker() {
-  const hasSession = !!sessionState.current;
-  // Always clear first to prevent stacking if called multiple times rapidly
-  if (!hasSession || sessionState.hudTimer) {
-    if (sessionState.hudTimer) {
-      window.clearInterval(sessionState.hudTimer);
-      sessionState.hudTimer = null;
-    }
-  }
-  if (hasSession && !sessionState.hudTimer) {
-    sessionState.hudTimer = window.setInterval(() => {
-      if (!sessionState.current) return;
-      renderSessionHud();
-    }, 1000);
-  }
-}
-
 function expandAccordion(sectionEl) {
   if (!sectionEl) return;
   const btn = sectionEl.querySelector(".accordionToggle");
@@ -1518,13 +1491,20 @@ function renderFlow() {
 }
 
 // Load screenshots (Blobs → object URLs) into the slots renderFlow drew.
-// Revokes previous URLs first to avoid leaks. Best-effort; a missing shot just
-// leaves its placeholder.
-var _flowShotUrls = [];
+// Object URLs are CACHED per (session, step): a re-render re-applies the
+// cached URL synchronously (no blank-frame flicker, no repeated IndexedDB
+// reads), and URLs are revoked only when the session changes — the old
+// revoke-everything-then-refetch pass raced overlapping renders into blank
+// thumbnails. Best-effort; a missing shot just leaves its placeholder.
+var _flowShotUrlCache = { sessionId: null, byKey: {} };
+function _flushFlowShotCache() {
+  for (var k in _flowShotUrlCache.byKey) { try { URL.revokeObjectURL(_flowShotUrlCache.byKey[k]); } catch (_) {} }
+  _flowShotUrlCache = { sessionId: null, byKey: {} };
+}
 function _hydrateFlowShots(sess) {
   if (typeof flowMediaStore === "undefined" || !sess) return;
-  for (var i = 0; i < _flowShotUrls.length; i++) { try { URL.revokeObjectURL(_flowShotUrls[i]); } catch (_) {} }
-  _flowShotUrls = [];
+  if (_flowShotUrlCache.sessionId !== sess.id) _flushFlowShotCache();
+  _flowShotUrlCache.sessionId = sess.id;
   var slots = document.querySelectorAll("[data-shot-step]");
   slots.forEach(function (slot) {
     // Keys are the STABLE string step.id — read as a string, NOT Number()
@@ -1532,17 +1512,27 @@ function _hydrateFlowShots(sess) {
     // change stored shots under the numeric step.index, so fall back to that.
     var id = slot.getAttribute("data-shot-step");
     var legacyIdx = slot.getAttribute("data-shot-idx");
-    var apply = function (blob) {
-      if (!blob) return;
-      var url = URL.createObjectURL(blob);
-      _flowShotUrls.push(url);
+    var apply = function (url) {
       slot.style.backgroundImage = 'url("' + url + '")';
       slot.classList.add("hasImage");
     };
+    if (_flowShotUrlCache.byKey[id]) { apply(_flowShotUrlCache.byKey[id]); return; }
     flowMediaStore.getShot(sess.id, id).then(function (blob) {
-      if (blob) { apply(blob); return; }
-      if (legacyIdx == null || legacyIdx === id) return;
-      return flowMediaStore.getShot(sess.id, Number(legacyIdx)).then(apply);
+      if (!blob && legacyIdx != null && legacyIdx !== id) {
+        return flowMediaStore.getShot(sess.id, Number(legacyIdx));
+      }
+      return blob;
+    }).then(function (blob) {
+      if (!blob) return;
+      // The cache may have been flushed for a newer session while this read
+      // was in flight — don't resurrect a URL for a dead session.
+      if (_flowShotUrlCache.sessionId !== sess.id) return;
+      var url = _flowShotUrlCache.byKey[id];
+      if (!url) {
+        url = URL.createObjectURL(blob);
+        _flowShotUrlCache.byKey[id] = url;
+      }
+      apply(url);
     }).catch(function () {});
   });
 }

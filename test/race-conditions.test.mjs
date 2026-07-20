@@ -16,7 +16,6 @@ describe('Race condition guards', () => {
     it('sessionState has expected shape', () => {
       assert.equal(ctx.sessionState.current, null);
       assert.equal(ctx.sessionState.inFlight, false);
-      assert.equal(ctx.sessionState.hudTimer, null);
       assert.equal(ctx.sessionState.queuedCapture, null);
     });
 
@@ -40,29 +39,17 @@ describe('Race condition guards', () => {
     });
   });
 
-  describe('R5: HUD timer stacking prevention', () => {
-    it('ensureSessionHudTicker clears timer when no session', () => {
-      ctx.sessionState.hudTimer = 42;
-      ctx.sessionState.current = null;
-      ctx.ensureSessionHudTicker();
-      assert.equal(ctx.sessionState.hudTimer, null);
-    });
-
-    it('ensureSessionHudTicker creates timer for active session', async () => {
+  describe('R5: HUD ticker removed (renders are event-driven)', () => {
+    it('no per-second re-render interval exists any more', async () => {
+      // The 1s ticker did a full Flow innerHTML rewrite + IndexedDB screenshot
+      // re-hydration every second for zero rendered change (nothing in the
+      // Flow view is time-dependent). All mutations call renderSessionHud
+      // explicitly, so the ticker (and sessionState.hudTimer) must stay gone.
+      assert.equal(typeof ctx.ensureSessionHudTicker, 'undefined');
+      assert.ok(!('hudTimer' in ctx.sessionState));
       await ctx.startSession();
-      // The harness mock setInterval returns 1
-      ctx.ensureSessionHudTicker();
-      // Timer should be created (our mock returns 1)
-      assert.ok(ctx.sessionState.hudTimer != null, 'should have timer');
-    });
-
-    it('calling ensureSessionHudTicker twice does not stack', async () => {
-      await ctx.startSession();
-      ctx.ensureSessionHudTicker();
-      const timer1 = ctx.sessionState.hudTimer;
-      ctx.ensureSessionHudTicker();
-      // Should still have a timer (cleared and recreated or kept same)
-      assert.ok(ctx.sessionState.hudTimer != null);
+      ctx.updateSessionButtons();
+      assert.ok(!('hudTimer' in ctx.sessionState));
     });
   });
 

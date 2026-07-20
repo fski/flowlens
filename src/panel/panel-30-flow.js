@@ -225,7 +225,6 @@ function updateSessionButtons() {
   const hasArchivedSession = !sessionState.current && !!sessionState.lastEndedSession;
   const inFlight = !!sessionState.inFlight;
   const panelBusy = inFlight || state.running;
-  ensureSessionHudTicker();
   if (els.sessionStart) {
     els.sessionStart.disabled = panelBusy || hasSession;
     els.sessionStart.hidden = hasSession;
