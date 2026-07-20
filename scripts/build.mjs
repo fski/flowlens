@@ -235,6 +235,7 @@ function buildFileMap() {
     { src: "shared/flow-profiles.js",      dist: "flow-profiles.js",       type: "js" },
     { src: "shared/wcag-coverage.js",      dist: "wcag-coverage.js",       type: "js" },
     { src: "shared/limits.js",             dist: "limits.js",              type: "js" },
+    { src: "shared/flow-media-store.js",   dist: "flow-media-store.js",    type: "js" },
     { src: "engine/stateTransitionEngine.js", dist: "stateTransitionEngine.js", type: "js" },
     { src: "engine/depth3Aggregates.js", dist: "depth3Aggregates.js", type: "js" },
     { src: "engine/ciExporter.js", dist: "ciExporter.js", type: "js" },

@@ -13,7 +13,7 @@ const TAB_BLOCKING_EVENT_TYPES = new Set([
   "focus_on_body",
   "focus_failed",
 ]);
-const MESSAGE_TYPES = new Set(["LIST_FRAMES", "HIGHLIGHT", "RUN_AUDIT", "CAPTURE_STEP"]);
+const MESSAGE_TYPES = new Set(["LIST_FRAMES", "HIGHLIGHT", "RUN_AUDIT", "CAPTURE_STEP", "CAPTURE_SHOT"]);
 const AUDIT_ACTIONS = new Set(["run", "observe", "watch", "tabWalk", "contrast"]);
 const WCAG_LEVELS = new Set(["2.1-AA", "2.1-AAA", "2.2-AA", "2.2-AAA"]);
 
@@ -36,7 +36,7 @@ function validateIncomingMessage(msg, sender) {
   if (!isPlainObject(msg)) return { ok: false, error: "BAD_MESSAGE_SCHEMA" };
   if (!MESSAGE_TYPES.has(msg.type)) return { ok: false, error: "UNKNOWN_MESSAGE" };
 
-  if ((msg.type === "LIST_FRAMES" || msg.type === "RUN_AUDIT" || msg.type === "CAPTURE_STEP" || msg.type === "HIGHLIGHT")
+  if ((msg.type === "LIST_FRAMES" || msg.type === "RUN_AUDIT" || msg.type === "CAPTURE_STEP" || msg.type === "HIGHLIGHT" || msg.type === "CAPTURE_SHOT")
       && !isNonNegativeInt(msg.tabId)) {
     return { ok: false, error: "BAD_TAB_ID" };
   }
@@ -867,6 +867,33 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
+    if (msg.type === "CAPTURE_SHOT") {
+      const tabId = Number(msg.tabId);
+      // Overlay hygiene: strip FlowLens's own tab-stop/highlight overlay before
+      // the screenshot so it shows the real page, not our green badges.
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId, allFrames: true },
+          func: () => {
+            try {
+              if (window.A11YFlowAudit && window.A11YFlowAudit.clearAnnotations) window.A11YFlowAudit.clearAnnotations();
+              const el = document.getElementById("__flowlens_annotations__");
+              if (el) el.remove();
+            } catch (_) { /* best-effort */ }
+          },
+        });
+      } catch (_) { /* overlay clear is best-effort */ }
+      let dataUrl = null, reason = null;
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
+      } catch (e) {
+        reason = (e && e.message) || "capture-failed";
+      }
+      sendResponse(dataUrl ? { ok: true, dataUrl } : { ok: false, reason: reason || "no-dataurl" });
+      return;
+    }
+
     if (msg.type === "HIGHLIGHT") {
       const tabId = Number(msg.tabId);
       const frameId = Number(msg.frameId);
@@ -1271,6 +1298,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   return true;
 });
+
+// SPA route capture: the panel opens a "flowlens-nav" port and sends its tabId.
+// We watch webNavigation.onHistoryStateUpdated for that tab (History API route
+// changes that don't trigger a full navigation) and push the new URL to the
+// panel, which runs its debounced auto-capture. One listener per connected
+// panel; cleaned up on disconnect.
+if (chrome.runtime.onConnect && typeof chrome.runtime.onConnect.addListener === "function") {
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "flowlens-nav") return;
+  let watchedTabId = null;
+  const onHistory = (details) => {
+    if (details.frameId !== 0) return; // top frame only
+    if (watchedTabId == null || details.tabId !== watchedTabId) return;
+    try { port.postMessage({ type: "SPA_NAV", url: details.url }); } catch (_) { /* port closed */ }
+  };
+  port.onMessage.addListener((m) => {
+    if (m && isNonNegativeInt(m.tabId)) watchedTabId = Number(m.tabId);
+  });
+  chrome.webNavigation.onHistoryStateUpdated.addListener(onHistory);
+  port.onDisconnect.addListener(() => {
+    try { chrome.webNavigation.onHistoryStateUpdated.removeListener(onHistory); } catch (_) {}
+  });
+});
+}
 
 async function computeFrameScores({ tabId, frames, match, legacyAutoFanout = false }) {
   const selectors = Array.isArray(match?.domSelectorsAny) ? match.domSelectorsAny : [];

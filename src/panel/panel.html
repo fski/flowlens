@@ -304,7 +304,7 @@
               End <kbd class="keycap" aria-hidden="true">e</kbd>
             </button>
             <label class="autoCapToggle" title="Auto-capture on navigation">
-              <input type="checkbox" id="autoCaptureNav" />
+              <input type="checkbox" id="autoCaptureNav" checked />
               <span class="autoCapLabel">Auto</span>
             </label>
             <select id="autoCaptureDelay" class="autoCapDelay" title="Auto-capture delay" aria-label="Auto-capture delay">
@@ -312,6 +312,9 @@
               <option value="1000">1s</option>
               <option value="2000" selected>2s</option>
             </select>
+            <button class="ctaBtn ctaBtn--outline" id="flowRecordVideo" type="button" title="Record a local screen video of this flow (you pick the tab)">
+              <span class="recDot" aria-hidden="true">●</span> <span id="flowRecordVideoLabel">Record video</span>
+            </button>
           </div>
           <div class="flowLabelInput" id="flowLabelInput" hidden>
             <input id="flowLabelField" type="text" class="flowLabelField" placeholder="Label this step (optional)" maxlength="80" autocomplete="off" />
@@ -321,44 +324,25 @@
           <p class="helperText" id="flowRecordHelper">Record a11y changes across a multi-step flow</p>
         </div>
 
-        <!-- Flow session counters -->
-        <div class="flowCounterRow" id="flowCounterRow" hidden></div>
+        <!-- Empty state until the first step is captured -->
+        <p class="placeholderText" id="flowPlaceholder">Press <kbd class="keycap">r</kbd> or click <strong>Record Flow</strong> to start tracking accessibility changes across steps. Steps auto-capture as you navigate.</p>
 
-        <!-- Flow verdict banner -->
-        <div class="flowVerdict" id="flowVerdict" hidden></div>
-
-        <!-- Session info accordion -->
-        <section class="accordion" id="flowSessionInfo">
-          <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="flowSessionInfoBody">
-            <span class="accIcon" aria-hidden="true">&#9432;</span>
-            <span class="accLabel">Session info</span>
-            <span class="chevron" aria-hidden="true">&#x2228;</span>
-          </button>
-          <!-- populated by renderFlowSessionInfo() -->
-          <div class="accordionBody" id="flowSessionInfoBody" hidden></div>
-        </section>
-
-        <!-- Timeline view accordion -->
-        <section class="accordion" id="flowTimeline">
-          <button class="accordionToggle" type="button" aria-expanded="false" aria-controls="flowTimelineBody">
-            <span class="accIcon" aria-hidden="true">&#9776;</span>
-            <span class="accLabel">Timeline view</span>
-            <span class="chevron" aria-hidden="true">&#x2228;</span>
-          </button>
-          <div class="accordionBody" id="flowTimelineBody" hidden>
-            <div class="tableWrap vscroll">
-              <table class="tbl" id="flowTimelineTable">
-                <caption class="sr-only">Flow timeline</caption>
-                <thead>
-                  <tr>
-                    <th scope="col" title="Step number">step</th><th scope="col" title="Page route">route</th><th scope="col" title="Audit mode">mode</th><th scope="col" title="New issues">new</th><th scope="col" title="Fixed issues">fixed</th><th scope="col" title="Persisting issues">persisting</th><th scope="col" title="Top blockers">top blockers</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
+        <!-- Flow results (populated by renderFlow — the single writer) -->
+        <div class="flowResults" id="flowResults" hidden>
+          <div class="flowVerdictHeader" id="flowVerdictHeader"></div>
+          <div class="flowFilmstrip" id="flowFilmstrip" role="listbox" aria-label="Flow steps filmstrip" tabindex="0"></div>
+          <section class="flowLifecycle" aria-label="Issue lifecycle across steps">
+            <h2 class="flowSectionLabel">Issue lifecycle</h2>
+            <div class="flowLifecycleBody" id="flowLifecycle"></div>
+          </section>
+          <div class="flowMain">
+            <div class="flowStepListWrap">
+              <label class="flowFilterToggle"><input type="checkbox" id="flowUnresolvedOnly" /> <span>Only steps with unresolved blockers</span></label>
+              <div class="flowStepList" id="flowStepList" role="list" aria-label="Flow steps"></div>
             </div>
+            <div class="flowStepDetail" id="flowStepDetail" role="region" aria-live="polite" aria-label="Selected step detail"></div>
           </div>
-        </section>
+        </div>
 
         <!-- Session comparison -->
         <section class="accordion" id="flowCompare" hidden>
@@ -552,6 +536,7 @@
     </main>
 
     <script src="limits.js"></script>
+    <script src="flow-media-store.js"></script>
     <script src="flow-profiles.js"></script>
     <script src="wcag-coverage.js"></script>
     <script src="en301549-map.js"></script>

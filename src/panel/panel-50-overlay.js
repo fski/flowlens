@@ -434,6 +434,119 @@ function applySectionView(section, rows, emptyText) {
   }
 }
 
+// ═══ FLOW VIDEO RECORDER ══════════════════════════════════════════════════
+// Local flow video via getDisplayMedia (user picks the tab — no permission)
+// recorded with MediaRecorder to webm, stored in flowMediaStore. Fully local.
+function pickRecorderMime(isSupported) {
+  var check = typeof isSupported === "function"
+    ? isSupported
+    : (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported)
+      ? function (t) { return MediaRecorder.isTypeSupported(t); }
+      : function () { return false; };
+  var prefs = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+  for (var i = 0; i < prefs.length; i++) { if (check(prefs[i])) return prefs[i]; }
+  return "";
+}
+
+var flowRecorder = (function () {
+  var _rec = null, _stream = null, _chunks = [], _sessionId = null, _startAt = 0;
+
+  function isRecording() { return !!_rec && _rec.state === "recording"; }
+
+  async function start(sessionId) {
+    if (isRecording()) return { ok: false, reason: "already-recording" };
+    if (typeof navigator === "undefined" || !navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+      return { ok: false, reason: "unsupported" };
+    }
+    try {
+      _stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    } catch (e) {
+      return { ok: false, reason: "cancelled" }; // user dismissed the picker
+    }
+    _sessionId = sessionId;
+    _chunks = [];
+    var mime = pickRecorderMime();
+    _rec = new MediaRecorder(_stream, mime ? { mimeType: mime } : undefined);
+    _rec.ondataavailable = function (ev) { if (ev.data && ev.data.size) _chunks.push(ev.data); };
+    // If the user stops sharing from Chrome's own bar, finalize gracefully.
+    _stream.getVideoTracks().forEach(function (t) { t.onended = function () { stop(); }; });
+    _startAt = (typeof performance !== "undefined" && performance.now) ? performance.now() : 0;
+    _rec.start();
+    return { ok: true };
+  }
+
+  async function stop() {
+    if (!_rec) return { ok: false, reason: "not-recording" };
+    var rec = _rec, stream = _stream, chunks = _chunks, sid = _sessionId, startAt = _startAt;
+    _rec = null; _stream = null; _chunks = [];
+    return await new Promise(function (resolve) {
+      rec.onstop = async function () {
+        try { (stream.getTracks() || []).forEach(function (t) { t.stop(); }); } catch (_) {}
+        var mime = rec.mimeType || "video/webm";
+        var blob = new Blob(chunks, { type: mime });
+        var durationMs = startAt ? Math.round(((typeof performance !== "undefined" && performance.now) ? performance.now() : 0) - startAt) : 0;
+        if (typeof flowMediaStore !== "undefined" && sid) {
+          try {
+            await flowMediaStore.putVideo(sid, blob, { mime: mime, durationMs: durationMs });
+            var sess = sessionState.current || sessionState.lastEndedSession;
+            if (sess && sess.id === sid) sess.hasVideo = true;
+          } catch (_) {}
+        }
+        resolve({ ok: true, blob: blob, mime: mime, durationMs: durationMs });
+      };
+      try { rec.stop(); } catch (_) { resolve({ ok: false, reason: "stop-failed" }); }
+    });
+  }
+
+  return { start: start, stop: stop, isRecording: isRecording };
+})();
+
+// ═══ PER-STEP SCREENSHOT ══════════════════════════════════════════════════
+// Decide whether a viewport screenshot is worth attempting for a step. Skips
+// schemes captureVisibleTab can't grab so we don't fire a doomed capture.
+function shouldCaptureShot(scopeInfo) {
+  var url = scopeInfo && scopeInfo.url;
+  if (!url || typeof url !== "string") return false;
+  return /^https?:\/\//i.test(url);
+}
+
+/**
+ * Best-effort per-step screenshot. Never throws into the audit path: on any
+ * failure the step still records and the filmstrip shows a placeholder tile.
+ * Overlay hygiene is handled SW-side (clears __flowlens_annotations__ before
+ * captureVisibleTab) so FlowLens's own badges don't pollute the shot.
+ */
+async function captureStepShot(sessionId, stepIndex, scopeInfo, at) {
+  try {
+    if (!shouldCaptureShot(scopeInfo)) return;
+    const r = await send({ type: "CAPTURE_SHOT" });
+    if (!r || !r.ok || !r.dataUrl) {
+      markShotError(sessionId, stepIndex);
+      return;
+    }
+    const blob = await (await fetch(r.dataUrl)).blob();
+    const put = await flowMediaStore.putShot(sessionId, stepIndex, blob, { at: at || 0 });
+    if (put && put.ok) markShotDone(sessionId, stepIndex);
+    else markShotError(sessionId, stepIndex);
+  } catch (e) {
+    markShotError(sessionId, stepIndex);
+  }
+}
+
+function _findStep(sessionId, stepIndex) {
+  const sess = sessionState.current || sessionState.lastEndedSession;
+  if (!sess || sess.id !== sessionId) return null;
+  return (sess.steps || []).find(s => s.index === stepIndex) || null;
+}
+function markShotDone(sessionId, stepIndex) {
+  const step = _findStep(sessionId, stepIndex);
+  if (step) { step.hasShot = true; step.shotError = false; }
+}
+function markShotError(sessionId, stepIndex) {
+  const step = _findStep(sessionId, stepIndex);
+  if (step) { step.shotError = true; }
+}
+
 function renderContrast(res) {
   state.contrastData = Array.isArray(res?.failures) ? res.failures : [];
   state.contrastSamples = Array.isArray(res?.samples) ? res.samples : [];
@@ -1609,6 +1722,9 @@ async function endSession() {
   // "last ended session" export claims in-progress with a growing duration.
   const previousEndedAt = sessionState.current.endedAt || null;
   sessionState.current.endedAt = nowIso();
+  // Finalize any in-progress flow video before the session is archived, so the
+  // webm is stored and session.hasVideo is set on the exported snapshot.
+  if (flowRecorder.isRecording()) { try { await flowRecorder.stop(); } catch (_) {} }
   const exportableEndedSession = compactSessionForExport(normalizeLoadedSession(sessionState.current));
   const archived = await archiveSessionBestEffort(compactSessionForExport(sessionState.current));
   if (!archived) {
@@ -1630,6 +1746,14 @@ async function endSession() {
   updateSessionButtons();
   setPersistentStatus("OK", "SESSION_ENDED", "Session archived");
   populateCompareSelects();
+
+  // Bound media disk: keep screenshots/video only for the most recent sessions.
+  try {
+    const archived = await listArchivedSessions();
+    const keep = archived.slice(0, 5).map(s => s.id);
+    if (sessionState.lastEndedSession?.id) keep.push(sessionState.lastEndedSession.id);
+    if (typeof flowMediaStore !== "undefined") await flowMediaStore.pruneToSessions(keep);
+  } catch (_) { /* prune is best-effort */ }
 
   // Auto-copy verdict summary
   const sess = exportableEndedSession;
@@ -1840,6 +1964,8 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
       run: stableRun,
       active: stableActive,
     };
+    // Signature → finding metadata for the per-step diff + lifecycle swimlane.
+    step.findingIndex = buildStepFindingIndex(step.snapshots?.run, sessionState.current.rawAppendix || {});
     // Parallel validation (shadow mode) — log mismatches, never break production
     if (prevStep?.stableSignatures?.run) {
       validateDiffParity(step, prevStep, sessionState.current.rawAppendix || {}, stableRun, prevStep.stableSignatures.run);
@@ -1878,6 +2004,12 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     // Prune only after the new step is attached, so newly written raw refs are discoverable.
     pruneSessionRawAppendix(sessionState.current);
     updateSessionFramesIndex(sessionState.current, step);
+
+    // Best-effort per-step screenshot — fire-and-forget, never blocks or fails
+    // the step. Re-renders the filmstrip when the shot lands.
+    captureStepShot(sessionState.current.id, step.index, { url }, capturedAt)
+      .then(() => { if (typeof renderFlow === "function" && state.topTab === "flow") renderFlow(); })
+      .catch(() => {});
 
     const compacted = compactSessionForExport(sessionState.current);
     const estimatedBytes = estimateJsonBytes(compacted);

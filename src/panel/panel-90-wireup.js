@@ -295,63 +295,76 @@ if (els.flowLabelField) {
   });
 }
 
-// Timeline drill-down + delete step + inline label edit
+// Flow view interactions: select a step (filmstrip tile or step-list row),
+// delete a step, step ‹/› nav, and the unresolved-blockers filter. Selection
+// state lives in sessionState.selectedStepIndex; renderFlow() re-derives DOM.
+function selectFlowStep(index) {
+  if (!Number.isFinite(index)) return;
+  sessionState.selectedStepIndex = index;
+  renderFlow();
+}
+function stepIndicesForNav() {
+  const sess = sessionState.current || sessionState.lastEndedSession;
+  return (sess?.steps || []).map(s => s.index);
+}
 {
-  const ftBody = document.getElementById("flowTimelineBody");
-  if (ftBody) {
-    // Click: delete button or drill-down
-    ftBody.addEventListener("click", (e) => {
-      const deleteBtn = e.target.closest(".stepDeleteBtn");
-      if (deleteBtn) {
-        e.stopPropagation();
-        const si = Number(deleteBtn.dataset.deleteStep);
-        if (Number.isFinite(si)) deleteStep(si);
-        return;
-      }
-      const tr = e.target.closest("tr.trow");
-      if (!tr) return;
-      const si = Number(tr.dataset.stepIndex);
-      if (Number.isFinite(si)) renderStepDrillDown(si);
-    });
-    // Double-click: inline label edit on route cell (2nd column)
-    ftBody.addEventListener("dblclick", (e) => {
-      const td = e.target.closest("td");
-      if (!td) return;
-      const tr = td.closest("tr.trow");
-      if (!tr) return;
-      const cells = [...tr.children];
-      if (cells.indexOf(td) !== 1) return;
-      const stepIndex = Number(tr.dataset.stepIndex);
-      if (!Number.isFinite(stepIndex)) return;
-      const sess = sessionState.current || sessionState.lastEndedSession;
-      const step = (sess?.steps || []).find(s => s.index === stepIndex);
-      if (!step) return;
-      e.preventDefault();
-      const originalContent = td.innerHTML;
-      const currentLabel = step.label || "";
-      td.innerHTML = `<input class="stepLabelEdit" type="text" value="${escapeHtml(currentLabel)}" maxlength="80" placeholder="Add label..." />`;
-      const input = td.querySelector("input");
-      input.focus();
-      input.select();
-      const commitEdit = () => {
-        const newLabel = (input.value || "").trim();
-        step.label = newLabel || null;
-        renderFlowTimeline();
-        if (sessionState.current) {
-          persistActiveSessionBestEffort(compactSessionForExport(sessionState.current));
-        }
-        if (newLabel) toast(`Label updated: ${newLabel}`);
-      };
-      input.addEventListener("blur", commitEdit, { once: true });
-      input.addEventListener("keydown", (ev) => {
-        if (ev.key === "Enter") { input.blur(); }
-        if (ev.key === "Escape") {
-          input.removeEventListener("blur", commitEdit);
-          td.innerHTML = originalContent;
-        }
-      });
+  const onSelectClick = (e) => {
+    const del = e.target.closest(".stepDeleteBtn");
+    if (del) { e.stopPropagation(); const si = Number(del.dataset.deleteStep); if (Number.isFinite(si)) deleteStep(si); return; }
+    const tile = e.target.closest("[data-step-index]");
+    if (tile) selectFlowStep(Number(tile.dataset.stepIndex));
+  };
+  const onSelectKey = (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const tile = e.target.closest("[data-step-index]");
+    if (!tile) return;
+    e.preventDefault();
+    selectFlowStep(Number(tile.dataset.stepIndex));
+  };
+  if (els.flowFilmstrip) { els.flowFilmstrip.addEventListener("click", onSelectClick); els.flowFilmstrip.addEventListener("keydown", onSelectKey); }
+  if (els.flowStepList) { els.flowStepList.addEventListener("click", onSelectClick); els.flowStepList.addEventListener("keydown", onSelectKey); }
+
+  // Prev/Next nav in the detail pane.
+  if (els.flowStepDetail) {
+    els.flowStepDetail.addEventListener("click", (e) => {
+      const nav = e.target.closest("[data-step-nav]");
+      if (!nav) return;
+      const order = stepIndicesForNav();
+      const cur = sessionState.selectedStepIndex;
+      const pos = order.indexOf(cur);
+      if (pos === -1) return;
+      const next = nav.dataset.stepNav === "prev" ? pos - 1 : pos + 1;
+      if (next >= 0 && next < order.length) selectFlowStep(order[next]);
     });
   }
+
+  // Filter: only steps with unresolved blockers.
+  if (els.flowUnresolvedOnly) {
+    els.flowUnresolvedOnly.addEventListener("change", () => renderFlow());
+  }
+
+  // Record video: getDisplayMedia (user picks the tab) → webm in the media
+  // store. Toggle button; label reflects recording state.
+  if (els.flowRecordVideo) {
+    els.flowRecordVideo.addEventListener("click", async () => {
+      if (flowRecorder.isRecording()) {
+        const r = await flowRecorder.stop();
+        setRecordVideoUi(false);
+        toast(r?.ok ? "Video saved to this flow" : "Recording stopped");
+        return;
+      }
+      const sess = sessionState.current || sessionState.lastEndedSession;
+      if (!sess?.id) { toast("Start a flow first"); return; }
+      const r = await flowRecorder.start(sess.id);
+      if (r?.ok) { setRecordVideoUi(true); toast("Recording — pick the tab to capture"); }
+      else if (r?.reason === "cancelled") { /* user dismissed picker, no-op */ }
+      else toast("Screen recording unavailable");
+    });
+  }
+}
+function setRecordVideoUi(recording) {
+  if (els.flowRecordVideo) els.flowRecordVideo.classList.toggle("isRecording", !!recording);
+  if (els.flowRecordVideoLabel) els.flowRecordVideoLabel.textContent = recording ? "Stop recording" : "Record video";
 }
 
 if (els.sheetCopyRaw) {
@@ -1024,6 +1037,29 @@ initScrollShadows();
 })();
 
 // auto refresh on navigation
+// Debounced auto-capture shared by the two nav sources (full navigation via
+// devtools.network.onNavigated, and SPA route change pushed over the nav port).
+// classifyNavForCapture + lastAutoNavUrl dedupe so a single navigation that
+// fires both sources only captures once.
+function maybeAutoCapture(url) {
+  if (!sessionState.current || !els.autoCaptureNav?.checked) return;
+  if (!classifyNavForCapture(url, sessionState.lastAutoNavUrl)) return;
+  if (sessionState.autoCapturePending) clearTimeout(sessionState.autoCapturePending);
+  const debounceMs = Number(els.autoCaptureDelay?.value) || 500;
+  sessionState.autoCapturePending = setTimeout(async () => {
+    sessionState.autoCapturePending = null;
+    if (!sessionState.current) return;
+    sessionState.lastAutoNavUrl = url;
+    try {
+      const autoLabel = await deriveAutoLabel(url);
+      await captureStepOptionC(autoLabel, { isAutoCapture: true });
+    } catch (e) {
+      console.error("Auto-capture failed:", e);
+      toast("Auto-capture failed");
+    }
+  }, debounceMs);
+}
+
 chrome.devtools.network.onNavigated.addListener(async () => {
   state.findingsByMode = {};
   state.hasRunMode = new Set();
@@ -1031,29 +1067,28 @@ chrome.devtools.network.onNavigated.addListener(async () => {
   await refreshInspectedUrl();
   await refreshFrames();
   toast("Navigated — refreshed frames");
-
-  // Auto-capture if enabled (R4: guarded against timer stacking and inFlight races)
-  if (sessionState.current && els.autoCaptureNav?.checked) {
-    const { url } = getCurrentScopeInfo();
-    if (url && url !== sessionState.lastAutoNavUrl) {
-      if (sessionState.autoCapturePending) clearTimeout(sessionState.autoCapturePending);
-      const debounceMs = Number(els.autoCaptureDelay?.value) || 500;
-      sessionState.autoCapturePending = setTimeout(async () => {
-        sessionState.autoCapturePending = null;
-        // Skip if session ended, or capture already in flight (will be queued by captureStepOptionC)
-        if (!sessionState.current) return;
-        sessionState.lastAutoNavUrl = url;
-        try {
-          const autoLabel = await deriveAutoLabel(url);
-          await captureStepOptionC(autoLabel, { isAutoCapture: true });
-        } catch (e) {
-          console.error("Auto-capture failed:", e);
-          toast("Auto-capture failed");
-        }
-      }, debounceMs);
-    }
-  }
+  maybeAutoCapture(getCurrentScopeInfo().url);
 });
+
+// SPA route changes (History API) don't reliably fire devtools.network.onNavigated,
+// so the SW watches webNavigation.onHistoryStateUpdated for this tab and pushes
+// the new URL over a dedicated port. Refresh the inspected URL first so scope
+// info reflects the new route, then run the same debounced capture.
+(function connectNavPort() {
+  if (!hasRuntime() || typeof __runtime.connect !== "function") return;
+  try {
+    const port = __runtime.connect({ name: "flowlens-nav" });
+    port.postMessage({ tabId });
+    port.onMessage.addListener(async (m) => {
+      if (!m || m.type !== "SPA_NAV") return;
+      if (!sessionState.current || !els.autoCaptureNav?.checked) return;
+      await refreshInspectedUrl();
+      maybeAutoCapture(getCurrentScopeInfo().url);
+    });
+  } catch (e) {
+    console.warn("nav port connect failed", e);
+  }
+})();
 
 // Bottom sheet toggles
 if (els.pastRunsToggle) {

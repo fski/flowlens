@@ -40,6 +40,18 @@ const els = {
   sessionEnd: document.getElementById("sessionEnd"),
   lastStatusLine: document.getElementById("lastStatusLine"),
 
+  // Flow view (rework)
+  flowPlaceholder: document.getElementById("flowPlaceholder"),
+  flowResults: document.getElementById("flowResults"),
+  flowVerdictHeader: document.getElementById("flowVerdictHeader"),
+  flowFilmstrip: document.getElementById("flowFilmstrip"),
+  flowLifecycle: document.getElementById("flowLifecycle"),
+  flowStepList: document.getElementById("flowStepList"),
+  flowStepDetail: document.getElementById("flowStepDetail"),
+  flowUnresolvedOnly: document.getElementById("flowUnresolvedOnly"),
+  flowRecordVideo: document.getElementById("flowRecordVideo"),
+  flowRecordVideoLabel: document.getElementById("flowRecordVideoLabel"),
+
   runCurrentMode: document.getElementById("runCurrentMode"),
 
   json: document.getElementById("json"),
@@ -314,6 +326,7 @@ const sessionState = {
   lastPersistReasonCode: "-",
   hudTimer: null,
   expandedStepIndex: null,
+  selectedStepIndex: null,
   autoCapturePending: null,
   lastAutoNavUrl: null,
   queuedCapture: null,

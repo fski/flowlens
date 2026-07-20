@@ -15,6 +15,7 @@ import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LIMITS_JS = join(__dirname, '..', 'src', 'shared', 'limits.js');
+const FLOW_MEDIA_STORE_JS = join(__dirname, '..', 'src', 'shared', 'flow-media-store.js');
 const FLOW_PROFILES_JS = join(__dirname, '..', 'src', 'shared', 'flow-profiles.js');
 const WCAG_COVERAGE_JS = join(__dirname, '..', 'src', 'shared', 'wcag-coverage.js');
 const EN_MAP_JS = join(__dirname, '..', 'src', 'shared', 'en301549-map.js');
@@ -249,6 +250,9 @@ export function createContext(opts = {}) {
   const limitsSource = readFileSync(LIMITS_JS, 'utf8');
   const limitsScript = new Script(limitsSource, { filename: 'limits.js' });
   limitsScript.runInContext(ctx);
+
+  const flowMediaSource = readFileSync(FLOW_MEDIA_STORE_JS, 'utf8');
+  new Script(flowMediaSource, { filename: 'flow-media-store.js' }).runInContext(ctx);
 
   const flowProfilesSource = readFileSync(FLOW_PROFILES_JS, 'utf8');
   const flowProfilesScript = new Script(flowProfilesSource, { filename: 'flow-profiles.js' });
