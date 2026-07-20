@@ -71,20 +71,19 @@ describe('renderRawJson — lazy highlight for the collapsed sheet', () => {
   });
 });
 
-describe('renderFlowVerdict — confidence note gating', () => {
+describe('flowVerdictHeaderHtml — confidence note gating', () => {
   function verdictHtmlFor(ctx, stepOverrides) {
-    ctx.sessionState.current = {
+    const sess = {
       id: 'sess_x',
       steps: [{
         index: 1,
         diffs: { consolidated: { blockingAdded: 0 } },
         snapshots: {},
+        findingIndex: {},
         ...stepOverrides,
       }],
     };
-    const el = ctx.document._elCache['flowVerdict'];
-    ctx.renderFlowVerdict();
-    return el.innerHTML;
+    return ctx.flowVerdictHeaderHtml(sess);
   }
 
   it('rootSelectorNotFound alone surfaces the reduced-confidence note', () => {

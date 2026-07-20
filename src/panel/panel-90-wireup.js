@@ -295,62 +295,52 @@ if (els.flowLabelField) {
   });
 }
 
-// Timeline drill-down + delete step + inline label edit
+// Flow view interactions: select a step (filmstrip tile or step-list row),
+// delete a step, step ‹/› nav, and the unresolved-blockers filter. Selection
+// state lives in sessionState.selectedStepIndex; renderFlow() re-derives DOM.
+function selectFlowStep(index) {
+  if (!Number.isFinite(index)) return;
+  sessionState.selectedStepIndex = index;
+  renderFlow();
+}
+function stepIndicesForNav() {
+  const sess = sessionState.current || sessionState.lastEndedSession;
+  return (sess?.steps || []).map(s => s.index);
+}
 {
-  const ftBody = document.getElementById("flowTimelineBody");
-  if (ftBody) {
-    // Click: delete button or drill-down
-    ftBody.addEventListener("click", (e) => {
-      const deleteBtn = e.target.closest(".stepDeleteBtn");
-      if (deleteBtn) {
-        e.stopPropagation();
-        const si = Number(deleteBtn.dataset.deleteStep);
-        if (Number.isFinite(si)) deleteStep(si);
-        return;
-      }
-      const tr = e.target.closest("tr.trow");
-      if (!tr) return;
-      const si = Number(tr.dataset.stepIndex);
-      if (Number.isFinite(si)) renderStepDrillDown(si);
+  const onSelectClick = (e) => {
+    const del = e.target.closest(".stepDeleteBtn");
+    if (del) { e.stopPropagation(); const si = Number(del.dataset.deleteStep); if (Number.isFinite(si)) deleteStep(si); return; }
+    const tile = e.target.closest("[data-step-index]");
+    if (tile) selectFlowStep(Number(tile.dataset.stepIndex));
+  };
+  const onSelectKey = (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const tile = e.target.closest("[data-step-index]");
+    if (!tile) return;
+    e.preventDefault();
+    selectFlowStep(Number(tile.dataset.stepIndex));
+  };
+  if (els.flowFilmstrip) { els.flowFilmstrip.addEventListener("click", onSelectClick); els.flowFilmstrip.addEventListener("keydown", onSelectKey); }
+  if (els.flowStepList) { els.flowStepList.addEventListener("click", onSelectClick); els.flowStepList.addEventListener("keydown", onSelectKey); }
+
+  // Prev/Next nav in the detail pane.
+  if (els.flowStepDetail) {
+    els.flowStepDetail.addEventListener("click", (e) => {
+      const nav = e.target.closest("[data-step-nav]");
+      if (!nav) return;
+      const order = stepIndicesForNav();
+      const cur = sessionState.selectedStepIndex;
+      const pos = order.indexOf(cur);
+      if (pos === -1) return;
+      const next = nav.dataset.stepNav === "prev" ? pos - 1 : pos + 1;
+      if (next >= 0 && next < order.length) selectFlowStep(order[next]);
     });
-    // Double-click: inline label edit on route cell (2nd column)
-    ftBody.addEventListener("dblclick", (e) => {
-      const td = e.target.closest("td");
-      if (!td) return;
-      const tr = td.closest("tr.trow");
-      if (!tr) return;
-      const cells = [...tr.children];
-      if (cells.indexOf(td) !== 1) return;
-      const stepIndex = Number(tr.dataset.stepIndex);
-      if (!Number.isFinite(stepIndex)) return;
-      const sess = sessionState.current || sessionState.lastEndedSession;
-      const step = (sess?.steps || []).find(s => s.index === stepIndex);
-      if (!step) return;
-      e.preventDefault();
-      const originalContent = td.innerHTML;
-      const currentLabel = step.label || "";
-      td.innerHTML = `<input class="stepLabelEdit" type="text" value="${escapeHtml(currentLabel)}" maxlength="80" placeholder="Add label..." />`;
-      const input = td.querySelector("input");
-      input.focus();
-      input.select();
-      const commitEdit = () => {
-        const newLabel = (input.value || "").trim();
-        step.label = newLabel || null;
-        renderFlowTimeline();
-        if (sessionState.current) {
-          persistActiveSessionBestEffort(compactSessionForExport(sessionState.current));
-        }
-        if (newLabel) toast(`Label updated: ${newLabel}`);
-      };
-      input.addEventListener("blur", commitEdit, { once: true });
-      input.addEventListener("keydown", (ev) => {
-        if (ev.key === "Enter") { input.blur(); }
-        if (ev.key === "Escape") {
-          input.removeEventListener("blur", commitEdit);
-          td.innerHTML = originalContent;
-        }
-      });
-    });
+  }
+
+  // Filter: only steps with unresolved blockers.
+  if (els.flowUnresolvedOnly) {
+    els.flowUnresolvedOnly.addEventListener("change", () => renderFlow());
   }
 }
 

@@ -29,9 +29,7 @@ function showView(tab, sub) {
 
   // Auto-render flow tab content when switching to Flow
   if (state.topTab === "flow") {
-    renderFlowSessionInfo();
-    renderFlowTimeline();
-    renderFlowCounters();
+    renderFlow();
   }
 
   updateSessionButtons();
@@ -1226,236 +1224,273 @@ function expandAccordion(sectionEl) {
   if (chevron) chevron.textContent = "\u2227";
 }
 
+// ═══ FLOW VIEW (rework) ════════════════════════════════════════════════════
+// renderFlow() is the single writer of Flow-tab DOM. Everything below it is a
+// pure HTML/string builder composed by the orchestrator — testable without the
+// DOM, mirroring the section-view / results-shell discipline.
+
 function renderSessionHud() {
-  renderFlowSessionInfo();
-  renderFlowTimeline();
-  renderFlowCounters();
-  renderFlowVerdict();
+  renderFlow();
 }
 
-function renderFlowSessionInfo() {
-  const body = els.flowSessionInfoBody;
-  if (!body) return;
-  const sess = sessionState.current || sessionState.lastEndedSession;
-  if (!sess?.id) {
-    body.innerHTML = '<p class="placeholderText">Press <kbd class="keycap">r</kbd> or click <strong>Record Flow</strong> to start tracking accessibility changes across steps.</p>';
-    return;
+// Per-step view model: route/label + Appeared/Persisting/Resolved counts and
+// the unresolved-blocker flag, all derived purely from findingIndex.
+function _isBlockingSev(sev) {
+  var s = String(sev || "").toLowerCase();
+  return s === "critical" || s === "high" || s === "medium";
+}
+function flowStepViews(sess) {
+  var steps = (sess && Array.isArray(sess.steps)) ? sess.steps : [];
+  var out = [];
+  for (var i = 0; i < steps.length; i++) {
+    var step = steps[i];
+    var prev = i > 0 ? steps[i - 1] : null;
+    var d = bucketStepDiff(step, prev);
+    var blockingAdded = d.appeared.filter(function (f) { return _isBlockingSev(f.severity); }).length;
+    var unresolvedBlockers = 0;
+    var idx = step.findingIndex || {};
+    for (var k in idx) { if (Object.prototype.hasOwnProperty.call(idx, k) && _isBlockingSev(idx[k].severity)) unresolvedBlockers++; }
+    out.push({
+      index: step.index,
+      route: step.routeHint || step.url || "—",
+      label: step.label || null,
+      hasShot: step.hasShot === true,
+      shotError: step.shotError === true,
+      appeared: d.appeared.length,
+      persisting: d.persisting.length,
+      resolved: d.resolved.length,
+      blockingAdded: blockingAdded,
+      unresolvedBlockers: unresolvedBlockers,
+    });
   }
-  const steps = Array.isArray(sess.steps) ? sess.steps : [];
-  const elapsed = formatElapsedHms(sess.startedAt, sess.endedAt);
-  const status = sess.endedAt ? "ENDED" : "ACTIVE";
-  const started = sess.startedAt ? new Date(sess.startedAt).toLocaleTimeString() : "—";
-  const baseline = sess.baseline || "Run";
-  const active = sess.activeMode || "Observe";
-  const scope = sess.scope || "Primary";
-  const wcag = sess.wcagLevel || "2.2 AA";
-  const maxSteps = sess.maxSteps || 100;
-  body.innerHTML = `
-    <dl class="sessionInfoGrid">
-      <dt>Status</dt><dd>${escapeHtml(status)}</dd>
-      <dt>Started</dt><dd>${escapeHtml(started)}</dd>
-      <dt>Duration</dt><dd>${escapeHtml(elapsed)}</dd>
-      <dt>Steps</dt><dd>${steps.length} / ${maxSteps}</dd>
-      <dt>Baseline</dt><dd>${escapeHtml(baseline)}</dd>
-      <dt>Active</dt><dd>${escapeHtml(active)}</dd>
-      <dt>Scope</dt><dd>${escapeHtml(scope)}</dd>
-      <dt>WCAG</dt><dd>${escapeHtml(wcag)}</dd>
-    </dl>
-  `;
+  return out;
 }
 
-let _timelineRenderedCount = 0;
-let _timelineSessionId = null;
-
-function _buildTimelineRowHtml(s) {
-  const d = s.diffs?.consolidated || {};
-  const route = s.routeHint || s.url || "—";
-  const shortRoute = route.length > 40 ? route.slice(-38) : route;
-  const rawMode = s.activeModeCaptured || "—";
-  const mode = rawMode === "run" || rawMode === "—" ? rawMode : `run + ${rawMode}`;
-  const label = s.label ? `<span class="stepLabel">${escapeHtml(s.label)}</span> ` : "";
-  const blockers = [];
-  if (d.blockingAdded) blockers.push(`+${d.blockingAdded} blocking`);
-  if (d.blockingFixed) blockers.push(`-${d.blockingFixed} blocking`);
-  const delBtn = sessionState.current
-    ? ` <button class="stepDeleteBtn" data-delete-step="${s.index}" type="button" aria-label="Delete step ${s.index}" title="Delete step">&times;</button>`
-    : "";
-  // Profile confidence badge (H/M/L)
-  const confLevel = s.profileConfidence;
-  const confBadge = confLevel === "high" ? "H" : confLevel === "medium" ? "M" : confLevel === "low" ? "L" : confLevel === "manual" ? "PIN" : "";
-  const confData = confBadge ? ` data-level="${escapeHtml(confBadge === "PIN" ? "PIN" : confBadge[0])}"` : "";
-  // Build explicit tooltip: prefer rootSelector reason over generic signals
-  let confTooltip = "";
-  if (s.profileSuspect && s.rootSelectorNotFound) {
-    confTooltip = "Root selector not found";
-  } else if (Array.isArray(s.profileMatchSignals) && s.profileMatchSignals.length) {
-    confTooltip = s.profileMatchSignals.join(", ");
-  } else {
-    confTooltip = confLevel || "";
-  }
-  const confHtml = confBadge
-    ? `<span class="confidenceBadge"${confData} title="${escapeHtml(confTooltip)}">${escapeHtml(confBadge)}</span>`
-    : "";
-  return `<tr class="trow" data-step-index="${s.index}" tabindex="0">
-    <td>${s.index}${delBtn}</td>
-    <td title="${escapeHtml(route)}">${label}${escapeHtml(shortRoute)}</td>
-    <td>${escapeHtml(mode)}${confHtml ? " " + confHtml : ""}</td>
-    <td>${d.added ?? 0}</td>
-    <td>${d.fixed ?? 0}</td>
-    <td>${d.persisting ?? 0}</td>
-    <td>${escapeHtml(blockers.join(", ") || "—")}</td>
-  </tr>`;
+function _shortRoute(route) {
+  var r = String(route || "—");
+  return r.length > 42 ? "…" + r.slice(-40) : r;
+}
+function _badgeTriplet(v) {
+  return '<span class="flowBadge flowBadge--new" title="New issues">+' + v.appeared + '</span>'
+    + '<span class="flowBadge flowBadge--persist" title="Persisting">~' + v.persisting + '</span>'
+    + '<span class="flowBadge flowBadge--resolved" title="Resolved">-' + v.resolved + '</span>';
 }
 
-function renderFlowTimeline() {
-  const body = els.flowTimelineBody;
-  if (!body) return;
-  const sess = sessionState.current || sessionState.lastEndedSession;
-  const steps = Array.isArray(sess?.steps) ? sess.steps : [];
-  const tbody = body.querySelector("tbody");
-  if (!tbody) return;
-  const sessId = sess?.id || null;
-  if (!steps.length) {
-    sessionState.expandedStepIndex = null;
-    tbody.innerHTML = "";
-    _timelineRenderedCount = 0;
-    _timelineSessionId = sessId;
-    return;
+function flowVerdictHeaderHtml(sess) {
+  var steps = (sess && Array.isArray(sess.steps)) ? sess.steps : [];
+  if (!steps.length) return "";
+  var views = flowStepViews(sess);
+  var totalBlockingAdded = 0, newTotal = 0, worst = null;
+  for (var i = 0; i < views.length; i++) {
+    totalBlockingAdded += views[i].blockingAdded;
+    newTotal += views[i].appeared;
+    if (!worst || views[i].appeared > worst.appeared) worst = views[i];
   }
-
-  // Incremental append: same session, steps only grew by 1, no drill-down open
-  const canAppend = sessId && sessId === _timelineSessionId
-    && steps.length === _timelineRenderedCount + 1
-    && sessionState.expandedStepIndex == null;
-
-  if (canAppend) {
-    // Remove any stale detail row before appending
-    const existing = tbody.querySelector(".stepDetailRow");
-    if (existing) existing.remove();
-    tbody.insertAdjacentHTML("beforeend", _buildTimelineRowHtml(steps[steps.length - 1]));
-  } else {
-    tbody.innerHTML = steps.map(s => _buildTimelineRowHtml(s)).join("");
+  var last = views[views.length - 1];
+  var issuesNow = last ? (last.appeared + last.persisting) : 0;
+  var pass = totalBlockingAdded === 0;
+  var badge = pass ? "PASS" : "FAIL";
+  var badgeCls = pass ? "flowVerdictBadge--pass" : "flowVerdictBadge--fail";
+  var wrapCls = pass ? "flowVerdict--pass" : "flowVerdict--fail";
+  // Systemic rollup (blocking issues recurring across steps)
+  var rawAppendix = (sess && sess.rawAppendix && typeof sess.rawAppendix === "object") ? sess.rawAppendix : {};
+  var systemic = (typeof computeFlowBlockingRollup === "function")
+    ? computeFlowBlockingRollup(steps, rawAppendix).filter(function (x) { return x.occurrences >= 2; }).slice(0, 3)
+    : [];
+  var systemicNote = "";
+  if (systemic.length) {
+    var items = systemic.map(function (x) { return (x.label || x.wcag || "issue") + " in " + x.occurrences + "/" + steps.length; }).join(" · ");
+    systemicNote = '<div class="flowSystemic" title="Blocking issues recurring across steps — likely systemic">Systemic: ' + escapeHtml(items) + '</div>';
   }
-  _timelineRenderedCount = steps.length;
-  _timelineSessionId = sessId;
-
-  // Restore drill-down if step still exists
-  if (sessionState.expandedStepIndex != null) {
-    const restoreIndex = sessionState.expandedStepIndex;
-    const stillExists = steps.some(s => s.index === restoreIndex);
-    if (stillExists) {
-      sessionState.expandedStepIndex = null;
-      renderStepDrillDown(restoreIndex);
-    } else {
-      sessionState.expandedStepIndex = null;
-    }
-  }
-}
-
-let _countersHash = "";
-function renderFlowCounters() {
-  const el = document.getElementById("flowCounterRow");
-  if (!el) return;
-  const sess = sessionState.current || sessionState.lastEndedSession;
-  const steps = Array.isArray(sess?.steps) ? sess.steps : [];
-  if (!steps.length) { el.hidden = true; _countersHash = ""; return; }
-  let added = 0, fixed = 0, persisting = 0, blockingAdded = 0, blockingFixed = 0;
-  const perStepAdded = [];
-  for (const s of steps) {
-    const d = s.diffs?.consolidated || {};
-    added += d.added || 0;
-    fixed += d.fixed || 0;
-    persisting += d.persisting || 0;
-    blockingAdded += d.blockingAdded || 0;
-    blockingFixed += d.blockingFixed || 0;
-    perStepAdded.push(d.added || 0);
-  }
-  const hash = `${added},${fixed},${persisting},${blockingAdded},${blockingFixed},${perStepAdded.join(";")}`;
-  if (hash === _countersHash) return;
-  _countersHash = hash;
-  const blocking = blockingAdded - blockingFixed;
-
-  // Build sparkline SVG for new issues per step
-  let sparkline = "";
-  if (perStepAdded.length > 1) {
-    const maxVal = Math.max(...perStepAdded, 1);
-    const barW = Math.min(12, Math.floor(80 / perStepAdded.length));
-    const gap = 2;
-    const svgW = perStepAdded.length * (barW + gap) - gap;
-    const svgH = 28;
-    const bars = perStepAdded.map((v, i) => {
-      const h = Math.max(2, (v / maxVal) * (svgH - 2));
-      const x = i * (barW + gap);
-      const color = v > 0 ? "var(--red)" : "var(--tx3)";
-      return `<rect x="${x}" y="${svgH - h}" width="${barW}" height="${h}" rx="1" fill="${color}" opacity="${v > 0 ? 0.8 : 0.3}"/>`;
-    }).join("");
-    sparkline = `<div class="flowCounter flowCounterSparkline"><svg width="${svgW}" height="${svgH}" aria-label="New issues per step">${bars}</svg><span class="flowCounterLabel">Per step</span></div>`;
-  }
-
-  el.innerHTML = `
-    <div class="flowCounter"><span class="flowCounterValue${added > 0 ? " flowCounterValue--red" : ""}">${added}</span><span class="flowCounterLabel">New issues</span></div>
-    <div class="flowCounter"><span class="flowCounterValue${fixed > 0 ? " flowCounterValue--green" : ""}">${fixed > 0 ? "-" : ""}${fixed}</span><span class="flowCounterLabel">Fixed</span></div>
-    <div class="flowCounter"><span class="flowCounterValue">${persisting}</span><span class="flowCounterLabel">Persisting</span></div>
-    <div class="flowCounter"><span class="flowCounterValue${blocking > 0 ? " flowCounterValue--red" : ""}">${blocking > 0 ? "+" : ""}${blocking}</span><span class="flowCounterLabel">Blocking</span></div>
-    ${sparkline}
-  `;
-  el.hidden = false;
-}
-
-let _verdictHash = "";
-function renderFlowVerdict() {
-  const el = els.flowVerdict;
-  if (!el) return;
-  const sess = sessionState.current || sessionState.lastEndedSession;
-  const steps = Array.isArray(sess?.steps) ? sess.steps : [];
-  if (!steps.length) { el.hidden = true; _verdictHash = ""; return; }
-  let totalBlockingAdded = 0;
-  const blockingSteps = [];
-  for (const s of steps) {
-    const ba = s.diffs?.consolidated?.blockingAdded || 0;
-    totalBlockingAdded += ba;
-    if (ba > 0) blockingSteps.push(s.index);
-  }
-  // Cheap identity hash FIRST — this render runs on the 1s session HUD tick,
-  // so the expensive cross-step rollup must stay behind the early-return gate.
-  const hash = `${steps.length},${steps.map(s => s.index).join("+")},${totalBlockingAdded},${blockingSteps.join(";")}`;
-  if (hash === _verdictHash) return;
-  _verdictHash = hash;
-  // Systemic issues: blocking signatures recurring across steps (cross-step rollup)
-  const rawAppendix = sess?.rawAppendix && typeof sess.rawAppendix === "object" ? sess.rawAppendix : {};
-  const systemic = computeFlowBlockingRollup(steps, rawAppendix).filter(x => x.occurrences >= 2).slice(0, 3);
-  const pass = totalBlockingAdded === 0;
-  const badge = pass ? "PASS" : "FAIL";
-  const badgeCls = pass ? "flowVerdictBadge--pass" : "flowVerdictBadge--fail";
-  const wrapCls = pass ? "flowVerdict--pass" : "flowVerdict--fail";
-  let summary;
-  if (pass) {
-    summary = `${steps.length} step${steps.length !== 1 ? "s" : ""}, 0 blocking regressions`;
-  } else {
-    summary = `${totalBlockingAdded} blocking issue${totalBlockingAdded !== 1 ? "s" : ""} introduced in step${blockingSteps.length !== 1 ? "s" : ""} ${blockingSteps.join(", ")}`;
-  }
-  // Diff confidence: reduced — when any step has profileSuspect or degraded stableSignatures
-  let diffConfNote = "";
-  const hasSuspect = steps.some(s => s.profileSuspect === true);
-  const hasDegraded = steps.some(s => s.stableSignatures?.run?.stepQuality?.degraded === true);
-  const hasRootMissing = steps.some(s => s.rootSelectorNotFound === true);
+  var worstNote = worst && worst.appeared > 0
+    ? '<span class="flowStat"><span class="flowStatV">Step ' + worst.index + '</span><span class="flowStatL">Worst</span></span>'
+    : '';
+  // Reduced-diff-confidence note: preserved from the old verdict — flags that
+  // the appeared/resolved diff may be unreliable for structural reasons.
+  var diffConfNote = "";
+  var hasSuspect = steps.some(function (s) { return s.profileSuspect === true; });
+  var hasDegraded = steps.some(function (s) { return s.stableSignatures && s.stableSignatures.run && s.stableSignatures.run.stepQuality && s.stableSignatures.run.stepQuality.degraded === true; });
+  var hasRootMissing = steps.some(function (s) { return s.rootSelectorNotFound === true; });
   if (hasSuspect || hasDegraded || hasRootMissing) {
-    const reasons = [];
+    var reasons = [];
     if (hasDegraded) reasons.push("degraded signatures");
     if (hasRootMissing) reasons.push("root selector not found");
     if (hasSuspect) reasons.push("low profile confidence");
-    const tooltip = reasons.length ? reasons.join("; ") : "reduced confidence";
-    diffConfNote = ` <span class="diffConfidenceReduced" title="${escapeHtml(tooltip)}">Diff confidence: reduced</span>`;
+    diffConfNote = ' <span class="diffConfidenceReduced" title="' + escapeHtml(reasons.join("; ")) + '">Diff confidence: reduced</span>';
   }
-  let systemicNote = "";
-  if (systemic.length) {
-    const items = systemic
-      .map(x => `${x.label || x.wcag || "issue"} in ${x.occurrences}/${steps.length} steps`)
-      .join(" · ");
-    systemicNote = `<div class="flowSystemic" title="Blocking issues recurring across steps — likely systemic, not one-off">Systemic: ${escapeHtml(items)}</div>`;
+  return '<div class="flowVerdict ' + wrapCls + '">'
+    + '<span class="flowVerdictBadge ' + badgeCls + '">' + badge + '</span>'
+    + '<span class="flowVerdictText">' + steps.length + ' step' + (steps.length !== 1 ? "s" : "")
+    + (pass ? ", 0 blocking regressions" : ", " + totalBlockingAdded + " blocking introduced") + '</span>'
+    + '<span class="flowStat"><span class="flowStatV">' + issuesNow + '</span><span class="flowStatL">Issues now</span></span>'
+    + '<span class="flowStat"><span class="flowStatV">' + newTotal + '</span><span class="flowStatL">New total</span></span>'
+    + worstNote
+    + diffConfNote
+    + '</div>' + systemicNote;
+}
+
+function filmstripHtml(sess, selectedIndex) {
+  var views = flowStepViews(sess);
+  if (!views.length) return "";
+  return views.map(function (v) {
+    var sel = v.index === selectedIndex;
+    var thumb = v.hasShot
+      ? '<div class="filmstripThumb" data-shot-step="' + v.index + '"></div>'
+      : '<div class="filmstripThumb filmstripThumb--empty" aria-hidden="true">' + (v.shotError ? "!" : "▢") + '</div>';
+    var cls = "filmstripTile" + (sel ? " isSelected" : "") + (v.hasShot ? "" : " filmstripTile--noshot")
+      + (v.blockingAdded > 0 ? " filmstripTile--blocking" : "");
+    var aria = "Step " + v.index + ", " + _shortRoute(v.label || v.route)
+      + ", " + v.appeared + " new, " + v.persisting + " persisting, " + v.resolved + " resolved";
+    return '<div class="' + cls + '" role="option" data-step-index="' + v.index + '"'
+      + ' aria-selected="' + (sel ? "true" : "false") + '" tabindex="' + (sel ? "0" : "-1") + '"'
+      + ' aria-label="' + escapeHtml(aria) + '">'
+      + thumb
+      + '<span class="filmstripNum">' + v.index + '</span>'
+      + '</div>';
+  }).join("");
+}
+
+function stepListHtml(sess, selectedIndex, unresolvedOnly) {
+  var views = flowStepViews(sess);
+  if (unresolvedOnly) views = views.filter(function (v) { return v.unresolvedBlockers > 0; });
+  if (!views.length) {
+    return '<div class="sectionEmpty">' + (unresolvedOnly ? "No steps with unresolved blockers" : "No steps captured yet") + '</div>';
   }
-  el.className = `flowVerdict ${wrapCls}`;
-  el.innerHTML = `<span class="flowVerdictBadge ${badgeCls}">${badge}</span><span class="flowVerdictText">${escapeHtml(summary)}</span>${diffConfNote}${systemicNote}`;
-  el.hidden = false;
+  var canDelete = !!sessionState.current;
+  return views.map(function (v) {
+    var sel = v.index === selectedIndex;
+    var del = canDelete
+      ? ' <button class="stepDeleteBtn" data-delete-step="' + v.index + '" type="button" aria-label="Delete step ' + v.index + '" title="Delete step">×</button>'
+      : "";
+    var labelHtml = v.label ? '<span class="flowStepLabelTxt">' + escapeHtml(v.label) + '</span> ' : "";
+    return '<div class="flowStepRow' + (sel ? " isSelected" : "") + '" role="button" tabindex="0"'
+      + ' data-step-index="' + v.index + '" aria-current="' + (sel ? "true" : "false") + '"'
+      + ' aria-label="Step ' + v.index + ' ' + escapeHtml(_shortRoute(v.label || v.route)) + '">'
+      + '<span class="flowStepNum">' + v.index + del + '</span>'
+      + '<span class="flowStepRoute" title="' + escapeHtml(v.route) + '">' + labelHtml + escapeHtml(_shortRoute(v.route)) + '</span>'
+      + '<span class="flowStepBadges">' + _badgeTriplet(v) + '</span>'
+      + '</div>';
+  }).join("");
+}
+
+function _findingLineHtml(f) {
+  return '<li class="flowDiffItem flowDiffItem--' + escapeHtml(String(f.severity || "info")) + '">'
+    + '<span class="flowDiffSev">' + escapeHtml(String(f.severity || "info")) + '</span>'
+    + '<span class="flowDiffName">' + escapeHtml(f.name || f.type || "issue") + '</span>'
+    + (f.wcag ? '<span class="flowDiffWcag">' + escapeHtml(f.wcag) + '</span>' : '')
+    + '</li>';
+}
+function _diffGroupHtml(title, cls, items) {
+  return '<div class="flowDiffGroup flowDiffGroup--' + cls + '">'
+    + '<div class="flowDiffTitle">' + title + ' <span class="flowDiffCount">' + items.length + '</span></div>'
+    + (items.length ? '<ul class="flowDiffList">' + items.map(_findingLineHtml).join("") + '</ul>' : '<div class="flowDiffEmpty">none</div>')
+    + '</div>';
+}
+function stepDetailHtml(sess, selectedIndex) {
+  var steps = (sess && Array.isArray(sess.steps)) ? sess.steps : [];
+  if (!steps.length) {
+    return '<div class="sectionEmpty" id="flowDetailEmpty">Record a flow, then select a step to see what changed.</div>';
+  }
+  var pos = -1;
+  for (var i = 0; i < steps.length; i++) { if (steps[i].index === selectedIndex) { pos = i; break; } }
+  if (pos === -1) pos = steps.length - 1;
+  var step = steps[pos];
+  var prev = pos > 0 ? steps[pos - 1] : null;
+  var d = bucketStepDiff(step, prev);
+  var shot = step.hasShot
+    ? '<div class="flowDetailShot" data-shot-step="' + step.index + '"></div>'
+    : '<div class="flowDetailShot flowDetailShot--empty">' + (step.shotError ? "screenshot unavailable" : "no screenshot") + '</div>';
+  var hasPrev = pos > 0, hasNext = pos < steps.length - 1;
+  var nav = '<div class="flowStepNav">'
+    + '<button class="btn xs" type="button" data-step-nav="prev"' + (hasPrev ? "" : " disabled") + ' aria-label="Previous step">‹ Prev</button>'
+    + '<span class="flowStepNavPos">Step ' + step.index + ' / ' + steps.length + '</span>'
+    + '<button class="btn xs" type="button" data-step-nav="next"' + (hasNext ? "" : " disabled") + ' aria-label="Next step">Next ›</button>'
+    + '</div>';
+  return nav
+    + shot
+    + '<div class="flowDiffGroups">'
+    + _diffGroupHtml("Appeared", "appeared", d.appeared)
+    + _diffGroupHtml("Persisting", "persisting", d.persisting)
+    + _diffGroupHtml("Resolved", "resolved", d.resolved)
+    + '</div>';
+}
+
+function lifecycleSwimlaneHtml(sess) {
+  var steps = (sess && Array.isArray(sess.steps)) ? sess.steps : [];
+  if (!steps.length) return "";
+  var lc = buildIssueLifecycle(steps);
+  if (!lc.lanes.length) return '<div class="sectionEmpty">No recurring issues</div>';
+  var n = steps.length;
+  var CAP = 12;
+  var lanes = lc.lanes.slice(0, CAP);
+  var more = lc.lanes.length - lanes.length;
+  var body = lanes.map(function (lane) {
+    var cells = "";
+    for (var i = 0; i < n; i++) {
+      var idx = steps[i].index;
+      var on = lane.presentSteps.indexOf(idx) !== -1;
+      cells += '<span class="swimCell' + (on ? " on" : "") + '" title="Step ' + idx + '"></span>';
+    }
+    return '<div class="swimLane">'
+      + '<span class="swimLabel" title="' + escapeHtml(lane.label) + '">'
+      + '<span class="swimSev swimSev--' + escapeHtml(String(lane.severity)) + '">' + escapeHtml(String(lane.severity)) + '</span> '
+      + escapeHtml(lane.label) + '</span>'
+      + '<span class="swimTrack">' + cells + '</span>'
+      + '</div>';
+  }).join("");
+  var moreNote = more > 0 ? '<div class="swimMore">+' + more + ' more recurring issues</div>' : "";
+  return '<div class="swimlaneInner">' + body + moreNote + '</div>';
+}
+
+// ─── Orchestrator: the only writer of Flow-tab result DOM ───────────────────
+function _flowSelectedIndex(sess) {
+  var steps = (sess && Array.isArray(sess.steps)) ? sess.steps : [];
+  if (!steps.length) return null;
+  var sel = sessionState.selectedStepIndex;
+  if (sel != null && steps.some(function (s) { return s.index === sel; })) return sel;
+  return steps[steps.length - 1].index; // default: latest step
+}
+
+function renderFlow() {
+  var sess = sessionState.current || sessionState.lastEndedSession;
+  var steps = (sess && Array.isArray(sess.steps)) ? sess.steps : [];
+  var hasSteps = steps.length > 0;
+  if (els.flowResults) els.flowResults.hidden = !hasSteps;
+  if (els.flowPlaceholder) els.flowPlaceholder.hidden = hasSteps;
+  if (!hasSteps) return;
+
+  var selected = _flowSelectedIndex(sess);
+  sessionState.selectedStepIndex = selected;
+  var unresolvedOnly = !!(els.flowUnresolvedOnly && els.flowUnresolvedOnly.checked);
+
+  if (els.flowVerdictHeader) els.flowVerdictHeader.innerHTML = flowVerdictHeaderHtml(sess);
+  if (els.flowFilmstrip) els.flowFilmstrip.innerHTML = filmstripHtml(sess, selected);
+  if (els.flowLifecycle) els.flowLifecycle.innerHTML = lifecycleSwimlaneHtml(sess);
+  if (els.flowStepList) els.flowStepList.innerHTML = stepListHtml(sess, selected, unresolvedOnly);
+  if (els.flowStepDetail) els.flowStepDetail.innerHTML = stepDetailHtml(sess, selected);
+
+  // Fill screenshot thumbnails/details asynchronously from the media store.
+  _hydrateFlowShots(sess);
+}
+
+// Load screenshots (Blobs → object URLs) into the slots renderFlow drew.
+// Revokes previous URLs first to avoid leaks. Best-effort; a missing shot just
+// leaves its placeholder.
+var _flowShotUrls = [];
+function _hydrateFlowShots(sess) {
+  if (typeof flowMediaStore === "undefined" || !sess) return;
+  for (var i = 0; i < _flowShotUrls.length; i++) { try { URL.revokeObjectURL(_flowShotUrls[i]); } catch (_) {} }
+  _flowShotUrls = [];
+  var slots = document.querySelectorAll("[data-shot-step]");
+  slots.forEach(function (slot) {
+    var idx = Number(slot.getAttribute("data-shot-step"));
+    flowMediaStore.getShot(sess.id, idx).then(function (blob) {
+      if (!blob) return;
+      var url = URL.createObjectURL(blob);
+      _flowShotUrls.push(url);
+      slot.style.backgroundImage = 'url("' + url + '")';
+      slot.classList.add("hasImage");
+    }).catch(function () {});
+  });
 }
 

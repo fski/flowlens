@@ -1390,6 +1390,112 @@ kbd {
   font: 500 13px/1.5 var(--font-mono);
   padding: 8px 0;
 }
+#flowPlaceholder[hidden], .flowResults[hidden] { display: none; }
+
+/* ═══ FLOW VIEW (rework) ═══ */
+.flowResults { display: flex; flex-direction: column; gap: 12px; padding: 8px 0; }
+
+/* Verdict header */
+.flowVerdictHeader .flowVerdict { flex-wrap: wrap; gap: 12px; }
+.flowStat { display: inline-flex; flex-direction: column; align-items: flex-start; line-height: 1.1; }
+.flowStatV { color: var(--tx); font: 700 14px/1 var(--font-mono); }
+.flowStatL { color: var(--tx3); font: 500 10px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: .04em; }
+
+/* Filmstrip */
+.flowFilmstrip {
+  display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 8px;
+  scrollbar-width: thin;
+}
+.flowFilmstrip:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.filmstripTile {
+  position: relative; flex: 0 0 auto; width: 108px; height: 72px;
+  border: 1px solid var(--brd); border-radius: var(--radius-sm); overflow: hidden;
+  background: var(--surface); cursor: pointer; transition: border-color .15s, transform .1s;
+}
+.filmstripTile:hover { transform: translateY(-1px); }
+.filmstripTile.isSelected { border-color: var(--cyan); box-shadow: 0 0 0 1px var(--cyan); }
+.filmstripTile:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; }
+.filmstripTile--blocking { border-left: 3px solid var(--red); }
+.filmstripThumb {
+  position: absolute; inset: 0; background-size: cover; background-position: top center;
+  background-repeat: no-repeat;
+}
+.filmstripThumb--empty {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--tx3); font: 600 20px/1 var(--font-mono); background: var(--raised);
+}
+.filmstripNum {
+  position: absolute; left: 4px; bottom: 4px; z-index: 1;
+  padding: 1px 6px; border-radius: var(--radius-xs);
+  background: rgba(0,0,0,0.6); color: #fff; font: 700 11px/1.4 var(--font-mono);
+}
+
+/* Lifecycle swimlane */
+.flowLifecycle { border: 1px solid var(--brd); border-radius: var(--radius-sm); padding: 8px 10px; }
+.flowSectionLabel { margin: 0 0 6px; color: var(--tx3); font: 600 10px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: .05em; }
+.flowLifecycleBody { overflow-x: auto; }
+.swimlaneInner { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.swimLane { display: grid; grid-template-columns: minmax(120px, 200px) 1fr; gap: 8px; align-items: center; }
+.swimLabel { display: inline-flex; align-items: center; gap: 6px; color: var(--tx); font: 500 11px/1.3 var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.swimSev { padding: 0 5px; border-radius: var(--radius-xs); font: 700 9px/1.5 var(--font-mono); text-transform: uppercase; }
+.swimSev--critical, .swimSev--high { background: rgba(255,85,113,0.15); color: var(--red); }
+.swimSev--medium { background: rgba(219,159,62,0.15); color: var(--orange); }
+.swimSev--low, .swimSev--info { background: rgba(138,138,138,0.15); color: var(--tx3); }
+.swimTrack { display: flex; gap: 2px; }
+.swimCell { flex: 1 1 0; min-width: 6px; height: 12px; border-radius: 2px; background: var(--raised); }
+.swimCell.on { background: var(--red); opacity: .8; }
+.swimMore { margin-top: 6px; color: var(--tx3); font: 500 10px/1.4 var(--font-mono); }
+
+/* Main: step list + detail */
+.flowMain { display: grid; grid-template-columns: minmax(220px, 300px) 1fr; gap: 12px; align-items: start; }
+.flowStepListWrap { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.flowFilterToggle { display: inline-flex; align-items: center; gap: 6px; color: var(--tx3); font: 500 11px/1.4 var(--font-mono); cursor: pointer; }
+.flowStepList { display: flex; flex-direction: column; gap: 3px; max-height: 420px; overflow-y: auto; }
+.flowStepRow {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center;
+  padding: 6px 8px; border: 1px solid var(--brd0); border-radius: var(--radius-sm);
+  background: var(--surface); cursor: pointer; transition: background .15s, border-color .15s;
+}
+.flowStepRow:hover { background: var(--raised); }
+.flowStepRow.isSelected { border-color: var(--cyan); background: var(--raised); }
+.flowStepRow:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
+.flowStepNum { display: inline-flex; align-items: center; gap: 2px; color: var(--tx3); font: 700 11px/1.4 var(--font-mono); min-width: 20px; }
+.flowStepRoute { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--tx); font: 500 11px/1.4 var(--font-mono); }
+.flowStepLabelTxt { color: var(--cyan); }
+.flowStepBadges { display: inline-flex; gap: 3px; }
+.flowBadge { padding: 0 5px; border-radius: var(--radius-xs); font: 700 10px/1.6 var(--font-mono); }
+.flowBadge--new { background: rgba(255,85,113,0.15); color: var(--red); }
+.flowBadge--persist { background: rgba(138,138,138,0.15); color: var(--tx3); }
+.flowBadge--resolved { background: rgba(123,184,94,0.15); color: var(--green); }
+.flowStepRow .stepDeleteBtn { opacity: 0; }
+.flowStepRow:hover .stepDeleteBtn, .flowStepRow:focus-within .stepDeleteBtn { opacity: 1; }
+
+/* Detail pane */
+.flowStepDetail { border: 1px solid var(--brd); border-radius: var(--radius-sm); padding: 10px; min-width: 0; }
+.flowStepNav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.flowStepNavPos { color: var(--tx3); font: 600 11px/1.4 var(--font-mono); }
+.flowDetailShot { width: 100%; aspect-ratio: 16 / 10; border: 1px solid var(--brd); border-radius: var(--radius-sm); background: var(--surface) center top / cover no-repeat; margin-bottom: 10px; }
+.flowDetailShot--empty { display: flex; align-items: center; justify-content: center; color: var(--tx3); font: 500 11px/1.4 var(--font-mono); background: var(--raised); aspect-ratio: auto; min-height: 60px; }
+.flowDiffGroups { display: flex; flex-direction: column; gap: 8px; }
+.flowDiffGroup { border: 1px solid var(--brd0); border-radius: var(--radius-sm); padding: 6px 8px; }
+.flowDiffGroup--appeared { border-left: 3px solid var(--red); }
+.flowDiffGroup--persisting { border-left: 3px solid var(--tx3); }
+.flowDiffGroup--resolved { border-left: 3px solid var(--green); }
+.flowDiffTitle { color: var(--tx2); font: 700 10px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+.flowDiffCount { color: var(--tx3); }
+.flowDiffList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.flowDiffItem { display: flex; align-items: center; gap: 6px; font: 500 11px/1.4 var(--font-mono); }
+.flowDiffSev { padding: 0 4px; border-radius: var(--radius-xs); font: 700 9px/1.6 var(--font-mono); text-transform: uppercase; background: var(--raised); color: var(--tx3); }
+.flowDiffItem--high .flowDiffSev, .flowDiffItem--critical .flowDiffSev { background: rgba(255,85,113,0.15); color: var(--red); }
+.flowDiffItem--medium .flowDiffSev { background: rgba(219,159,62,0.15); color: var(--orange); }
+.flowDiffName { color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flowDiffWcag { color: var(--tx3); margin-left: auto; }
+.flowDiffEmpty { color: var(--tx3); font: 500 11px/1.4 var(--font-mono); }
+
+@media (max-width: 640px) {
+  .flowMain { grid-template-columns: 1fr; }
+  .swimLane { grid-template-columns: minmax(90px, 140px) 1fr; }
+}
 
 /* WCAG Understanding link in finding detail */
 .wcagLink { color: var(--teal); text-decoration: none; }
