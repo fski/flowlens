@@ -1547,6 +1547,25 @@ kbd {
   padding: 16px;
 }
 
+.settingsHeading {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--tx);
+  margin: 0 0 12px;
+}
+
+.settingsPane .settingsHeading + .settingsGrid {
+  margin-bottom: 20px;
+}
+
+.settingsHint {
+  display: block;
+  color: var(--tx3);
+  font-size: 11px;
+  line-height: 1.4;
+  margin-top: 4px;
+}
+
 .lastStatusLine {
   padding: 7px 10px;
   border-radius: var(--radius-sm);
@@ -1893,19 +1912,28 @@ kbd {
 #allTable .detailRow, #allTable .detailRow td { display: block; }
 #allTable .trow::before { display: none; }
 
+/* Wide tables keep readable column widths and scroll inside .tableWrap
+   instead of crushing flexible columns to nothing on a narrow panel. */
+#contrastTable { min-width: 720px; }
+#tabTable { min-width: 560px; }
+
 /* Contrast column widths — % based */
-/* 8 cols: ratio 9% | req 7% | large 7% | text * | tag 8% | testId 10% | path * | note * */
-#contrastTable th:nth-child(1), #contrastTable td:nth-child(1) { width: 9%; }
-#contrastTable th:nth-child(2), #contrastTable td:nth-child(2) { width: 7%; }
-#contrastTable th:nth-child(3), #contrastTable td:nth-child(3) { width: 7%; }
-#contrastTable th:nth-child(5), #contrastTable td:nth-child(5) { width: 8%; }
-#contrastTable th:nth-child(6), #contrastTable td:nth-child(6) { width: 10%; }
+/* 9 cols: ratio 8% | apca 8% | req 6% | large 6% | text * | tag 7% | testId 10% | path * | note * */
+#contrastTable th:nth-child(1), #contrastTable td:nth-child(1) { width: 8%; }
+#contrastTable th:nth-child(2), #contrastTable td:nth-child(2) { width: 8%; }
+#contrastTable th:nth-child(3), #contrastTable td:nth-child(3) { width: 6%; }
+#contrastTable th:nth-child(4), #contrastTable td:nth-child(4) { width: 6%; }
+#contrastTable th:nth-child(6), #contrastTable td:nth-child(6) { width: 7%; }
+#contrastTable th:nth-child(7), #contrastTable td:nth-child(7) { width: 10%; }
 
 /* Tab Walk column widths — % based */
 /* 6 cols: i 7% | type 14% | tabIndex 10% | name * | path * | note * */
 #tabTable th:nth-child(1), #tabTable td:nth-child(1) { width: 7%; }
 #tabTable th:nth-child(2), #tabTable td:nth-child(2) { width: 14%; }
 #tabTable th:nth-child(3), #tabTable td:nth-child(3) { width: 10%; }
+
+/* Tab Walk: rows that carry an anomaly event stand out from clean stops */
+#tabTable tr.tabIssue td:nth-child(2) { color: var(--orange); font-weight: 600; }
 
 /* Watch column widths — % based */
 /* 3 cols: time 14% | type 18% | note * */

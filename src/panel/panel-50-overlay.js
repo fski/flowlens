@@ -281,7 +281,7 @@ function contrastRowHtml(f, idx) {
   return `<tr class="trow${pass ? ' contrastPass' : ''}" data-i="${idx}"><td>${escapeHtml(String(f.ratio ?? ""))}</td><td>${escapeHtml(String(f.apcaLc ?? "\u2013"))}</td><td>${escapeHtml(String(f.required ?? ""))}</td><td>${f.largeText ? "yes" : "no"}</td><td>${cellHtml(f.text, 50)}</td><td>${escapeHtml(f.tag ?? "")}</td><td>${escapeHtml(f.testId ?? "")}</td><td>${cellHtml(f.path, 60)}</td><td>${cellHtml(f.note, 50)}</td></tr>`;
 }
 function tabRowHtml(e, idx) {
-  return `<tr class="trow" data-i="${idx}"><td>${escapeHtml(String(e.i ?? ""))}</td><td>${escapeHtml(String(e.type ?? ""))}</td><td>${escapeHtml(String(e.tabIndex ?? ""))}</td><td>${cellHtml(e.name, 50)}</td><td>${cellHtml(e.path, 60)}</td><td>${cellHtml(e.note, 50)}</td></tr>`;
+  return `<tr class="trow${e._issue ? ' tabIssue' : ''}" data-i="${idx}"><td>${escapeHtml(String(e.i ?? ""))}</td><td>${escapeHtml(String(e.type ?? ""))}</td><td>${escapeHtml(String(e.tabIndex ?? ""))}</td><td>${cellHtml(e.name, 50)}</td><td>${cellHtml(e.path, 60)}</td><td>${cellHtml(e.note, 50)}</td></tr>`;
 }
 
 function txt(s, n = 140) {
@@ -398,20 +398,19 @@ function updateContrastView() {
   if (VT.contrast) {
     VT.contrast.setData(sorted);
   }
-  // Empty state based on actual rendered rows — defer one frame to avoid flicker
+  // Empty state synchronous with setData — an async (rAF) update here can lose
+  // the race with a second render call and leave the empty state visible on
+  // top of a populated table.
   if (els.contrastEmpty) {
-    requestAnimationFrame(() => {
-      const visibleRows = VT.contrast ? VT.contrast.data.length : sorted.length;
-      if (!hasData) {
-        els.contrastEmpty.textContent = "Run a Contrast check to see results";
-        els.contrastEmpty.hidden = false;
-      } else if (visibleRows === 0) {
-        els.contrastEmpty.textContent = "No results match your search";
-        els.contrastEmpty.hidden = false;
-      } else {
-        els.contrastEmpty.hidden = true;
-      }
-    });
+    if (!hasData) {
+      els.contrastEmpty.textContent = "Run a Contrast check to see results";
+      els.contrastEmpty.hidden = false;
+    } else if (sorted.length === 0) {
+      els.contrastEmpty.textContent = "No results match your search";
+      els.contrastEmpty.hidden = false;
+    } else {
+      els.contrastEmpty.hidden = true;
+    }
   }
   if (VT.contrast) return;
   const tbody = els.contrastTbody;
@@ -420,9 +419,44 @@ function updateContrastView() {
 }
 
 
+/**
+ * Merge walked stops with anomaly events into one row per walked element.
+ * Older records have no `stops` — fall back to events alone. Rows already
+ * merged (re-render path passes state.tabData back in) pass through as-is.
+ */
+function buildTabWalkRows(res) {
+  const events = Array.isArray(res?.events) ? res.events : [];
+  const stops = Array.isArray(res?.stops) ? res.stops : [];
+  if (!stops.length) return events;
+  const byIdx = new Map();
+  for (const e of events) {
+    if (!e || e.i == null || e.i < 0) continue;
+    if (!byIdx.has(e.i)) byIdx.set(e.i, []);
+    byIdx.get(e.i).push(e);
+  }
+  const rows = stops.map(s => {
+    const evs = byIdx.get(s.i) || [];
+    return {
+      i: s.i,
+      type: evs.length ? evs[0].type : (s.tag || ""),
+      tabIndex: s.tabIndex,
+      name: s.name,
+      path: s.path,
+      note: evs.length ? evs.map(e => e.note).filter(Boolean).join(" | ") : "",
+      _issue: evs.length > 0,
+    };
+  });
+  // Page-level events not tied to a walked index (dialog/container checks, i = -1)
+  for (const e of events) {
+    if (!e || e.i == null || e.i < 0) rows.push({ ...e, _issue: true });
+  }
+  return rows;
+}
+
 function renderTabWalk(res) {
-  const raw = Array.isArray(res?.events) ? res.events : [];
+  const raw = buildTabWalkRows(res);
   state.tabData = raw;
+  const walkRan = raw.length > 0 || !!(res && ("walked" in res || "totalFocusables" in res));
   let filtered = raw;
   const q = (els.tabWalkQ?.value || "").trim().toLowerCase();
   if (q) {
@@ -439,20 +473,20 @@ function renderTabWalk(res) {
   if (VT.tab) {
     VT.tab.setData(events);
   }
-  // Empty state based on actual rendered rows — defer one frame to avoid flicker
+  // Empty state synchronous with setData — see updateContrastView.
   if (els.tabWalkEmpty) {
-    requestAnimationFrame(() => {
-      const visibleRows = VT.tab ? VT.tab.data.length : events.length;
-      if (raw.length === 0) {
-        els.tabWalkEmpty.textContent = "Run a Tab Walk to see results";
-        els.tabWalkEmpty.hidden = false;
-      } else if (visibleRows === 0) {
-        els.tabWalkEmpty.textContent = "No results match your search";
-        els.tabWalkEmpty.hidden = false;
-      } else {
-        els.tabWalkEmpty.hidden = true;
-      }
-    });
+    if (!walkRan) {
+      els.tabWalkEmpty.textContent = "Run a Tab Walk to see results";
+      els.tabWalkEmpty.hidden = false;
+    } else if (raw.length === 0) {
+      els.tabWalkEmpty.textContent = "No focusable elements were walked";
+      els.tabWalkEmpty.hidden = false;
+    } else if (events.length === 0) {
+      els.tabWalkEmpty.textContent = "No results match your search";
+      els.tabWalkEmpty.hidden = false;
+    } else {
+      els.tabWalkEmpty.hidden = true;
+    }
   }
   if (VT.tab) return;
   // fallback (should not happen)
@@ -734,7 +768,6 @@ function filterFindingsByGroup(findings, groupFilter) {
 function updateIntegrityOverview(aggregates) {
   if (!els.integrityOverview) return;
   if (!aggregates) { els.integrityOverview.hidden = true; return; }
-  els.integrityOverview.hidden = false;
 
   var groups = [
     { group: "depth3/announcements", status: aggregates.announcementIntegrity, count: aggregates.counts ? aggregates.counts.announcements || 0 : 0, countEl: els.pillAnnouncementsCount },
@@ -743,6 +776,9 @@ function updateIntegrityOverview(aggregates) {
     { group: "depth3/multiframe", status: aggregates.multiFrameIntegrity, count: aggregates.counts ? aggregates.counts.multiframe || 0 : 0, countEl: els.pillMultiframeCount },
   ];
 
+  // Zero-count pills are noise — show only groups that found something,
+  // and hide the whole bar when every group is clean.
+  var anyVisible = false;
   for (var gi = 0; gi < groups.length; gi++) {
     var g = groups[gi];
     var btn = els.integrityOverview.querySelector('.integrityPill[data-group="' + g.group + '"]');
@@ -750,7 +786,10 @@ function updateIntegrityOverview(aggregates) {
     btn.classList.remove("ok", "degraded");
     btn.classList.add(g.status);
     if (g.countEl) g.countEl.textContent = "(" + g.count + ")";
+    btn.hidden = !g.count;
+    if (g.count) anyVisible = true;
   }
+  els.integrityOverview.hidden = !anyVisible;
 }
 
 /**
@@ -836,12 +875,9 @@ function renderExplorer(findings) {
     els.allTableBody.innerHTML = filtered.slice(0, 200).map(explorerRowHtml).join("");
   }
 
-  // Empty state based on actual rendered rows — defer one frame to avoid flicker
+  // Empty state synchronous with setData — see updateContrastView.
   if (els.explorerEmpty) {
-    requestAnimationFrame(() => {
-      const visibleRowsCount = VT.all ? VT.all.data.length : filtered.length;
-      els.explorerEmpty.hidden = visibleRowsCount > 0 || all.length === 0;
-    });
+    els.explorerEmpty.hidden = filtered.length > 0 || all.length === 0;
   }
 }
 

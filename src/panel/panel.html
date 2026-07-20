@@ -108,9 +108,6 @@
         <!-- Results zone -->
         <div class="resultsZone" id="resultsZone">
 
-          <!-- Shadow coverage receipt (populated by JS) -->
-          <div class="shadowCoverageRow" id="shadowCoverageRow" hidden></div>
-
           <!-- Integrity overview bar -->
           <div class="integrityOverview" id="integrityOverview" hidden>
             <button class="integrityPill" data-group="depth3/announcements" type="button">
@@ -392,6 +389,7 @@
       <div id="settingsContent" role="tabpanel" aria-labelledby="topTabSettings" hidden inert>
 
         <section class="settingsPane">
+          <h2 class="settingsHeading">Audit</h2>
           <div class="settingsGrid">
               <div class="settingsGroup">
                 <span class="settingsLabel">WCAG level</span>
@@ -402,6 +400,7 @@
                   <option value="2.2-AA" selected>WCAG 2.2 AA</option>
                   <option value="2.2-AAA">WCAG 2.2 AAA</option>
                 </select>
+                <span class="settingsHint">Conformance level used by Audit and Contrast checks</span>
               </div>
               <div class="settingsGroup">
                 <span class="settingsLabel">Depth</span>
@@ -411,6 +410,7 @@
                   <option value="2">Depth 2 (Balanced)</option>
                   <option value="3" selected>Depth 3 (Full)</option>
                 </select>
+                <span class="settingsHint">1 = quick surface scan, 3 = full incl. announcements &amp; multi-frame checks</span>
               </div>
               <div class="settingsGroup">
                 <span class="settingsLabel">Recipe</span>
@@ -422,11 +422,17 @@
                   <option value="hybrid">Hybrid</option>
                   <option value="wizard">Wizard / Form</option>
                 </select>
+                <span class="settingsHint">Preset tuned for a UI pattern &mdash; Auto detects it from the page</span>
               </div>
               <div class="settingsGroup">
                 <span class="settingsLabel">Profiles</span>
                 <div id="profileSelect" class="profilePills" role="group" aria-label="Active flow profiles"></div>
+                <span class="settingsHint">Extra rule packs applied on top of the recipe &mdash; hover a profile for details</span>
               </div>
+          </div>
+
+          <h2 class="settingsHeading">Targeting</h2>
+          <div class="settingsGrid">
               <div class="settingsGroup">
                 <span class="settingsLabel">Target scope</span>
                 <label class="sr-only" for="target">Scope</label>
@@ -436,6 +442,7 @@
                   <option value="embedded">Embedded frame only</option>
                   <option value="all">All frames</option>
                 </select>
+                <span class="settingsHint">Which frame(s) get scanned &mdash; Primary picks the best-scoring frame</span>
               </div>
               <div class="settingsGroup settingsGroup--frame">
                 <span class="settingsLabel">Frame</span>
@@ -448,13 +455,19 @@
                   <button class="btn xs" id="refreshFrames" type="button">&#8635; Refresh</button>
                   <button class="btn xs" id="copyFrameUrl" type="button" aria-label="Copy selected frame URL">Copy URL</button>
                 </span>
+                <span class="settingsHint">Pick a specific frame to scan &mdash; Pin keeps it selected across reloads</span>
               </div>
               <div class="targetingSummary mono" id="targetingSummary" role="status" aria-live="polite" aria-atomic="true">
                 Target: Primary frame
               </div>
+          </div>
+
+          <h2 class="settingsHeading">Output</h2>
+          <div class="settingsGrid">
               <div class="settingsGroup">
                 <span class="settingsLabel">Console logging</span>
                 <label class="switch"><input id="alsoConsole" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Log to console</span></label>
+                <span class="settingsHint">Also print full results to the inspected page&rsquo;s console</span>
               </div>
           </div>
         </section>

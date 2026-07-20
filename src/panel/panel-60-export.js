@@ -266,7 +266,15 @@ async function saveCustomProfiles() {
 function renderProfileSelect() {
   if (!els.profileSelect) return;
   els.profileSelect.innerHTML = "";
-  for (const [id, p] of Object.entries(profileState.profiles)) {
+  // Stable order: built-ins first, then custom profiles, alphabetical within
+  // each group — object insertion order depends on load order and looks messy.
+  const entries = Object.entries(profileState.profiles).sort(([idA, pA], [idB, pB]) => {
+    const builtinA = idA in BUILTIN_PROFILES ? 0 : 1;
+    const builtinB = idB in BUILTIN_PROFILES ? 0 : 1;
+    if (builtinA !== builtinB) return builtinA - builtinB;
+    return String(pA.label || idA).localeCompare(String(pB.label || idB));
+  });
+  for (const [id, p] of entries) {
     const isActive = profileState.active.includes(id);
     const label = document.createElement("label");
     label.className = `profilePill${isActive ? " active" : ""}`;

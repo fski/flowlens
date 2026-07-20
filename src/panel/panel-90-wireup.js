@@ -749,7 +749,7 @@ window.addEventListener("keydown", (e) => {
 // --- Column visibility ---
 const TABLE_COLS = {
   allTable: ['sev', 'wcag', 'name', 'type'],
-  contrastTable: ['ratio', 'req', 'large', 'text', 'tag', 'testId', 'path', 'note'],
+  contrastTable: ['ratio', 'apca', 'req', 'large', 'text', 'tag', 'testId', 'path', 'note'],
   tabTable: ['i', 'type', 'tabIndex', 'name', 'path', 'note'],
 };
 

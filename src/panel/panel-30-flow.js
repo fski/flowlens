@@ -509,7 +509,10 @@ function compactRawForSession(raw, mode) {
     out.failures = capRows(out.failures, 120);
     out.samples = capRows(out.samples, 40);
   }
-  if (mode === "tabWalk") out.events = capRows(out.events, 200);
+  if (mode === "tabWalk") {
+    out.events = capRows(out.events, 200);
+    out.stops = capRows(out.stops, 200);
+  }
   if (mode === "watch") {
     out.events = capRows(out.events, 200);
     out.verdicts = capRows(out.verdicts, 80);
