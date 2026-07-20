@@ -68,6 +68,7 @@ All processing happens entirely in the browser:
 - No DOM paths appear in CI JSON output
 - Cross-frame integrity checks operate on hashed structural summaries only
 - The audit engine makes no network requests; the only outbound traffic is opening a W3C WCAG documentation link if you explicitly click one
+- Per-step screenshots and optional flow video are stored locally in the browser's IndexedDB and never uploaded; pruned to the most recent sessions
 - No data leaves the browser
 
 ## Audit modes
@@ -81,6 +82,18 @@ Five modes, each injected into the inspected page:
 - **Contrast** — scans up to 250 text nodes for approximate color contrast ratios (AA/AAA)
 
 Two guided presets are available from the empty state: **Quick scan** (Run + Contrast) and **Deep audit** (Watch + Observe + Run).
+
+## Flow tab
+
+The **Flow** tab records the accessibility state across the steps of a user flow (checkout, wizard, chat) and shows how issues appear and disappear as you go — the thing static scanners can't.
+
+- **Auto-capture** — once you press **Record Flow**, steps are captured automatically as you navigate, including SPA route changes (History API). Manual **Mark step** stays for inserting a step by hand; the **Auto** toggle opts out.
+- **Filmstrip** — a per-step screenshot strip (captured locally via `captureVisibleTab`, viewport only). Click a tile to inspect that step.
+- **Step list + per-step diff** — each step shows **Appeared / Persisting / Resolved** issues versus the previous step. Filter to *only steps with unresolved blockers* to stay readable on long flows.
+- **Issue-lifecycle swimlane** — each recurring issue is drawn as a lane across the steps where it's present, so a violation introduced at step 3 and fixed at step 7 is visible at a glance.
+- **Local video** — optional screen recording of the whole flow via `getDisplayMedia` (you pick the tab; no extra permission), saved locally as webm.
+
+Everything is local — no new Chrome permissions, no uploads. Screenshots are viewport-only (full-page capture would conflict with the open DevTools session).
 
 ## Flow Profiles
 

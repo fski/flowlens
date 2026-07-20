@@ -1747,6 +1747,14 @@ async function endSession() {
   setPersistentStatus("OK", "SESSION_ENDED", "Session archived");
   populateCompareSelects();
 
+  // Bound media disk: keep screenshots/video only for the most recent sessions.
+  try {
+    const archived = await listArchivedSessions();
+    const keep = archived.slice(0, 5).map(s => s.id);
+    if (sessionState.lastEndedSession?.id) keep.push(sessionState.lastEndedSession.id);
+    if (typeof flowMediaStore !== "undefined") await flowMediaStore.pruneToSessions(keep);
+  } catch (_) { /* prune is best-effort */ }
+
   // Auto-copy verdict summary
   const sess = exportableEndedSession;
   if (sess) {

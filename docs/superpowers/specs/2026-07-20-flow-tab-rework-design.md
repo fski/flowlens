@@ -1,7 +1,7 @@
 # Flow tab rework — design spec
 
 **Date:** 2026-07-20
-**Status:** reviewed (code-verified) — pending final user sign-off
+**Status:** IMPLEMENTED — 6.1.0 (Tasks 1–7 landed on fski/flow-rework)
 **Reviewed:** 2026-07-20 — assumptions checked against source; corrections folded
 into §4.1, §4.2, §4.4, §4.5, §6a. See "Review log" at the end.
 **Version target:** FlowLens 6.1.0 (minor: new user-facing capability, no breaking data change)
