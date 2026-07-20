@@ -245,6 +245,19 @@ function renderRawJson(el, bodyEl, text) {
   el.dataset.hl = "1";
 }
 
+// ═══ STATUS SURFACES ══════════════════════════════════════════════════════
+// Four distinct channels — pick by lifetime and blocking-ness, don't mix:
+//   toast(msg, action?)        — transient, non-blocking notice (2.5s / 4s
+//                                with an action). User confirmations, soft
+//                                failures the user can ignore. Auto-dedups.
+//   renderSaveStatus(status)   — persistence HUD (saving/saved/not saved).
+//                                Reflects storage state, not user actions.
+//   renderResultsShell(error)  — BLOCKING: replaces the Snap results body
+//                                with a retryable error (panel-20). Use only
+//                                when there is nothing to show.
+//   setPersistentStatus(...)   — Flow-tab persistent last-run verdict line.
+// Rule of thumb: a message that must survive on screen is not a toast.
+
 function toast(message, action) {
   if (!els.toast) return;
   // Dedup identical toasts within 700ms
