@@ -1087,10 +1087,13 @@ function logNavDecision(url, decision) {
   console.debug("[FlowLens] nav", decision, url);
 }
 
-function maybeAutoCapture(url) {
+function maybeAutoCapture(url, { fromAuditedFrame = false } = {}) {
   if (!sessionState.current) { logNavDecision(url, "no-session"); return; }
   if (!els.autoCaptureNav?.checked) { logNavDecision(url, "auto-off"); return; }
-  if (isForeignAutoCaptureOrigin(url, sessionState.current)) {
+  // Navs from frames already in the audited set (targeted microfrontends)
+  // bypass the site guard — the embedded app IS the audit target, and its
+  // site routinely differs from the host page's.
+  if (!fromAuditedFrame && isForeignAutoCaptureOrigin(url, sessionState.current)) {
     logNavDecision(url, "skip-foreign-site");
     // Fail loud EVERY time on the persistent Flow line (a once-per-session
     // toast was missable, and a silently skipped step reads as covered).
@@ -1155,7 +1158,19 @@ chrome.devtools.network.onNavigated.addListener(async () => {
       return;
     }
     port.onMessage.addListener(async (m) => {
-      if (!m || m.type !== "SPA_NAV") return;
+      if (!m) return;
+      if (m.type === "FRAME_NAV") {
+        attempt = 0;
+        if (!sessionState.current || !els.autoCaptureNav?.checked) return;
+        if (!isRelevantFrameNav(m.url, m.frameId, sessionState.current)) {
+          logNavDecision(m.url, "skip-frame-not-audited");
+          return;
+        }
+        logNavDecision(m.url, "frame-nav");
+        maybeAutoCapture(m.url, { fromAuditedFrame: true });
+        return;
+      }
+      if (m.type !== "SPA_NAV") return;
       attempt = 0; // live traffic proves the connection — reset backoff
       if (!sessionState.current || !els.autoCaptureNav?.checked) return;
       await refreshInspectedUrl();

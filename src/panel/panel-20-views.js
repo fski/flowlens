@@ -118,6 +118,35 @@ function registrableDomain(originOrUrl) {
   return parts.slice(_SHARED_SLD[parts[parts.length - 2]] ? -3 : -2).join(".");
 }
 
+// Origin embedded in a frameKey (`fk::vN::origin::pathHint`).
+function frameKeyOrigin(frameKey) {
+  var parts = String(frameKey || "").split("::");
+  return parts.length >= 3 ? parts[2] : "";
+}
+
+// Is a subframe navigation part of the audited flow? Embedded apps
+// (microfrontends) live in iframes on their own — often foreign — site, so
+// the top-level URL says nothing about them. Ground truth is the audited
+// frame set of the LAST step: match by frameId for stable frames, and by the
+// SITE baked into the audited frameKeys for frames recreated on navigation
+// (recreation assigns a new frameId). Unaudited frames (ads, widgets) match
+// neither and stay ignored.
+function isRelevantFrameNav(url, frameId, session) {
+  var steps = (session && Array.isArray(session.steps)) ? session.steps : [];
+  var last = steps.length ? steps[steps.length - 1] : null;
+  var fs = (last && last.frameSelections) || {};
+  var ids = Array.isArray(fs.usedFrameIds) ? fs.usedFrameIds : [];
+  if (frameId != null && ids.indexOf(frameId) !== -1) return true;
+  var keys = Array.isArray(fs.usedFrameKeys) ? fs.usedFrameKeys : [];
+  var navSite = registrableDomain(url || "");
+  if (!navSite) return false;
+  for (var i = 0; i < keys.length; i++) {
+    var o = frameKeyOrigin(keys[i]);
+    if (o && registrableDomain(o) === navSite) return true;
+  }
+  return false;
+}
+
 // Cross-SITE navigations are SKIPPED by auto-capture (decision: Piotr,
 // 2026-07-20). Auto-captured steps include viewport screenshots, and the
 // third-party pages a flow crosses (SSO login, payment gateways) routinely

@@ -1309,16 +1309,31 @@ chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "flowlens-nav") return;
   let watchedTabId = null;
   const onHistory = (details) => {
-    if (details.frameId !== 0) return; // top frame only
     if (watchedTabId == null || details.tabId !== watchedTabId) return;
-    try { port.postMessage({ type: "SPA_NAV", url: details.url }); } catch (_) { /* port closed */ }
+    if (details.frameId === 0) {
+      try { port.postMessage({ type: "SPA_NAV", url: details.url }); } catch (_) { /* port closed */ }
+      return;
+    }
+    // Embedded apps (microfrontends) navigate INSIDE their iframe — the top
+    // URL never changes, so these are the only signal a flow step happened.
+    // The panel decides relevance against the audited frame set.
+    try { port.postMessage({ type: "FRAME_NAV", url: details.url, frameId: details.frameId }); } catch (_) { /* port closed */ }
+  };
+  const onCommitted = (details) => {
+    // Full subframe navigations (iframe location changes). Top-level full navs
+    // already reach the panel via devtools.network.onNavigated.
+    if (watchedTabId == null || details.tabId !== watchedTabId) return;
+    if (details.frameId === 0) return;
+    try { port.postMessage({ type: "FRAME_NAV", url: details.url, frameId: details.frameId }); } catch (_) { /* port closed */ }
   };
   port.onMessage.addListener((m) => {
     if (m && isNonNegativeInt(m.tabId)) watchedTabId = Number(m.tabId);
   });
   chrome.webNavigation.onHistoryStateUpdated.addListener(onHistory);
+  chrome.webNavigation.onCommitted.addListener(onCommitted);
   port.onDisconnect.addListener(() => {
     try { chrome.webNavigation.onHistoryStateUpdated.removeListener(onHistory); } catch (_) {}
+    try { chrome.webNavigation.onCommitted.removeListener(onCommitted); } catch (_) {}
   });
 });
 }
