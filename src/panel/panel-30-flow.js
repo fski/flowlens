@@ -792,152 +792,59 @@ function summarizeDiff({ added, fixed, persisting, countsDelta, blockingAdded, b
   return `new=${added}, persisting=${persisting}, fixed=${fixed}, blocking +${blockingAdded}/-${blockingFixed}${deltaText ? ` • ${deltaText}` : ""}`;
 }
 
-function diffModeBundles(prevBundle, nextBundle) {
-  const prevSet = prevBundle?.set || new Set();
-  const nextSet = nextBundle?.set || new Set();
-  const matchedPrev = new Set();
-  const matchedNext = new Set();
-  let persisting = 0;
+// diffModeBundles removed: the legacy bundle diff engine is gone (R1) —
+// stable signatures are the single identity scheme for step diffs.
 
-  for (const sig of nextSet) {
-    if (prevSet.has(sig)) {
-      matchedPrev.add(sig);
-      matchedNext.add(sig);
-      persisting += 1;
-    }
-  }
-
-  const prevWeakBuckets = new Map();
-  for (const sig of prevSet) {
-    if (matchedPrev.has(sig)) continue;
-    const weak = prevBundle?.metaBySig?.get(sig)?.weakSignature;
-    if (!weak) continue;
-    if (!prevWeakBuckets.has(weak)) prevWeakBuckets.set(weak, []);
-    prevWeakBuckets.get(weak).push(sig);
-  }
-
-  let weakMatched = 0;
-  for (const sig of nextSet) {
-    if (matchedNext.has(sig)) continue;
-    const weak = nextBundle?.metaBySig?.get(sig)?.weakSignature;
-    if (!weak) continue;
-    const bucket = prevWeakBuckets.get(weak);
-    if (!bucket || !bucket.length) continue;
-    const prevSig = bucket.pop();
-    matchedPrev.add(prevSig);
-    matchedNext.add(sig);
-    persisting += 1;
-    weakMatched += 1;
-  }
-
-  let added = 0;
-  for (const sig of nextSet) if (!matchedNext.has(sig)) added += 1;
-  let fixed = 0;
-  for (const sig of prevSet) if (!matchedPrev.has(sig)) fixed += 1;
-
-  let blockingAdded = 0;
-  let blockingFixed = 0;
-  for (const sig of nextSet) if (!matchedNext.has(sig) && nextBundle.blockingSet.has(sig)) blockingAdded += 1;
-  for (const sig of prevSet) if (!matchedPrev.has(sig) && prevBundle.blockingSet.has(sig)) blockingFixed += 1;
-  const countsDelta = computeCountsDelta(nextBundle.counts, prevBundle.counts);
-  return {
-    added,
-    fixed,
-    persisting,
-    weakMatched,
-    blockingAdded,
-    blockingFixed,
-    countsDelta,
-    text: summarizeDiff({ added, fixed, persisting, countsDelta, blockingAdded, blockingFixed }),
-  };
+// Stable signature set for one mode of a step. Production paths (capture,
+// deleteStep recompute, normalizeLoadedSession) always populate
+// step.stableSignatures — recomputing from the snapshot is a defensive path
+// for stray callers only.
+function _stableFor(step, key, rawAppendix) {
+  const sig = step?.stableSignatures?.[key];
+  if (sig) return sig;
+  const snap = step?.snapshots?.[key];
+  if (!snap) return null;
+  return computeStableSignatureSet(snap, rawAppendix);
 }
 
+function _stableModeDiff(prev, curr) {
+  const d = computeStableDiff(
+    prev?.stableFindingSignatureSet || [],
+    curr?.stableFindingSignatureSet || [],
+    prev?.blockingSet || [],
+    curr?.blockingSet || []
+  );
+  d.countsDelta = computeCountsDelta(curr?.severityCounts || {}, prev?.severityCounts || {});
+  d.text = summarizeDiff(d);
+  return d;
+}
+
+// ONE diff engine (stable signatures). The legacy bundle engine used to serve
+// v3 sessions and — after the capture reorder — was reachable only for the
+// baseline step, leaving two identity schemes that had to agree (the exact
+// fragility the 2026-07-20 audit flagged, and which flipped verdicts once).
 function buildStepDiffs(step, prevStep, rawAppendix = null) {
-  // Prefer stable diff when both steps have stableSignatures (v4+).
-  const hasStable = step?.stableSignatures?.run && prevStep?.stableSignatures?.run;
-  if (hasStable) {
-    const stableRunDiff = computeStableDiff(
-      prevStep.stableSignatures.run.stableFindingSignatureSet,
-      step.stableSignatures.run.stableFindingSignatureSet
-    );
-    // Also compute blocking counts from stable blockingSets
-    const prevBlocking = new Set(prevStep.stableSignatures.run.blockingSet || []);
-    const currBlocking = new Set(step.stableSignatures.run.blockingSet || []);
-    const currSigs = new Set(step.stableSignatures.run.stableFindingSignatureSet || []);
-    const prevSigs = new Set(prevStep.stableSignatures.run.stableFindingSignatureSet || []);
-    let blockingAdded = 0, blockingFixed = 0;
-    for (const sig of currBlocking) if (!prevSigs.has(sig)) blockingAdded++;
-    for (const sig of prevBlocking) if (!currSigs.has(sig)) blockingFixed++;
-    stableRunDiff.blockingAdded = blockingAdded;
-    stableRunDiff.blockingFixed = blockingFixed;
+  const currRun = _stableFor(step, "run", rawAppendix);
+  const currActive = _stableFor(step, "active", rawAppendix);
+  const prevRun = prevStep ? _stableFor(prevStep, "run", rawAppendix) : null;
+  const prevActive = prevStep ? _stableFor(prevStep, "active", rawAppendix) : null;
 
-    const runCounts = step.stableSignatures.run.severityCounts || {};
-    const prevRunCounts = prevStep.stableSignatures.run.severityCounts || {};
-    const countsDelta = computeCountsDelta(runCounts, prevRunCounts);
-    stableRunDiff.countsDelta = countsDelta;
-    stableRunDiff.text = summarizeDiff(stableRunDiff);
+  const mergeStable = (run, active) => ({
+    stableFindingSignatureSet: [
+      ...(run?.stableFindingSignatureSet || []),
+      ...(active?.stableFindingSignatureSet || []),
+    ],
+    blockingSet: [...(run?.blockingSet || []), ...(active?.blockingSet || [])],
+    severityCounts: sumSeverityCounts(run?.severityCounts, active?.severityCounts),
+  });
 
-    // Active diff (if both have stable active)
-    let activeDiff;
-    if (step?.stableSignatures?.active && prevStep?.stableSignatures?.active) {
-      activeDiff = computeStableDiff(
-        prevStep.stableSignatures.active.stableFindingSignatureSet,
-        step.stableSignatures.active.stableFindingSignatureSet
-      );
-      const activeCounts = step.stableSignatures.active.severityCounts || {};
-      const prevActiveCounts = prevStep.stableSignatures.active.severityCounts || {};
-      activeDiff.countsDelta = computeCountsDelta(activeCounts, prevActiveCounts);
-      activeDiff.text = summarizeDiff(activeDiff);
-    }
-
-    // Consolidated = run + active combined
-    const allCurrSigs = [
-      ...(step.stableSignatures.run?.stableFindingSignatureSet || []),
-      ...(step.stableSignatures.active?.stableFindingSignatureSet || []),
-    ];
-    const allPrevSigs = [
-      ...(prevStep.stableSignatures.run?.stableFindingSignatureSet || []),
-      ...(prevStep.stableSignatures.active?.stableFindingSignatureSet || []),
-    ];
-    const consolidated = computeStableDiff(allPrevSigs, allCurrSigs);
-    // Recompute blocking deltas from merged blocking sets
-    const allCurrBlocking = new Set([
-      ...(step.stableSignatures.run?.blockingSet || []),
-      ...(step.stableSignatures.active?.blockingSet || []),
-    ]);
-    const allPrevBlocking = new Set([
-      ...(prevStep.stableSignatures.run?.blockingSet || []),
-      ...(prevStep.stableSignatures.active?.blockingSet || []),
-    ]);
-    consolidated.blockingAdded = [...allCurrBlocking].filter(s => !allPrevBlocking.has(s)).length;
-    consolidated.blockingFixed = [...allPrevBlocking].filter(s => !allCurrBlocking.has(s)).length;
-    // Consolidated delta merges run+active counts — run-only here under-reported
-    // active-mode severity shifts in the summary line.
-    const mergedCurrCounts = sumSeverityCounts(step.stableSignatures.run?.severityCounts, step.stableSignatures.active?.severityCounts);
-    const mergedPrevCounts = sumSeverityCounts(prevStep.stableSignatures.run?.severityCounts, prevStep.stableSignatures.active?.severityCounts);
-    consolidated.countsDelta = computeCountsDelta(mergedCurrCounts, mergedPrevCounts);
-    consolidated.text = summarizeDiff(consolidated);
-
-    return {
-      run: step?.snapshots?.run ? stableRunDiff : undefined,
-      active: activeDiff,
-      consolidated,
-    };
-  }
-
-  // Legacy fallback (v3 sessions without stableSignatures)
-  const runNext = buildModeSignatureBundle(step?.snapshots?.run, rawAppendix);
-  const runPrev = buildModeSignatureBundle(prevStep?.snapshots?.run, rawAppendix);
-  const activeNext = buildModeSignatureBundle(step?.snapshots?.active, rawAppendix);
-  const activePrev = (prevStep?.snapshots?.active?.mode && prevStep?.snapshots?.active?.mode === step?.snapshots?.active?.mode)
-    ? buildModeSignatureBundle(prevStep?.snapshots?.active, rawAppendix)
-    : { set: new Set(), blockingSet: new Set(), metaBySig: new Map(), counts: {} };
-  const consolidatedNext = mergeSignatureBundles([runNext, activeNext]);
-  const consolidatedPrev = mergeSignatureBundles([runPrev, activePrev]);
   const result = {
-    run: step?.snapshots?.run ? diffModeBundles(runPrev, runNext) : undefined,
-    active: step?.snapshots?.active ? diffModeBundles(activePrev, activeNext) : undefined,
-    consolidated: diffModeBundles(consolidatedPrev, consolidatedNext),
+    run: step?.snapshots?.run ? _stableModeDiff(prevRun, currRun) : undefined,
+    active: step?.snapshots?.active ? _stableModeDiff(prevActive, currActive) : undefined,
+    consolidated: _stableModeDiff(
+      prevStep ? mergeStable(prevRun, prevActive) : null,
+      mergeStable(currRun, currActive)
+    ),
   };
   // First step = baseline, not regression: with no predecessor every blocking
   // finding diffed as "added", so a one-step flow could never PASS. The verdict
