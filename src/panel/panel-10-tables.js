@@ -610,9 +610,16 @@ function showMode(mode) {
     renderSevTabs();
   }
 
-  // Render contrast-specific tabs when switching to contrast
+  // Recompute section content + empty state on every switch. Sections are
+  // revealed here without going through renderRecord, so without this the
+  // default-visible empty <div> (and a stale virtual-table render from when
+  // the section was hidden) leak into view.
   if (mode === "contrast") {
     renderContrastSevTabs();
+    updateContrastView();
+  }
+  if (mode === "tabWalk") {
+    renderTabWalk({ events: state.tabData });
   }
 }
 

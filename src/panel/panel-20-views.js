@@ -226,6 +226,7 @@ async function persistRecords(scopeKey) {
     if (Array.isArray(result.findings)) out.findings = compactRows(result.findings, limits.findings, limits.maxString, compactFindingRow);
     if (Array.isArray(result.failures)) out.failures = compactRows(result.failures, limits.failures, limits.maxString);
     if (Array.isArray(result.events)) out.events = compactRows(result.events, limits.events, limits.maxString);
+    if (Array.isArray(result.stops)) out.stops = compactRows(result.stops, limits.events, limits.maxString);
     if (Array.isArray(result.samples)) out.samples = compactRows(result.samples, limits.samples, limits.maxString, compactContrastRow);
     if (Array.isArray(result.snapshots)) out.snapshots = result.snapshots.slice(0, Math.max(0, limits.snapshots));
     if (Array.isArray(result.verdicts)) out.verdicts = compactRows(result.verdicts, limits.verdicts, limits.maxString);

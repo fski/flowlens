@@ -1777,7 +1777,7 @@
    * contributes to findings, events, or signatures. Auto-clears after
    * TAB_STOP_OVERLAY_MS or on the next annotate/clear call.
    */
-  const TAB_STOP_OVERLAY_MS = 8000;
+  const TAB_STOP_OVERLAY_MS = 30000;
   const annotateTabStops = (elements) => {
     const container = createAnnotationContainer();
     if (!container) return { rendered: 0 };
@@ -4020,12 +4020,22 @@
     const originalScrollX = w.scrollX || 0;
     const originalScrollY = w.scrollY || 0;
     const events = [];
+    const stops = [];
     const seen = new Set();
 
     const focusOne = (el, i) => {
       try { el.focus({ preventScroll: true }); } catch (_) { try { el.focus(); } catch (_) {} }
       const after = doc.activeElement;
       const ok = after === el;
+
+      stops.push({
+        i,
+        tag: (el.tagName || "").toLowerCase(),
+        tabIndex: getTabIndex(el),
+        name: getAccName(el),
+        path: cssPath(el),
+        ok
+      });
 
       const key = cssPath(el);
       if (seen.has(key)) {
@@ -4155,6 +4165,7 @@
       href: w.location.href,
       totalFocusables: order.length,
       walked: max,
+      stops,
       events
     };
     api.lastTabWalk = summary;
