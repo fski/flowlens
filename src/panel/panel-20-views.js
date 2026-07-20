@@ -1345,9 +1345,10 @@ function _badgeTriplet(v) {
     return '<span class="flowBadge flowBadge--baseline" title="Issues present at the start of the flow">'
       + (v.appeared + v.persisting) + ' · baseline</span>';
   }
-  return '<span class="flowBadge flowBadge--new" title="New issues">+' + v.appeared + '</span>'
-    + '<span class="flowBadge flowBadge--persist" title="Persisting">~' + v.persisting + '</span>'
-    + '<span class="flowBadge flowBadge--resolved" title="Resolved">-' + v.resolved + '</span>';
+  var z = function (count) { return count === 0 ? " flowBadge--zero" : ""; };
+  return '<span class="flowBadge flowBadge--new' + z(v.appeared) + '" title="New issues">+' + v.appeared + '</span>'
+    + '<span class="flowBadge flowBadge--persist' + z(v.persisting) + '" title="Persisting">~' + v.persisting + '</span>'
+    + '<span class="flowBadge flowBadge--resolved' + z(v.resolved) + '" title="Resolved">-' + v.resolved + '</span>';
 }
 
 function flowVerdictHeaderHtml(sess) {
@@ -1549,12 +1550,20 @@ function stepDetailHtml(sess, selectedIndex) {
     + '<span class="flowStepNavPos">Step ' + step.index + ' / ' + steps.length + '</span>'
     + '<button class="btn xs" type="button" data-step-nav="next"' + (hasNext ? "" : " disabled") + ' aria-label="Next step">Next ›</button>'
     + '</div>';
+  // Empty buckets collapse into one muted summary line — three bordered
+  // "none" boxes were pure chrome.
+  var buckets = [["Appeared", "appeared", d.appeared], ["Persisting", "persisting", d.persisting], ["Resolved", "resolved", d.resolved]];
+  var groupsHtml = "";
+  var emptyNames = [];
+  for (var bi = 0; bi < buckets.length; bi++) {
+    if ((buckets[bi][2] || []).length) groupsHtml += _diffGroupHtml(buckets[bi][0], buckets[bi][1], buckets[bi][2]);
+    else emptyNames.push(buckets[bi][0] + " 0");
+  }
+  if (emptyNames.length) groupsHtml += '<div class="flowDiffEmptyRow">' + emptyNames.join(" · ") + '</div>';
   return nav
     + shot
     + '<div class="flowDiffGroups">'
-    + _diffGroupHtml("Appeared", "appeared", d.appeared)
-    + _diffGroupHtml("Persisting", "persisting", d.persisting)
-    + _diffGroupHtml("Resolved", "resolved", d.resolved)
+    + groupsHtml
     + '</div>';
 }
 
@@ -1567,12 +1576,19 @@ function lifecycleSwimlaneHtml(sess) {
   var CAP = 12;
   var lanes = lc.lanes.slice(0, CAP);
   var more = lc.lanes.length - lanes.length;
+  // Header row: bars without a step axis were unreadable.
+  var hdrCells = "";
+  for (var h = 0; h < n; h++) hdrCells += '<span class="swimHdrCell">' + steps[h].index + '</span>';
+  var header = '<div class="swimLane swimLane--hdr" aria-hidden="true">'
+    + '<span class="swimLabel">issue \\ step</span>'
+    + '<span class="swimTrack">' + hdrCells + '</span>'
+    + '</div>';
   var body = lanes.map(function (lane) {
     var cells = "";
     for (var i = 0; i < n; i++) {
       var idx = steps[i].index;
       var on = lane.presentSteps.indexOf(idx) !== -1;
-      cells += '<span class="swimCell' + (on ? " on" : "") + '" title="Step ' + idx + '"></span>';
+      cells += '<span class="swimCell' + (on ? " on" : "") + '" title="Step ' + idx + (on ? " — present" : " — absent") + '"></span>';
     }
     return '<div class="swimLane">'
       + '<span class="swimLabel" title="' + escapeHtml(lane.label) + '">'
@@ -1582,7 +1598,7 @@ function lifecycleSwimlaneHtml(sess) {
       + '</div>';
   }).join("");
   var moreNote = more > 0 ? '<div class="swimMore">+' + more + ' more recurring issues</div>' : "";
-  return '<div class="swimlaneInner">' + body + moreNote + '</div>';
+  return '<div class="swimlaneInner">' + header + body + moreNote + '</div>';
 }
 
 // ─── Orchestrator: the only writer of Flow-tab result DOM ───────────────────

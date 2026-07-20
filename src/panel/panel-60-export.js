@@ -23,6 +23,8 @@ function crc32(bytes) {
 
 /**
  * Build a store-only (method 0) ZIP from [{name, data:Uint8Array}].
+ * ASCII entry names only (UTF-8 flag bit 11 is never set) — fine for our
+ * generated step-NN.png names, not a general-purpose writer.
  * @returns {Uint8Array}
  */
 function buildStoreZip(entries) {

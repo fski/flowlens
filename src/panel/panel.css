@@ -135,7 +135,10 @@ body {
 
 /* ═══ CAPTURE-IN-PROGRESS COVER ═══ */
 .flowCaptureOverlay {
-  position: absolute;
+  /* Fixed to the viewport: absolute-in-content scrolled out of view, hiding
+     the spinner and the End escape. z-40 keeps the sticky tab bar (z-50)
+     clickable above it. */
+  position: fixed;
   inset: 0;
   z-index: 40;
   display: flex;
@@ -2724,3 +2727,38 @@ kbd {
   background: rgba(138,138,138,0.15);
   margin-left: 4px;
 }
+
+/* ═══ FLOW DE-CLUNK (2026-07-20) ═══ */
+/* Reviewing an ended session: the hero Record CTA shrinks to a normal button —
+   a full-width 48px banner above results read as the primary content. */
+#flowContent.hasEnded .ctaSlot { padding: 8px; }
+#flowContent.hasEnded #sessionStart { width: auto; min-height: 30px; padding: 6px 14px; font: 700 12px/1 var(--font-mono); }
+
+.flowSystemic { padding: 4px 12px 6px; }
+
+/* Collapse bars: chrome, not content — slim them down. */
+.flowCollapseToggle { padding: 5px 10px; font-size: 11px; }
+
+/* Screenshot is a preview, not the hero — cap height; full size via ⤓ PNG. */
+.flowDetailShot { height: 220px; aspect-ratio: auto; }
+
+/* Zero-count step badges are noise — keep them legible but quiet. */
+.flowBadge--zero { opacity: .35; }
+
+/* Swimlane header row (step numbers) — bars without an axis were unreadable. */
+.swimLane--hdr .swimHdrCell { flex: 1; text-align: center; font: 600 9px/1.6 var(--font-mono); color: var(--tx3); }
+.swimLane--hdr .swimLabel { color: var(--tx3); font-size: 9px; }
+
+/* Empty diff buckets collapse to one muted line instead of bordered boxes. */
+.flowDiffEmptyRow { color: var(--tx3); font: 500 11px/1.6 var(--font-mono); padding: 2px 4px 6px; }
+
+/* [hidden] must beat the flex display rule or collapsed groups render open. */
+.fGroupBody[hidden] { display: none; }
+
+/* Same class of bug in the CTA slot: .ctaBtn { display:flex } outweighed
+   [hidden], so an active session showed the hero CTA, the recording banner
+   and the action bar all at once. Hidden means hidden. */
+.ctaSlot [hidden] { display: none !important; }
+
+/* Reviewing an ended session: the CTA helper line is orphaned chrome. */
+#flowContent.hasEnded #flowRecordHelper { display: none; }
