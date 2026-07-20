@@ -1542,6 +1542,9 @@ kbd {
 /* Baseline badge (first step has nothing to diff against) */
 .flowBadge--baseline { color: var(--tx3, #999); }
 
+/* Per-step screenshot download */
+.flowShotDownload { align-self: flex-start; margin-top: 4px; }
+
 /* Collapsed clean-contrast samples toggle */
 .contrastSamplesToggle { align-self: flex-start; margin: 4px 8px; }
 .flowDiffSev { padding: 0 4px; border-radius: var(--radius-xs); font: 700 9px/1.6 var(--font-mono); text-transform: uppercase; background: var(--raised); color: var(--tx3); }

@@ -162,6 +162,12 @@ if (els.exportSessionMdMenu) {
     setExportMenuOpen(false);
   });
 }
+if (els.exportShotsMenu) {
+  els.exportShotsMenu.addEventListener("click", async () => {
+    await downloadSessionScreenshots();
+    setExportMenuOpen(false);
+  });
+}
 if (els.exportDiffReportMenu) {
   els.exportDiffReportMenu.addEventListener("click", () => {
     const session = sessionState.current || sessionState.lastEndedSession;
@@ -296,6 +302,8 @@ function stepIndicesForNav() {
   // Prev/Next nav + finding-group expanders in the detail pane.
   if (els.flowStepDetail) {
     els.flowStepDetail.addEventListener("click", (e) => {
+      const dl = e.target.closest("[data-shot-download]");
+      if (dl) { downloadStepShot(Number(dl.dataset.shotDownload)); return; }
       const grp = e.target.closest("[data-fgroup]");
       if (grp) {
         const body = els.flowStepDetail.querySelector('[data-fgroup-body="' + grp.dataset.fgroup + '"]');

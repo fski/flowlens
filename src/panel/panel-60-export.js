@@ -1,5 +1,74 @@
 // --- Presets ---
 
+// --- Screenshot ZIP (store-only, hand-rolled — zero-runtime-dep rule) ---
+// A ZIP with method 0 (no compression) needs only local headers, a central
+// directory and an EOCD record; PNGs are already compressed so "store" loses
+// nothing. Deterministic: fixed DOS timestamp, entries in given order.
+
+const _CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(bytes) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) c = _CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+/**
+ * Build a store-only (method 0) ZIP from [{name, data:Uint8Array}].
+ * @returns {Uint8Array}
+ */
+function buildStoreZip(entries) {
+  const enc = new TextEncoder();
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+  const DOS_DATE = (1980 - 1980) << 9 | (1 << 5) | 1; // 1980-01-01, deterministic
+  const u16 = (v) => new Uint8Array([v & 0xFF, (v >>> 8) & 0xFF]);
+  const u32 = (v) => new Uint8Array([v & 0xFF, (v >>> 8) & 0xFF, (v >>> 16) & 0xFF, (v >>> 24) & 0xFF]);
+  for (const e of entries || []) {
+    const name = enc.encode(String(e.name || "file"));
+    const data = e.data instanceof Uint8Array ? e.data : new Uint8Array(0);
+    const crc = crc32(data);
+    const local = [u32(0x04034b50), u16(20), u16(0), u16(0), u16(0), u16(DOS_DATE),
+      u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0), name, data];
+    central.push({ name, data, crc, offset });
+    for (const part of local) chunks.push(part);
+    offset += 30 + name.length + data.length;
+  }
+  const cdStart = offset;
+  let cdSize = 0;
+  for (const c of central) {
+    const hdr = [u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(0), u16(DOS_DATE),
+      u32(c.crc), u32(c.data.length), u32(c.data.length), u16(c.name.length), u16(0), u16(0),
+      u16(0), u16(0), u32(0), u32(c.offset), c.name];
+    for (const part of hdr) chunks.push(part);
+    cdSize += 46 + c.name.length;
+  }
+  const eocd = [u32(0x06054b50), u16(0), u16(0), u16(central.length), u16(central.length),
+    u32(cdSize), u32(cdStart), u16(0)];
+  for (const part of eocd) chunks.push(part);
+  let total = 0;
+  for (const part of chunks) total += part.length;
+  const out = new Uint8Array(total);
+  let pos = 0;
+  for (const part of chunks) { out.set(part, pos); pos += part.length; }
+  return out;
+}
+
+// Stable, sortable name for a step's screenshot inside the ZIP.
+function shotZipName(step) {
+  const idx = String(step?.index || 0).padStart(2, "0");
+  return `step-${idx}.png`;
+}
+
 // --- Export ---
 async function copyMarkdown() {
   const { url, envTag } = getCurrentScopeInfo();

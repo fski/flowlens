@@ -29,6 +29,7 @@ const els = {
   exportSessionJsonMenu: document.getElementById("exportSessionJsonMenu"),
   exportSessionMdMenu: document.getElementById("exportSessionMdMenu"),
   exportDiffReportMenu: document.getElementById("exportDiffReportMenu"),
+  exportShotsMenu: document.getElementById("exportShotsMenu"),
   downloadJunitXml: document.getElementById("downloadJunitXml"),
   exportSessionJunitMenu: document.getElementById("exportSessionJunitMenu"),
   ciFailOnBlocking: document.getElementById("ciFailOnBlocking"),
