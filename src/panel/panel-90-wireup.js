@@ -755,6 +755,10 @@ const TABLE_COLS = {
   tabTable: ['i', 'type', 'tabIndex', 'name', 'path', 'note'],
 };
 
+// Column visibility is keyed by column NAME, not index. Index-keyed prefs
+// silently shifted meaning whenever a column was added (the APCA column made
+// every saved contrast toggle target the wrong column); name keys survive
+// layout changes and old numeric prefs fail validation and are dropped.
 const colVisibility = {};
 const colStyleEl = document.createElement('style');
 colStyleEl.id = 'colToggleStyles';
@@ -763,24 +767,25 @@ document.head.appendChild(colStyleEl);
 function applyColStyles() {
   const rules = [];
   for (const [tableId, cols] of Object.entries(colVisibility)) {
-    for (const [idx, visible] of Object.entries(cols)) {
-      if (visible === false) {
-        const n = Number(idx) + 1;
-        rules.push(`#${tableId} th:nth-child(${n}), #${tableId} td:nth-child(${n}) { width: 0 !important; max-width: 0 !important; padding: 0 !important; border: none !important; overflow: hidden; font-size: 0; line-height: 0; visibility: hidden; }`);
-      }
+    for (const [name, visible] of Object.entries(cols)) {
+      if (visible !== false) continue;
+      const idx = (TABLE_COLS[tableId] || []).indexOf(name);
+      if (idx === -1) continue;
+      const n = idx + 1;
+      rules.push(`#${tableId} th:nth-child(${n}), #${tableId} td:nth-child(${n}) { width: 0 !important; max-width: 0 !important; padding: 0 !important; border: none !important; overflow: hidden; font-size: 0; line-height: 0; visibility: hidden; }`);
     }
   }
   colStyleEl.textContent = rules.join('\n');
 }
 
-function isColVisible(tableId, colIdx) {
-  return colVisibility[tableId]?.[colIdx] !== false;
+function isColVisible(tableId, colName) {
+  return colVisibility[tableId]?.[colName] !== false;
 }
 
-function toggleColVisibility(tableId, colIdx) {
+function toggleColVisibility(tableId, colName) {
   if (!colVisibility[tableId]) colVisibility[tableId] = {};
-  colVisibility[tableId][colIdx] = !isColVisible(tableId, colIdx) ? true : false;
-  if (colVisibility[tableId][colIdx] === true) delete colVisibility[tableId][colIdx];
+  colVisibility[tableId][colName] = !isColVisible(tableId, colName) ? true : false;
+  if (colVisibility[tableId][colName] === true) delete colVisibility[tableId][colName];
   if (Object.keys(colVisibility[tableId]).length === 0) delete colVisibility[tableId];
   applyColStyles();
   storageSet({ colPrefs: colVisibility });
@@ -803,15 +808,15 @@ function createColToggle(tableId, parentEl, afterEl) {
   dropdown.className = 'colDropdown';
   dropdown.hidden = true;
 
-  cols.forEach((name, idx) => {
+  cols.forEach((name) => {
     const label = document.createElement('label');
     label.className = 'colOption';
     const cb = document.createElement('input');
     cb.type = 'checkbox';
-    cb.checked = isColVisible(tableId, idx);
+    cb.checked = isColVisible(tableId, name);
     cb.addEventListener('change', () => {
-      toggleColVisibility(tableId, idx);
-      cb.checked = isColVisible(tableId, idx);
+      toggleColVisibility(tableId, name);
+      cb.checked = isColVisible(tableId, name);
     });
     label.appendChild(cb);
     label.appendChild(document.createTextNode(' ' + name));
@@ -855,10 +860,11 @@ function initColToggles() {
   storageGet(['colPrefs']).then(({ colPrefs }) => {
     let useSaved = false;
     if (colPrefs && Object.keys(colPrefs).length > 0) {
-      // Validate saved prefs against current column counts to avoid stale indices
+      // Prefs must reference current column NAMES — this also drops legacy
+      // index-keyed prefs from before the name migration.
       const valid = Object.entries(colPrefs).every(([tableId, cols]) => {
         const expected = TABLE_COLS[tableId];
-        return expected && Object.keys(cols).every(i => Number(i) < expected.length);
+        return expected && Object.keys(cols).every(name => expected.includes(name));
       });
       if (valid) { Object.assign(colVisibility, colPrefs); useSaved = true; }
     }

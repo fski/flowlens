@@ -276,14 +276,6 @@ function renderSaveStatus(status, detail) {
   els.saveStatusText.textContent = detail ? `${text} \u2014 ${detail}` : text;
 }
 
-const DURATIONS = { watch: 40, observe: 12, tabWalk: 5, contrast: 3, run: 2 };
-const PROGRESS_LABELS = {
-  run: "Scanning…",
-  contrast: "Checking contrast…",
-  tabWalk: "Walking focusables…",
-  watch: "Monitoring…",
-  observe: "Observing…",
-};
 
 function setProgressA11y(bar, percent, valueText) {
   if (!bar) return;
@@ -316,7 +308,7 @@ function showProgress(action, durationSec) {
     bar.style.transition = `width ${durationSec}s linear`;
     bar.style.width = '100%';
   }
-  const prefix = PROGRESS_LABELS[action] || "Running";
+  const prefix = MODES[action]?.progressLabel || "Running";
   let remaining = durationSec;
   if (!isObserve && label) label.textContent = `${prefix}`;
   if (!isObserve && time) time.textContent = "0.0s";
@@ -384,7 +376,7 @@ function scrollToResults(action) {
 async function _runSingle(action, opts) {
   const btn = document.querySelector(`[data-action="${action}"]`);
   if (btn) btn.classList.add('running');
-  showProgress(action, DURATIONS[action] || 2);
+  showProgress(action, MODES[action]?.duration || 2);
   try {
     return await runAction(action, opts);
   } finally {
@@ -407,18 +399,11 @@ function setRunButtonBusy(busy) {
   }
   if (busy) {
     if (els.runLabel) {
-      const busyLabels = { run: "Running\u2026", contrast: "Checking\u2026", tabWalk: "Walking\u2026", observe: "Observing\u2026", watch: "Watching\u2026" };
-      els.runLabel.textContent = busyLabels[state.activeMode] || "Running\u2026";
+      els.runLabel.textContent = MODES[state.activeMode]?.busyLabel || "Running\u2026";
     }
   } else {
     // Fully restore CTA appearance after run completes
-    const cta = SNAP_CTA[state.activeMode] || SNAP_CTA.run;
-    let label = cta.label;
-    if (state.hasRunMode.has(state.activeMode)) label = SNAP_CTA_RERUN[state.activeMode] || label;
-    if (els.runLabel) els.runLabel.textContent = label;
-    els.runCurrentMode.className = "ctaBtn " + cta.cls;
-    if (els.snapHelper) els.snapHelper.textContent = cta.helper;
-    if (els.runIcon) els.runIcon.src = state.hasRunMode.has(state.activeMode) ? "icons/Rerun Icon.svg" : "icons/Run Icon.svg";
+    applySnapCta(state.activeMode);
   }
 }
 
@@ -527,7 +512,7 @@ function hashFinding(f) {
 }
 
 function modeLabel(mode) {
-  return MODE_LABELS[mode] || String(mode || "run");
+  return MODES[mode]?.label || String(mode || "run");
 }
 
 
@@ -559,33 +544,26 @@ function setPressed(action) {
   updateSnapCta(state.activeMode || "run");
 }
 
-const SNAP_CTA = {
-  run:      { label: "Run Audit",      cls: "ctaBtn--amber", helper: "Perform a strict WCAG Audit" },
-  contrast: { label: "Check Contrast", cls: "ctaBtn--cyan",  helper: "Check contrast on up to 250 text nodes" },
-  tabWalk:  { label: "Run Tab\u00A0Walk",   cls: "ctaBtn--lime",  helper: "Walk 80 focusable elements" },
-  observe:  { label: "Start Observe",  cls: "ctaBtn--teal",  helper: "Re-run WCAG check every ~1s for 12s" },
-  watch:    { label: "Start Watch",    cls: "ctaBtn--mint",   helper: "Monitor loaders and focus bar for 40s" },
-};
-
-const SNAP_CTA_RERUN = {
-  run:      "Rerun Audit",
-  contrast: "Recheck Contrast",
-  tabWalk:  "Rerun Tab\u00A0Walk",
-  observe:  "Restart Observe",
-  watch:    "Restart Watch",
-};
-
-function updateSnapCta(mode) {
-  if (state.running) return;
-  const cta = SNAP_CTA[mode] || SNAP_CTA.run;
+/**
+ * Apply the idle CTA appearance for a mode from the MODES registry.
+ * Shared by updateSnapCta (mode switches) and setRunButtonBusy(false)
+ * (run completion) \u2014 these were two hand-maintained copies before.
+ */
+function applySnapCta(mode) {
+  const cta = (MODES[mode] || MODES.run).cta;
   let label = cta.label;
-  if (state.hasRunMode.has(mode)) label = SNAP_CTA_RERUN[mode] || label;
+  if (state.hasRunMode.has(mode)) label = cta.rerun || label;
   if (els.runLabel) els.runLabel.textContent = label;
   if (els.runCurrentMode) {
     els.runCurrentMode.className = "ctaBtn " + cta.cls;
   }
   if (els.snapHelper) els.snapHelper.textContent = cta.helper;
   if (els.runIcon) els.runIcon.src = state.hasRunMode.has(mode) ? "icons/Rerun Icon.svg" : "icons/Run Icon.svg";
+}
+
+function updateSnapCta(mode) {
+  if (state.running) return;
+  applySnapCta(mode);
 }
 
 function showMode(mode) {

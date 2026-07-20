@@ -368,7 +368,6 @@ function renderRecord(rec) {
 
 // ═══ PAST RUNS BOTTOM SHEET ═══
 
-const MODE_COLORS = { run: "var(--orange)", contrast: "#54B8A6", tabWalk: "#7BB85E", observe: "#5AADDB", watch: "#8B8EDB" };
 
 function formatRunTime(isoString) {
   if (!isoString) return "";
@@ -428,11 +427,11 @@ function renderPastRuns() {
   els.pastRunsList.innerHTML = runs.map(rec => {
     const isActive = String(rec.id) === String(state.currentId);
     const mode = rec.action || "run";
-    const color = MODE_COLORS[mode] || "var(--tx3)";
+    const color = MODES[mode]?.color || "var(--tx3)";
     return `<div class="pastRunItem${isActive ? " isActive" : ""}" data-id="${escapeHtml(String(rec.id))}">` +
       `<span class="pastRunDot" style="background:${color}"></span>` +
       `<span class="pastRunInfo">` +
-        `<span class="pastRunMode">${MODE_LABELS[mode] || mode}</span>` +
+        `<span class="pastRunMode">${MODES[mode]?.label || mode}</span>` +
         `<span class="pastRunTime">${formatRunTime(rec.at)}</span>` +
       `</span>` +
       `<span class="pastRunCount">${getRunCount(rec)}</span>` +
