@@ -83,8 +83,17 @@ function updateSessionButtons() {
   const inFlight = !!sessionState.inFlight;
   const panelBusy = inFlight || state.running;
   if (els.sessionStart) {
+    // Snap rule (applySnapCta): ONE persistent CTA — same element, same slot,
+    // same size in every state; only content/disabled change. Hiding it and
+    // swapping in a banner made the button "change" mid-recording.
     els.sessionStart.disabled = panelBusy || hasSession;
-    els.sessionStart.hidden = hasSession;
+    const ctaState = hasSession ? "recording" : "idle";
+    if (els.sessionStart.dataset.ctaState !== ctaState) {
+      els.sessionStart.dataset.ctaState = ctaState;
+      els.sessionStart.innerHTML = hasSession
+        ? '<span class="recSpinner" aria-hidden="true">&#9676;</span> Recording…'
+        : '<img class="tabSvg" src="icons/Flow Icon.svg" alt="" width="16" height="16" aria-hidden="true" /> Record Flow';
+    }
   }
   if (els.sessionMark) {
     els.sessionMark.disabled = !hasSession || state.running;
@@ -101,8 +110,9 @@ function updateSessionButtons() {
     // gone via its session-id guard).
     els.sessionEnd.disabled = !hasSession;
   }
-  // Toggle recording banner and actions in Flow Record view
-  if (els.flowRecordingBanner) els.flowRecordingBanner.hidden = !hasSession;
+  // Actions row appears during a session; the recording state itself lives on
+  // the persistent CTA (banner retired — it duplicated the button's state).
+  if (els.flowRecordingBanner) els.flowRecordingBanner.hidden = true;
   if (els.flowRecordActions) els.flowRecordActions.hidden = !hasSession;
   if (els.sessionExportMenuLabel) els.sessionExportMenuLabel.hidden = !hasExportableSession;
   if (els.exportSessionJsonMenu) {
@@ -129,11 +139,6 @@ function updateSessionButtons() {
     const sessShots = sessionState.current || sessionState.lastEndedSession;
     const hasShots = (sessShots?.steps || []).some(s => s?.hasShot);
     els.exportShotsMenu.hidden = !(hasExportableSession && hasShots);
-  }
-  // Reviewing an ended session: the hero Record CTA shrinks to a normal button.
-  const flowRoot = typeof document !== "undefined" && document.getElementById ? document.getElementById("flowContent") : null;
-  if (flowRoot && flowRoot.classList && flowRoot.classList.toggle) {
-    flowRoot.classList.toggle("hasEnded", hasArchivedSession);
   }
   if (els.exportAnchor) els.exportAnchor.hidden = !((state.records.length > 0) || hasExportableSession);
   renderSessionHud();
