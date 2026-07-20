@@ -1745,6 +1745,7 @@ async function startSession() {
   };
   sessionState.lastMarkStep = null;
   sessionState.lastAutoNavUrl = null;
+  sessionState.foreignSkipNotified = false;
   await persistActiveSessionBestEffort(sessionState.current);
   updateSessionButtons();
   setPersistentStatus("OK", "SESSION_STARTED", "Session active");

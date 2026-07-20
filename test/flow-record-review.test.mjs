@@ -274,6 +274,24 @@ describe('media pipeline honesty', () => {
   });
 });
 
+describe('auto-capture skips third-party origins (privacy decision 2026-07-20)', () => {
+  let ctx;
+  beforeEach(() => { ctx = createContext(); });
+
+  it('foreign origin detected against the session origin', () => {
+    const session = { inspectedOrigin: 'https://app.example.com' };
+    assert.equal(ctx.isForeignAutoCaptureOrigin('https://accounts.google.com/signin', session), true);
+    assert.equal(ctx.isForeignAutoCaptureOrigin('https://app.example.com/checkout', session), false);
+    // Same host, different scheme/port = different origin = foreign.
+    assert.equal(ctx.isForeignAutoCaptureOrigin('http://app.example.com/x', session), true);
+  });
+
+  it('no session origin → not foreign (no false blocking)', () => {
+    assert.equal(ctx.isForeignAutoCaptureOrigin('https://x.com/a', null), false);
+    assert.equal(ctx.isForeignAutoCaptureOrigin('https://x.com/a', {}), false);
+  });
+});
+
 describe('auto-capture settings survive a panel reload', () => {
   let ctx;
   beforeEach(() => { ctx = createContext(); });

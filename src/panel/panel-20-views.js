@@ -106,6 +106,16 @@ function renderResultsShell(shell) {
   }
 }
 
+// Foreign-origin navigations are SKIPPED by auto-capture (decision: Piotr,
+// 2026-07-20). Auto-captured steps include viewport screenshots, and the
+// third-party pages a flow crosses (SSO login, payment gateways) routinely
+// show credentials/card data that must not land in IndexedDB. Manual Mark on
+// a foreign page still works — that's a deliberate user action.
+function isForeignAutoCaptureOrigin(url, session) {
+  if (!session || !session.inspectedOrigin) return false;
+  return originFrom(url || "") !== session.inspectedOrigin;
+}
+
 // Decide whether a navigation event is a real new step for auto-capture.
 // Accepts path/query changes (incl. SPA route changes) and the first nav;
 // rejects self-navigation and hash-only jumps that would just add noise.
