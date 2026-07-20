@@ -1280,15 +1280,8 @@ kbd {
 .stepFindingItem:hover .stepHighlight { opacity: 1; }
 .stepHighlight:hover { color: var(--cyan); border-color: var(--cyan); }
 .stepHighlight:focus-visible { opacity: 1; outline: 2px solid var(--cyan); outline-offset: 1px; }
-#flowTimelineTable tbody tr.trow { cursor: pointer; }
-#flowTimelineTable tbody tr.trow:hover { background: var(--raised); }
-#flowTimelineTable tbody tr.trow:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; background: var(--raised); }
-#flowTimelineTable tbody tr.trow.isExpanded { background: var(--raised); font-weight: 600; }
-
 /* ═══ DELETE STEP ═══ */
 .stepDeleteBtn { min-width: 24px; min-height: 24px; padding: 4px; border: none; background: transparent; color: var(--tx3); font: 600 13px/1 var(--font-mono); cursor: pointer; opacity: 0; transition: opacity .15s; vertical-align: middle; margin-left: 4px; }
-#flowTimelineTable tbody tr:hover .stepDeleteBtn,
-#flowTimelineTable tbody tr:focus-within .stepDeleteBtn { opacity: 1; }
 .stepDeleteBtn:hover { color: var(--red); }
 .stepDeleteBtn:focus-visible { opacity: 1; outline: 2px solid var(--cyan); outline-offset: 1px; }
 
@@ -2062,14 +2055,6 @@ kbd {
 #watchTable th:nth-child(1), #watchTable td:nth-child(1) { width: 14%; }
 #watchTable th:nth-child(2), #watchTable td:nth-child(2) { width: 18%; }
 
-/* Flow Timeline column widths — % based */
-/* 7 cols: step 8% | route * | mode 12% | new 7% | fixed 7% | persisting 10% | blockers * */
-#flowTimelineTable th:nth-child(1), #flowTimelineTable td:nth-child(1) { width: 8%; }
-#flowTimelineTable th:nth-child(3), #flowTimelineTable td:nth-child(3) { width: 12%; }
-#flowTimelineTable th:nth-child(4), #flowTimelineTable td:nth-child(4) { width: 7%; }
-#flowTimelineTable th:nth-child(5), #flowTimelineTable td:nth-child(5) { width: 7%; }
-#flowTimelineTable th:nth-child(6), #flowTimelineTable td:nth-child(6) { width: 10%; }
-
 .tbl th:first-child,
 .tbl td:first-child {
   position: sticky;
@@ -2564,11 +2549,6 @@ kbd {
   .highlightHint { display: none; }
   .searchToolbar { padding: 3px 6px; gap: 4px; }
 
-  /* Hide low-priority columns in tight panels */
-  #flowTimelineTable th:nth-child(6),
-  #flowTimelineTable td:nth-child(6),
-  #flowTimelineTable th:nth-child(7),
-  #flowTimelineTable td:nth-child(7),
   /* Hide testId in contrast */
   #contrastTable th:nth-child(6), #contrastTable td:nth-child(6) {
     width: 0 !important; max-width: 0 !important; padding: 0 !important;

@@ -2,7 +2,8 @@
 // per-session video. Kept OUT of chrome.storage.local (which holds record/session
 // JSON and would blow its ~10 MB quota on image/video blobs).
 //
-// Shots are keyed `${sessionId}::${stepIndex}`, videos by `${sessionId}`.
+// Shots are keyed `${sessionId}::${stepShotKey}` (stable step.id; numeric
+// step.index only for pre-id legacy sessions), videos by `${sessionId}`.
 // Every method is best-effort: writes return { ok, reason }, reads return the
 // value or null — a missing/broken IndexedDB never throws into the caller, so a
 // failed screenshot degrades to a placeholder tile instead of failing the audit.
@@ -58,10 +59,11 @@ var flowMediaStore = (function () {
     });
   }
 
-  function putShot(sessionId, stepIndex, blob, dims) {
+  function putShot(sessionId, stepId, blob, meta) {
     return api._openDb().then(function (db) {
-      var d = dims || {};
-      return db.store(SHOTS).put({ blob: blob, w: d.w || 0, h: d.h || 0, at: d.at || 0 }, shotKey(sessionId, stepIndex));
+      // Only the blob is ever read back; `at` is kept for debugging. The old
+      // w/h fields were write-only dead weight.
+      return db.store(SHOTS).put({ blob: blob, at: (meta && meta.at) || 0 }, shotKey(sessionId, stepId));
     }).then(function () {
       return { ok: true };
     }).catch(function (e) {

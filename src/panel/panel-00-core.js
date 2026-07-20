@@ -334,7 +334,6 @@ const sessionState = {
   captureSlowTimer: null,
   captureSlow: false,
   lastPersistReasonCode: "-",
-  expandedStepIndex: null,
   selectedStepIndex: null,
   autoCapturePending: null,
   lastAutoNavUrl: null,

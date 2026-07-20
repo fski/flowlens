@@ -1338,13 +1338,20 @@ function flowVerdictHeaderHtml(sess) {
     + '</div>' + systemicNote;
 }
 
+// Single source for a step's screenshot storage key: the stable step.id, with
+// the numeric-index fallback pre-id sessions were written under. Write side
+// (captureStepShot) and both read sites must agree — they drifted before.
+function stepShotKey(step) {
+  return String((step && (step.id || step.index)) || "");
+}
+
 function filmstripHtml(sess, selectedIndex) {
   var views = flowStepViews(sess);
   if (!views.length) return "";
   return views.map(function (v) {
     var sel = v.index === selectedIndex;
     var thumb = v.hasShot
-      ? '<div class="filmstripThumb" data-shot-step="' + escapeHtml(v.id) + '" data-shot-idx="' + v.index + '"></div>'
+      ? '<div class="filmstripThumb" data-shot-step="' + escapeHtml(stepShotKey(v)) + '" data-shot-idx="' + v.index + '"></div>'
       : '<div class="filmstripThumb filmstripThumb--empty" aria-hidden="true">' + (v.shotError ? "!" : "▢") + '</div>';
     var cls = "filmstripTile" + (sel ? " isSelected" : "") + (v.hasShot ? "" : " filmstripTile--noshot")
       + (v.blockingAdded > 0 ? " filmstripTile--blocking" : "");
@@ -1406,7 +1413,7 @@ function stepDetailHtml(sess, selectedIndex) {
   var step = steps[pos];
   var prev = pos > 0 ? steps[pos - 1] : null;
   var d = bucketStepDiff(step, prev);
-  var shotKey = step.id || String(step.index);
+  var shotKey = stepShotKey(step);
   var shot = step.hasShot
     ? '<div class="flowDetailShot" data-shot-step="' + escapeHtml(shotKey) + '" data-shot-idx="' + step.index + '"></div>'
     : '<div class="flowDetailShot flowDetailShot--empty">' + (step.shotError ? "screenshot unavailable" : "no screenshot") + '</div>';

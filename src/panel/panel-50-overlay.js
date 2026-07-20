@@ -549,7 +549,7 @@ async function captureStepShot(sessionId, step, scopeInfo, at) {
     // already froze hasShot:false, so writing now would only orphan the blob
     // in IndexedDB (invisible until the session ages out of the prune window).
     if (!sessionState.current || sessionState.current.id !== sessionId) return false;
-    const put = await flowMediaStore.putShot(sessionId, step.id, blob, { at: at || 0 });
+    const put = await flowMediaStore.putShot(sessionId, stepShotKey(step), blob, { at: at || 0 });
     if (put && put.ok) { step.hasShot = true; step.shotError = false; return true; }
     step.shotError = true;
     return false;
@@ -579,8 +579,7 @@ async function downloadFlowVideo(sessionId) {
   try {
     var rec = await flowMediaStore.getVideo(sessionId);
     if (!rec || !rec.blob) { toast("No recording for this flow"); return false; }
-    var ext = (rec.meta && /vp9|vp8|webm/.test(rec.meta.mime || "")) ? "webm" : "webm";
-    downloadBlobFile(rec.blob, "flowlens-flow-" + sessionId + "." + ext);
+    downloadBlobFile(rec.blob, "flowlens-flow-" + sessionId + ".webm");
     return true;
   } catch (_) {
     toast("Could not load recording");
