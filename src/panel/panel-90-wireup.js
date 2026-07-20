@@ -342,6 +342,29 @@ function stepIndicesForNav() {
   if (els.flowUnresolvedOnly) {
     els.flowUnresolvedOnly.addEventListener("change", () => renderFlow());
   }
+
+  // Record video: getDisplayMedia (user picks the tab) → webm in the media
+  // store. Toggle button; label reflects recording state.
+  if (els.flowRecordVideo) {
+    els.flowRecordVideo.addEventListener("click", async () => {
+      if (flowRecorder.isRecording()) {
+        const r = await flowRecorder.stop();
+        setRecordVideoUi(false);
+        toast(r?.ok ? "Video saved to this flow" : "Recording stopped");
+        return;
+      }
+      const sess = sessionState.current || sessionState.lastEndedSession;
+      if (!sess?.id) { toast("Start a flow first"); return; }
+      const r = await flowRecorder.start(sess.id);
+      if (r?.ok) { setRecordVideoUi(true); toast("Recording — pick the tab to capture"); }
+      else if (r?.reason === "cancelled") { /* user dismissed picker, no-op */ }
+      else toast("Screen recording unavailable");
+    });
+  }
+}
+function setRecordVideoUi(recording) {
+  if (els.flowRecordVideo) els.flowRecordVideo.classList.toggle("isRecording", !!recording);
+  if (els.flowRecordVideoLabel) els.flowRecordVideoLabel.textContent = recording ? "Stop recording" : "Record video";
 }
 
 if (els.sheetCopyRaw) {

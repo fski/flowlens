@@ -434,6 +434,73 @@ function applySectionView(section, rows, emptyText) {
   }
 }
 
+// ═══ FLOW VIDEO RECORDER ══════════════════════════════════════════════════
+// Local flow video via getDisplayMedia (user picks the tab — no permission)
+// recorded with MediaRecorder to webm, stored in flowMediaStore. Fully local.
+function pickRecorderMime(isSupported) {
+  var check = typeof isSupported === "function"
+    ? isSupported
+    : (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported)
+      ? function (t) { return MediaRecorder.isTypeSupported(t); }
+      : function () { return false; };
+  var prefs = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+  for (var i = 0; i < prefs.length; i++) { if (check(prefs[i])) return prefs[i]; }
+  return "";
+}
+
+var flowRecorder = (function () {
+  var _rec = null, _stream = null, _chunks = [], _sessionId = null, _startAt = 0;
+
+  function isRecording() { return !!_rec && _rec.state === "recording"; }
+
+  async function start(sessionId) {
+    if (isRecording()) return { ok: false, reason: "already-recording" };
+    if (typeof navigator === "undefined" || !navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+      return { ok: false, reason: "unsupported" };
+    }
+    try {
+      _stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    } catch (e) {
+      return { ok: false, reason: "cancelled" }; // user dismissed the picker
+    }
+    _sessionId = sessionId;
+    _chunks = [];
+    var mime = pickRecorderMime();
+    _rec = new MediaRecorder(_stream, mime ? { mimeType: mime } : undefined);
+    _rec.ondataavailable = function (ev) { if (ev.data && ev.data.size) _chunks.push(ev.data); };
+    // If the user stops sharing from Chrome's own bar, finalize gracefully.
+    _stream.getVideoTracks().forEach(function (t) { t.onended = function () { stop(); }; });
+    _startAt = (typeof performance !== "undefined" && performance.now) ? performance.now() : 0;
+    _rec.start();
+    return { ok: true };
+  }
+
+  async function stop() {
+    if (!_rec) return { ok: false, reason: "not-recording" };
+    var rec = _rec, stream = _stream, chunks = _chunks, sid = _sessionId, startAt = _startAt;
+    _rec = null; _stream = null; _chunks = [];
+    return await new Promise(function (resolve) {
+      rec.onstop = async function () {
+        try { (stream.getTracks() || []).forEach(function (t) { t.stop(); }); } catch (_) {}
+        var mime = rec.mimeType || "video/webm";
+        var blob = new Blob(chunks, { type: mime });
+        var durationMs = startAt ? Math.round(((typeof performance !== "undefined" && performance.now) ? performance.now() : 0) - startAt) : 0;
+        if (typeof flowMediaStore !== "undefined" && sid) {
+          try {
+            await flowMediaStore.putVideo(sid, blob, { mime: mime, durationMs: durationMs });
+            var sess = sessionState.current || sessionState.lastEndedSession;
+            if (sess && sess.id === sid) sess.hasVideo = true;
+          } catch (_) {}
+        }
+        resolve({ ok: true, blob: blob, mime: mime, durationMs: durationMs });
+      };
+      try { rec.stop(); } catch (_) { resolve({ ok: false, reason: "stop-failed" }); }
+    });
+  }
+
+  return { start: start, stop: stop, isRecording: isRecording };
+})();
+
 // ═══ PER-STEP SCREENSHOT ══════════════════════════════════════════════════
 // Decide whether a viewport screenshot is worth attempting for a step. Skips
 // schemes captureVisibleTab can't grab so we don't fire a doomed capture.
@@ -1655,6 +1722,9 @@ async function endSession() {
   // "last ended session" export claims in-progress with a growing duration.
   const previousEndedAt = sessionState.current.endedAt || null;
   sessionState.current.endedAt = nowIso();
+  // Finalize any in-progress flow video before the session is archived, so the
+  // webm is stored and session.hasVideo is set on the exported snapshot.
+  if (flowRecorder.isRecording()) { try { await flowRecorder.stop(); } catch (_) {} }
   const exportableEndedSession = compactSessionForExport(normalizeLoadedSession(sessionState.current));
   const archived = await archiveSessionBestEffort(compactSessionForExport(sessionState.current));
   if (!archived) {

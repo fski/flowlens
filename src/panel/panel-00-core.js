@@ -49,6 +49,8 @@ const els = {
   flowStepList: document.getElementById("flowStepList"),
   flowStepDetail: document.getElementById("flowStepDetail"),
   flowUnresolvedOnly: document.getElementById("flowUnresolvedOnly"),
+  flowRecordVideo: document.getElementById("flowRecordVideo"),
+  flowRecordVideoLabel: document.getElementById("flowRecordVideoLabel"),
 
   runCurrentMode: document.getElementById("runCurrentMode"),
 
