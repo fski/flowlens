@@ -4,7 +4,7 @@
 async function copyMarkdown() {
   const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
   const envTag = `${originFrom(url) || "—"} • ${detectEnv(url)}`;
-  const _best = state.lastResult?.bestEntry || state.lastResult?.best;
+  const _best = currentBestEntry();
   const md = buildMarkdown({
     inspectedUrl: url,
     best: _best,
@@ -37,7 +37,7 @@ function gatherDiagnosticsOpts() {
   const url = els.inspectedUrl?.dataset?.full || els.inspectedUrl?.textContent || "";
   const env = detectEnv(url);
   const version = (typeof __FLOWLENS_VERSION__ !== "undefined") ? __FLOWLENS_VERSION__ : "dev";
-  const best = state.lastResult?.bestEntry || state.lastResult?.best || null;
+  const best = currentBestEntry();
   const bestResult = best?.result || best || {};
   return {
     version,
@@ -108,7 +108,7 @@ function gatherDiagnosticsOpts() {
       return lastStep?.excludedFrameCount || 0;
     })(),
     findings: (() => {
-      const best = state.lastResult?.bestEntry || state.lastResult?.best || null;
+      const best = currentBestEntry();
       return Array.isArray(best?.result?.findings) ? best.result.findings : [];
     })(),
   };
@@ -634,7 +634,7 @@ function buildCIReportFromState() {
   if (typeof buildCIReport !== "function") return null;
 
   var version = (typeof __FLOWLENS_VERSION__ !== "undefined") ? __FLOWLENS_VERSION__ : "dev";
-  var bestEntry = state.lastResult?.bestEntry || state.lastResult?.best || null;
+  var bestEntry = currentBestEntry();
   var rawFindings = Array.isArray(bestEntry?.result?.findings) ? bestEntry.result.findings : [];
   var filteredFindings = applyAllFindingFilters(rawFindings);
 

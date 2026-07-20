@@ -663,7 +663,7 @@ function pruneSessionRawAppendix(session) {
 
 /** Shared boilerplate: resolve raw, extract array, map items. */
 function _sigEntries(snapshot, rawAppendix, arrayKey, mapFn) {
-  const fk = snapshot?.best?.frameKey || "fk::unknown::unknown::root::00000000";
+  const fk = snapshot?.best?.frameKey || UNKNOWN_FRAME_KEY;
   const items = (resolveSnapshotRaw(snapshot, rawAppendix) || {})[arrayKey];
   if (!Array.isArray(items)) return [];
   return items.map(item => mapFn(item, fk));
@@ -672,7 +672,7 @@ function _sigEntries(snapshot, rawAppendix, arrayKey, mapFn) {
 /** Signature entries for findings-based modes (run + observe). */
 function findingSignatureEntries(prefix, snapshot, rawAppendix = null) {
   const isRun = prefix === "run";
-  const fk = snapshot?.best?.frameKey || "fk::unknown::unknown::root::00000000";
+  const fk = snapshot?.best?.frameKey || UNKNOWN_FRAME_KEY;
   const raw = resolveSnapshotRaw(snapshot, rawAppendix) || {};
   const findings = Array.isArray(raw.findings) ? raw.findings : [];
   const entries = [];
@@ -765,7 +765,7 @@ function tabWalkSignatureEntries(snapshot, rawAppendix = null) {
 }
 
 function watchSignatureEntries(snapshot, rawAppendix = null) {
-  const fk = snapshot?.best?.frameKey || "fk::unknown::unknown::root::00000000";
+  const fk = snapshot?.best?.frameKey || UNKNOWN_FRAME_KEY;
   const raw = resolveSnapshotRaw(snapshot, rawAppendix) || {};
   const out = (Array.isArray(raw.verdicts) ? raw.verdicts : []).map(v => ({
     sig: ["watch", fk, normalizeWs(v?.metric, 32), `b:${bucketNumber(v?.budget, 1)}`, `v:${bucketNumber(v?.value, 1)}`].join("|"),

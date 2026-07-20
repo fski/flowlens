@@ -160,7 +160,7 @@ if (els.downloadMd) {
   els.downloadMd.addEventListener("click", () => {
     const url = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
     const envTag = `${originFrom(url) || "\u2014"} \u2022 ${detectEnv(url)}`;
-    const _best = state.lastResult?.bestEntry || state.lastResult?.best;
+    const _best = currentBestEntry();
     const md = buildMarkdown({
       inspectedUrl: url,
       best: _best,
@@ -343,6 +343,15 @@ function stepIndicesForNav() {
     els.flowUnresolvedOnly.addEventListener("change", () => renderFlow());
   }
 
+  // Download a stored flow recording from the verdict header.
+  if (els.flowVerdictHeader) {
+    els.flowVerdictHeader.addEventListener("click", (e) => {
+      if (!e.target.closest("[data-flow-download-video]")) return;
+      const sess = sessionState.current || sessionState.lastEndedSession;
+      if (sess?.id) downloadFlowVideo(sess.id);
+    });
+  }
+
   // Record video: getDisplayMedia (user picks the tab) → webm in the media
   // store. Toggle button; label reflects recording state.
   if (els.flowRecordVideo) {
@@ -350,7 +359,14 @@ function stepIndicesForNav() {
       if (flowRecorder.isRecording()) {
         const r = await flowRecorder.stop();
         setRecordVideoUi(false);
-        toast(r?.ok ? "Video saved to this flow" : "Recording stopped");
+        if (r?.ok && r.blob) {
+          const sid = (sessionState.current || sessionState.lastEndedSession)?.id || "flow";
+          downloadBlobFile(r.blob, `flowlens-flow-${sid}.webm`);
+          toast("Video saved & downloaded");
+        } else {
+          toast("Recording stopped");
+        }
+        renderFlow();
         return;
       }
       const sess = sessionState.current || sessionState.lastEndedSession;
@@ -415,7 +431,7 @@ function buildDetailRow(finding, colCount) {
     ['Path', escapeHtml(finding.path ?? ''), true],
     ['Fix', escapeHtml(finding.fix ?? ''), true],
   ];
-  const isCrossFrame = !finding.el && (typeof RULE_TO_WCAG !== "undefined") && RULE_TO_WCAG[finding.type]?.group === "depth3/multiframe";
+  const isCrossFrame = isCrossFrameFinding(finding);
   if (isCrossFrame) {
     fields.push(['Scope', '<span class="badge crossFrame">Cross-frame</span> This finding spans multiple frames and cannot be highlighted individually']);
   }
@@ -452,7 +468,7 @@ if (els.allTableBody && !els.allTableBody.__bound) {
 
       VT.all.toggleExpanded(idx);
       if (VT.all.expandedIdx === idx) {
-        const isCrossFrame = !f.el && (typeof RULE_TO_WCAG !== "undefined") && RULE_TO_WCAG[f.type]?.group === "depth3/multiframe";
+        const isCrossFrame = isCrossFrameFinding(f);
         if (isCrossFrame) {
           toast("Cross-frame finding — cannot highlight across frame boundaries");
         } else {
@@ -576,8 +592,7 @@ if (els.copyDiagnostics) {
     const payload = buildDiagnosticsPayload(gatherDiagnosticsOpts());
     const ok = await copyText(pretty(payload));
     if (els.copyDiagHint) {
-      els.copyDiagHint.textContent = ok ? "Copied!" : "Copy failed";
-      setTimeout(() => { els.copyDiagHint.textContent = ""; }, 2000);
+      flashInlineHint(els.copyDiagHint, ok ? "Copied!" : "Copy failed");
     }
   });
 }
@@ -587,8 +602,7 @@ if (els.copyDiagnosticsMdBtn) {
     const md = buildDiagnosticsMarkdown(payload);
     const ok = await copyText(md);
     if (els.copyDiagHint) {
-      els.copyDiagHint.textContent = ok ? "Copied!" : "Copy failed";
-      setTimeout(() => { els.copyDiagHint.textContent = ""; }, 2000);
+      flashInlineHint(els.copyDiagHint, ok ? "Copied!" : "Copy failed");
     }
   });
 }
@@ -597,15 +611,13 @@ if (els.copyCiJson) {
     const report = buildCIReportFromState();
     if (!report) {
       if (els.copyDiagHint) {
-        els.copyDiagHint.textContent = "CI exporter not available";
-        setTimeout(() => { els.copyDiagHint.textContent = ""; }, 2000);
+        flashInlineHint(els.copyDiagHint, "CI exporter not available");
       }
       return;
     }
     const ok = await copyText(pretty(report));
     if (els.copyDiagHint) {
-      els.copyDiagHint.textContent = ok ? "Copied CI JSON!" : "Copy failed";
-      setTimeout(() => { els.copyDiagHint.textContent = ""; }, 2000);
+      flashInlineHint(els.copyDiagHint, ok ? "Copied CI JSON!" : "Copy failed");
     }
   });
 }

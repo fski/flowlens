@@ -1110,6 +1110,12 @@ function normalizeLoadedSession(session) {
     if (step.snapshots.run && !step.snapshots.run.targeting) step.snapshots.run.targeting = null;
     if (step.snapshots.active && !step.snapshots.active.targeting) step.snapshots.active.targeting = null;
     if (!step.transitionStates) step.transitionStates = null;
+    // Sessions persisted before the Flow rework lack findingIndex — synthesize
+    // it from the (still present) run snapshot so resumed flows show real
+    // issues + diff instead of an empty PASS.
+    if (!step.findingIndex || typeof step.findingIndex !== "object") {
+      step.findingIndex = buildStepFindingIndex(step.snapshots.run, out.rawAppendix);
+    }
   }
   if (!out.frames || typeof out.frames !== "object") out.frames = { frameKeys: [], frameKeyToLastFrameId: {} };
   if (!Array.isArray(out.frames.frameKeys)) out.frames.frameKeys = [];
@@ -1235,10 +1241,9 @@ function renderSessionHud() {
 
 // Per-step view model: route/label + Appeared/Persisting/Resolved counts and
 // the unresolved-blocker flag, all derived purely from findingIndex.
-function _isBlockingSev(sev) {
-  var s = String(sev || "").toLowerCase();
-  return s === "critical" || s === "high" || s === "medium";
-}
+// Blocking is classified with the SHARED isRunFindingBlocking predicate
+// (confidence-aware) so the Flow verdict/filter agree with Snap + CI; the
+// regression count comes from the authoritative engine diff (baseline = 0).
 function flowStepViews(sess) {
   var steps = (sess && Array.isArray(sess.steps)) ? sess.steps : [];
   var out = [];
@@ -1246,12 +1251,13 @@ function flowStepViews(sess) {
     var step = steps[i];
     var prev = i > 0 ? steps[i - 1] : null;
     var d = bucketStepDiff(step, prev);
-    var blockingAdded = d.appeared.filter(function (f) { return _isBlockingSev(f.severity); }).length;
+    var blockingAdded = (step.diffs && step.diffs.consolidated && Number(step.diffs.consolidated.blockingAdded)) || 0;
     var unresolvedBlockers = 0;
     var idx = step.findingIndex || {};
-    for (var k in idx) { if (Object.prototype.hasOwnProperty.call(idx, k) && _isBlockingSev(idx[k].severity)) unresolvedBlockers++; }
+    for (var k in idx) { if (Object.prototype.hasOwnProperty.call(idx, k) && isRunFindingBlocking(idx[k])) unresolvedBlockers++; }
     out.push({
       index: step.index,
+      id: step.id || String(step.index),
       route: step.routeHint || step.url || "—",
       label: step.label || null,
       hasShot: step.hasShot === true,
@@ -1305,6 +1311,9 @@ function flowVerdictHeaderHtml(sess) {
   var worstNote = worst && worst.appeared > 0
     ? '<span class="flowStat"><span class="flowStatV">Step ' + worst.index + '</span><span class="flowStatL">Worst</span></span>'
     : '';
+  var videoNote = (sess && sess.hasVideo)
+    ? '<button class="btn xs flowVideoDownload" type="button" data-flow-download-video aria-label="Download flow recording">⤓ Video</button>'
+    : '';
   // Reduced-diff-confidence note: preserved from the old verdict — flags that
   // the appeared/resolved diff may be unreliable for structural reasons.
   var diffConfNote = "";
@@ -1325,6 +1334,7 @@ function flowVerdictHeaderHtml(sess) {
     + '<span class="flowStat"><span class="flowStatV">' + issuesNow + '</span><span class="flowStatL">Issues now</span></span>'
     + '<span class="flowStat"><span class="flowStatV">' + newTotal + '</span><span class="flowStatL">New total</span></span>'
     + worstNote
+    + videoNote
     + diffConfNote
     + '</div>' + systemicNote;
 }
@@ -1335,7 +1345,7 @@ function filmstripHtml(sess, selectedIndex) {
   return views.map(function (v) {
     var sel = v.index === selectedIndex;
     var thumb = v.hasShot
-      ? '<div class="filmstripThumb" data-shot-step="' + v.index + '"></div>'
+      ? '<div class="filmstripThumb" data-shot-step="' + escapeHtml(v.id) + '"></div>'
       : '<div class="filmstripThumb filmstripThumb--empty" aria-hidden="true">' + (v.shotError ? "!" : "▢") + '</div>';
     var cls = "filmstripTile" + (sel ? " isSelected" : "") + (v.hasShot ? "" : " filmstripTile--noshot")
       + (v.blockingAdded > 0 ? " filmstripTile--blocking" : "");
@@ -1397,8 +1407,9 @@ function stepDetailHtml(sess, selectedIndex) {
   var step = steps[pos];
   var prev = pos > 0 ? steps[pos - 1] : null;
   var d = bucketStepDiff(step, prev);
+  var shotKey = step.id || String(step.index);
   var shot = step.hasShot
-    ? '<div class="flowDetailShot" data-shot-step="' + step.index + '"></div>'
+    ? '<div class="flowDetailShot" data-shot-step="' + escapeHtml(shotKey) + '"></div>'
     : '<div class="flowDetailShot flowDetailShot--empty">' + (step.shotError ? "screenshot unavailable" : "no screenshot") + '</div>';
   var hasPrev = pos > 0, hasNext = pos < steps.length - 1;
   var nav = '<div class="flowStepNav">'

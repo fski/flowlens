@@ -1,3 +1,25 @@
+// Canonical "unknown frame" sentinel — was an inline string literal repeated
+// across panel-30/40. One constant so a change can't drift between call sites.
+const UNKNOWN_FRAME_KEY = "fk::unknown::unknown::root::00000000";
+
+// A finding is cross-frame (multi-frame integrity) when it has no element and
+// its rule maps to the depth3/multiframe group. This decided a row badge, the
+// detail Scope line, and whether highlight is attempted — three inline copies
+// that had to stay in lockstep; now one predicate.
+function isCrossFrameFinding(f) {
+  if (!f || f.el) return false;
+  if (typeof RULE_TO_WCAG === "undefined") return false;
+  var entry = RULE_TO_WCAG[f.type];
+  return !!(entry && entry.group === "depth3/multiframe");
+}
+
+// The current run's best entry (bestEntry preferred, then best). Repeated as
+// `state.lastResult?.bestEntry || state.lastResult?.best` across panel-60/90.
+function currentBestEntry() {
+  var lr = state.lastResult;
+  return (lr && (lr.bestEntry || lr.best)) || null;
+}
+
 // --- Upgrade: Review status classification ---
 
 /**
@@ -595,6 +617,9 @@ function buildStepFindingIndex(snapshot, rawAppendix = null) {
       type: (f && f.type) || "UNKNOWN_RULE",
       severity: (f && f.severity) || "info",
       wcag: (f && f.wcag) || "",
+      // Confidence is needed to classify a blocker the same way Snap/CI do
+      // (isRunFindingBlocking): medium is blocking only at strict confidence.
+      confidence: (f && f.confidence) || "",
     };
   }
   return out;
