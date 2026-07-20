@@ -309,6 +309,69 @@ describe('auto-capture settings survive a panel reload', () => {
   });
 });
 
+describe('UX audit 2026-07-20 (foodora session feedback)', () => {
+  let ctx;
+  beforeEach(() => { ctx = createContext(); });
+
+  it('groupDiffFindings clusters by type and sorts by severity then size', () => {
+    const items = [
+      { type: 'FOCUS_NOT_VISIBLE', severity: 'low', wcag: '2.4.7' },
+      { type: 'NO_ACCESSIBLE_NAME', severity: 'high', wcag: '4.1.2' },
+      { type: 'FOCUS_NOT_VISIBLE', severity: 'low', wcag: '2.4.7' },
+      { type: 'NO_ACCESSIBLE_NAME', severity: 'high', wcag: '4.1.2' },
+      { type: 'FOCUS_NOT_VISIBLE', severity: 'low', wcag: '2.4.7' },
+    ];
+    const groups = ctx.groupDiffFindings(items);
+    assert.equal(groups.length, 2);
+    assert.equal(groups[0].type, 'NO_ACCESSIBLE_NAME'); // high first despite smaller count
+    assert.equal(groups[0].items.length, 2);
+    assert.equal(groups[1].items.length, 3);
+  });
+
+  it('step detail renders grouped headers, not a flat 99-row list', () => {
+    const items = Array.from({ length: 40 }, (_, i) => ({ type: 'FOCUS_NOT_VISIBLE', severity: 'low', wcag: '2.4.7', name: `el${i}` }));
+    const html = ctx._diffGroupHtml('Appeared', 'appeared', items);
+    assert.match(html, /data-fgroup=/);
+    assert.match(html, /×40/);
+    assert.match(html, /hidden/); // instances collapsed by default
+  });
+
+  it('first step shows a baseline badge instead of "+N new"', () => {
+    assert.match(ctx._badgeTriplet({ index: 1, appeared: 13, persisting: 0, resolved: 0 }), /13 · baseline/);
+    assert.match(ctx._badgeTriplet({ index: 2, appeared: 5, persisting: 1, resolved: 0 }), /\+5/);
+  });
+
+  it('systemic note never repeats a rule label', () => {
+    const mk = (i, n) => {
+      const findings = Array.from({ length: n }, (_, j) => ({
+        severity: 'high', confidence: 'strict', type: 'NO_ACCESSIBLE_NAME', name: `btn${j}`,
+        wcag: '4.1.2', path: `html>body>div>button:nth-child(${j + 1})`, product: 'axe', role: '', level: 'AA',
+      }));
+      return mkStep(ctx, i, findings);
+    };
+    const steps = [mk(1, 3), mk(2, 3)];
+    const html = ctx.flowVerdictHeaderHtml({ id: 's', rawAppendix: {}, steps });
+    const hits = html.match(/NO_ACCESSIBLE_NAME in/g) || [];
+    assert.ok(hits.length <= 1, `label repeated ${hits.length}× in systemic note`);
+  });
+
+  it('setPersistentStatus routes snap-surface writes away from the Flow line', () => {
+    const flowLine = ctx.document.getElementById('lastStatusLine');
+    const snapLine = ctx.document.getElementById('snapStatusLine');
+    ctx.setPersistentStatus('OK', 'TABWALK', '0 issues', 'snap');
+    assert.match(String(snapLine.textContent), /TABWALK/);
+    assert.doesNotMatch(String(flowLine.textContent || ''), /TABWALK/);
+    ctx.setPersistentStatus('OK', 'SESSION_STARTED', 'Session active');
+    assert.match(String(flowLine.textContent), /SESSION_STARTED/);
+  });
+
+  it('applySectionView never shows an empty message over visible rows', () => {
+    ctx.applySectionView('tabWalk', [{ i: 0, type: 'a' }], 'No focusable elements were walked');
+    const emptyEl = ctx.document.getElementById('tabWalkEmpty');
+    assert.equal(emptyEl.hidden, true, 'rows win over the empty message');
+  });
+});
+
 describe('stable consolidated countsDelta merges run+active', () => {
   let ctx;
   beforeEach(() => { ctx = createContext(); });

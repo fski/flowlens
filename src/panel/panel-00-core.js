@@ -44,6 +44,10 @@ const els = {
   flowPlaceholder: document.getElementById("flowPlaceholder"),
   flowResults: document.getElementById("flowResults"),
   flowVerdictHeader: document.getElementById("flowVerdictHeader"),
+  flowCaptureOverlay: document.getElementById("flowCaptureOverlay"),
+  snapStatusLine: document.getElementById("snapStatusLine"),
+  contrastTableWrap: document.getElementById("contrastTableWrap"),
+  contrastShowSamples: document.getElementById("contrastShowSamples"),
   flowFilmstrip: document.getElementById("flowFilmstrip"),
   flowLifecycle: document.getElementById("flowLifecycle"),
   flowStepList: document.getElementById("flowStepList"),
@@ -221,6 +225,7 @@ const state = {
   reviewFilter: false, // true = show only needs-review findings
   findingsByMode: {},
   contrastFilter: "all",
+  contrastSamplesExpanded: false,
   hasRunMode: new Set(),
   topTab: "snap",
   pinnedFrameId: null,

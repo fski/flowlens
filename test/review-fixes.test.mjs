@@ -95,7 +95,9 @@ describe('flowVerdictHeaderHtml — confidence note gating', () => {
 
   it('rootMissing no longer suppresses the low-profile-confidence reason', () => {
     const ctx = createContext();
-    const html = verdictHtmlFor(ctx, { rootSelectorNotFound: true, profileSuspect: true });
+    // profileLabel present: suspect only counts when a profile was in play
+    // (2026-07-20 UX audit — bare suspect flagged every generic page).
+    const html = verdictHtmlFor(ctx, { rootSelectorNotFound: true, profileSuspect: true, profileLabel: 'Wizard' });
     assert.match(html, /root selector not found/);
     assert.match(html, /low profile confidence/);
   });

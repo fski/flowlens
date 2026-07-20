@@ -26,11 +26,19 @@ describe('flow verdict — reduced diff confidence note', () => {
     assert.match(html, /root selector not found/);
   });
 
-  it('shows the note for low profile confidence (profileSuspect)', () => {
+  it('shows the note for low profile confidence — only when a profile was in play', () => {
     const ctx = createContext();
-    const html = headerFor(ctx, { profileSuspect: true });
+    const html = headerFor(ctx, { profileSuspect: true, profileLabel: 'Wizard' });
     assert.match(html, /Diff confidence: reduced/);
     assert.match(html, /low profile confidence/);
+  });
+
+  it('suspect WITHOUT an applied profile does not reduce confidence', () => {
+    // Generic pages with no matching profile are always "low confidence" —
+    // that flagged every ordinary session as reduced (2026-07-20 UX audit).
+    const ctx = createContext();
+    const html = headerFor(ctx, { profileSuspect: true });
+    assert.doesNotMatch(html, /Diff confidence: reduced/);
   });
 
   it('shows the note for degraded stable signatures', () => {

@@ -214,7 +214,7 @@ if (csp && typeof csp === "object") {
 // Permissions allowlist — "tabs" dropped in v6: tabId comes from
 // chrome.devtools.inspectedWindow and no chrome.tabs.* API is called.
 const ALLOWED_PERMISSIONS = ["scripting", "webNavigation", "storage"];
-const ALLOWED_HOST_PERMISSIONS = ["http://*/*", "https://*/*"];
+const ALLOWED_HOST_PERMISSIONS = ["<all_urls>"]; // captureVisibleTab requires literally <all_urls> (or activeTab) - http/https wildcards are NOT accepted (verified live 2026-07-20)
 
 const actualPerms = [...(manifest.permissions || [])].sort();
 const expectedPerms = [...ALLOWED_PERMISSIONS].sort();
