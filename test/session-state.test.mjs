@@ -39,12 +39,12 @@ describe('Session state machine', () => {
       assert.equal(ctx.sessionState.current.id, firstId);
     });
 
-    it('resets lastMarkStep and lastAutoNavUrl', async () => {
+    it('resets lastMarkStep and nav state', async () => {
       ctx.sessionState.lastMarkStep = { some: 'data' };
-      ctx.sessionState.lastAutoNavUrl = 'https://old.com';
+      ctx.sessionState.nav.lastAutoNavUrl = 'https://old.com';
       await ctx.startSession();
       assert.equal(ctx.sessionState.lastMarkStep, null);
-      assert.equal(ctx.sessionState.lastAutoNavUrl, null);
+      assert.equal(ctx.sessionState.nav.lastAutoNavUrl, null);
     });
   });
 
@@ -75,11 +75,11 @@ describe('Session state machine', () => {
     it('clears auto-capture state on end', async () => {
       await ctx.startSession();
       ctx.sessionState.autoCapturePending = 123;
-      ctx.sessionState.lastAutoNavUrl = 'https://test.com';
+      ctx.sessionState.nav.lastAutoNavUrl = 'https://test.com';
       ctx.sessionState.queuedCapture = { isAutoCapture: true };
       await ctx.endSession();
       assert.equal(ctx.sessionState.autoCapturePending, null);
-      assert.equal(ctx.sessionState.lastAutoNavUrl, null);
+      assert.equal(ctx.sessionState.nav.lastAutoNavUrl, null);
       assert.equal(ctx.sessionState.queuedCapture, null);
     });
   });

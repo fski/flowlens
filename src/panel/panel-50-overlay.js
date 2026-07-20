@@ -1847,9 +1847,7 @@ async function startSession() {
     steps: [],
   };
   sessionState.lastMarkStep = null;
-  sessionState.lastAutoNavUrl = null;
-  sessionState.foreignSkipNotified = false;
-  sessionState.foreignSkips = 0;
+  sessionState.nav = freshNavState();
   await persistActiveSessionBestEffort(sessionState.current);
   updateSessionButtons();
   setPersistentStatus("OK", "SESSION_STARTED", "Session active");
@@ -1858,11 +1856,10 @@ async function startSession() {
   // flow (modals, in-place wizards — no URL change) produced ZERO steps and
   // the whole recorder looked dead; nav flows also lacked their start state.
   if (els.autoCaptureNav?.checked) {
-    sessionState.lastAutoNavUrl = url;
-    sessionState.lastFrameNavUrl = null;
+    sessionState.nav.lastAutoNavUrl = url;
     // Baseline counts as a top-level nav event: embedded frames committing
     // while the starting page settles belong to it, not to new steps.
-    sessionState.lastTopNavAt = Date.now();
+    sessionState.nav.lastTopNavAt = Date.now();
     captureStepOptionC(null, { isAutoCapture: true }).catch(() => {});
   }
   return true;
@@ -1902,9 +1899,7 @@ async function endSession() {
     clearTimeout(sessionState.autoCapturePending);
     sessionState.autoCapturePending = null;
   }
-  sessionState.lastAutoNavUrl = null;
-  sessionState.lastFrameNavUrl = null;
-  sessionState.lastTopNavAt = 0;
+  sessionState.nav = freshNavState();
   sessionState.queuedCapture = null;
   // An in-flight capture will discard its own result (session-id guard); drop
   // the busy flag now so End takes effect immediately and the view is clean.

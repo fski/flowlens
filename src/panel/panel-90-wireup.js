@@ -1104,48 +1104,34 @@ function logNavDecision(url, decision) {
   console.debug("[FlowLens] nav", decision, url);
 }
 
-// A top-level navigation drags its iframes along: every embedded frame emits
-// onCommitted while it (re)loads, often later than the auto-capture debounce.
-// Frame navs inside this window belong to the top nav's step, not a new one —
-// without it a slow-loading audited MFE double-captured every top navigation.
-const FRAME_NAV_SETTLE_MS = 2500;
-
 function maybeAutoCapture(url, { fromAuditedFrame = false } = {}) {
-  if (!sessionState.current) { logNavDecision(url, "no-session"); return; }
-  if (!els.autoCaptureNav?.checked) { logNavDecision(url, "auto-off"); return; }
-  if (!fromAuditedFrame) {
-    sessionState.lastTopNavAt = Date.now();
-  } else if (Date.now() - (sessionState.lastTopNavAt || 0) < FRAME_NAV_SETTLE_MS) {
-    logNavDecision(url, "skip-frame-settle");
-    return;
-  }
-  // Navs from frames already in the audited set (targeted microfrontends)
-  // bypass the site guard — the embedded app IS the audit target, and its
-  // site routinely differs from the host page's.
-  if (!fromAuditedFrame && isForeignAutoCaptureOrigin(url, sessionState.current)) {
-    logNavDecision(url, "skip-foreign-site");
-    // Fail loud EVERY time on the persistent Flow line (a once-per-session
-    // toast was missable, and a silently skipped step reads as covered).
-    sessionState.foreignSkips = (sessionState.foreignSkips || 0) + 1;
-    setPersistentStatus("PARTIAL", "AUTO_SKIPPED", `${sessionState.foreignSkips} nav(s) on other sites not captured (privacy)`);
-    if (!sessionState.foreignSkipNotified) {
-      sessionState.foreignSkipNotified = true;
-      toast("Auto-capture skips other sites (privacy) — use Mark step to capture them");
+  const decision = decideNavAction(
+    url, fromAuditedFrame, sessionState.nav, sessionState.current,
+    !!els.autoCaptureNav?.checked, Date.now()
+  );
+  sessionState.nav = decision.nav;
+  if (decision.action === "skip") {
+    logNavDecision(url, decision.reason);
+    if (decision.reason === "skip-foreign-site") {
+      // Fail loud EVERY time on the persistent Flow line (a once-per-session
+      // toast was missable, and a silently skipped step reads as covered).
+      sessionState.nav.foreignSkips += 1;
+      setPersistentStatus("PARTIAL", "AUTO_SKIPPED", `${sessionState.nav.foreignSkips} nav(s) on other sites not captured (privacy)`);
+      if (!sessionState.nav.foreignSkipNotified) {
+        sessionState.nav.foreignSkipNotified = true;
+        toast("Auto-capture skips other sites (privacy) — use Mark step to capture them");
+      }
     }
     return;
   }
-  // Per-source dedupe: top and frame URLs never alias or evict each other —
-  // one shared slot let a frame nav reopen dedupe for an identical top nav.
-  const lastForSource = fromAuditedFrame ? sessionState.lastFrameNavUrl : sessionState.lastAutoNavUrl;
-  if (!classifyNavForCapture(url, lastForSource)) { logNavDecision(url, "skip-not-a-step"); return; }
   logNavDecision(url, fromAuditedFrame ? "frame-capture-scheduled" : "capture-scheduled");
   if (sessionState.autoCapturePending) clearTimeout(sessionState.autoCapturePending);
   const debounceMs = Number(els.autoCaptureDelay?.value) || 500;
   sessionState.autoCapturePending = setTimeout(async () => {
     sessionState.autoCapturePending = null;
     if (!sessionState.current) return;
-    if (fromAuditedFrame) sessionState.lastFrameNavUrl = url;
-    else sessionState.lastAutoNavUrl = url;
+    if (fromAuditedFrame) sessionState.nav.lastFrameNavUrl = url;
+    else sessionState.nav.lastAutoNavUrl = url;
     try {
       const autoLabel = await deriveAutoLabel(url);
       await captureStepOptionC(autoLabel, { isAutoCapture: true });

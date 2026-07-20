@@ -5,6 +5,46 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createContext } from './harness.mjs';
 
+describe('R2: decideNavAction — full auto-capture precedence, pure and testable', () => {
+  let ctx;
+  beforeEach(() => { ctx = createContext(); });
+
+  const NAV = () => ({ lastAutoNavUrl: null, lastFrameNavUrl: null, lastTopNavAt: 0, foreignSkips: 0, foreignSkipNotified: false });
+  const SESSION = { inspectedOrigin: 'https://app.example.com' };
+  const T = 100000;
+
+  it('precedence: no-session, then auto-off', () => {
+    assert.equal(ctx.decideNavAction('https://x.com/a', false, NAV(), null, true, T).reason, 'no-session');
+    assert.equal(ctx.decideNavAction('https://x.com/a', false, NAV(), SESSION, false, T).reason, 'auto-off');
+  });
+
+  it('top nav bumps lastTopNavAt even when skipped (foreign site)', () => {
+    const d = ctx.decideNavAction('https://accounts.google.com/x', false, NAV(), SESSION, true, T);
+    assert.equal(d.reason, 'skip-foreign-site');
+    assert.equal(d.nav.lastTopNavAt, T, 'settle window anchors on the nav EVENT');
+  });
+
+  it('frame navs inside the settle window are absorbed by the top nav', () => {
+    const nav = { ...NAV(), lastTopNavAt: T - 1000 };
+    assert.equal(ctx.decideNavAction('https://mfe.vendor.com/s2', true, nav, SESSION, true, T).reason, 'skip-frame-settle');
+    const later = ctx.decideNavAction('https://mfe.vendor.com/s2', true, nav, SESSION, true, T + 5000);
+    assert.equal(later.action, 'capture');
+    assert.equal(later.reason, 'frame-nav');
+  });
+
+  it('frame navs bypass the foreign-site guard (the MFE is the target)', () => {
+    const nav = { ...NAV(), lastTopNavAt: 0 };
+    assert.equal(ctx.decideNavAction('https://mfe.vendor.com/s2', true, nav, SESSION, true, T).action, 'capture');
+  });
+
+  it('dedupe slots are per source: a frame URL never evicts the top slot', () => {
+    const nav = { ...NAV(), lastAutoNavUrl: 'https://app.example.com/page', lastFrameNavUrl: 'https://mfe.vendor.com/s1', lastTopNavAt: 0 };
+    assert.equal(ctx.decideNavAction('https://app.example.com/page', false, nav, SESSION, true, T).reason, 'skip-not-a-step');
+    assert.equal(ctx.decideNavAction('https://mfe.vendor.com/s1', true, nav, SESSION, true, T).reason, 'skip-not-a-step');
+    assert.equal(ctx.decideNavAction('https://app.example.com/next', false, nav, SESSION, true, T).action, 'capture');
+  });
+});
+
 describe('R3: uniqueRawRef — one ref scheme for session + export paths', () => {
   let ctx;
   beforeEach(() => { ctx = createContext(); });
