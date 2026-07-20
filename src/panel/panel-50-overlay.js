@@ -1886,6 +1886,8 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
       run: stableRun,
       active: stableActive,
     };
+    // Signature → finding metadata for the per-step diff + lifecycle swimlane.
+    step.findingIndex = buildStepFindingIndex(step.snapshots?.run, sessionState.current.rawAppendix || {});
     // Parallel validation (shadow mode) — log mismatches, never break production
     if (prevStep?.stableSignatures?.run) {
       validateDiffParity(step, prevStep, sessionState.current.rawAppendix || {}, stableRun, prevStep.stableSignatures.run);

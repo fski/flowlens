@@ -559,6 +559,95 @@ function buildStableItemSignature(item, frameKeyStable, mode) {
  * Compute the stable signature set for a step's snapshot.
  * Returns { stableFindingSignatureSet, severityCounts, blockingSet, summaryScore }.
  */
+// ═══ FLOW DIFF / LIFECYCLE BUILDERS ═══════════════════════════════════════
+// Severity ordering shared by the diff + lifecycle sorts.
+const FLOW_SEV_RANK = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+function _flowSevRank(sev) {
+  var r = FLOW_SEV_RANK[String(sev || "info").toLowerCase()];
+  return r == null ? 4 : r;
+}
+function _sortFindingMeta(list) {
+  return list.slice().sort(function (a, b) {
+    return _flowSevRank(a.severity) - _flowSevRank(b.severity) || String(a.sig).localeCompare(String(b.sig));
+  });
+}
+
+/**
+ * Build a signature → finding-metadata map for a step's run findings, using the
+ * same stable-signature identity as the diff engine. Stored on the step at
+ * capture as `step.findingIndex` so the pure diff/lifecycle builders (and the
+ * detail pane) can resolve a signature back to a human-readable finding —
+ * including RESOLVED findings, which are read from the previous step.
+ */
+function buildStepFindingIndex(snapshot, rawAppendix = null) {
+  const out = {};
+  if (!snapshot || !snapshot.best) return out;
+  const frameKeyStable = snapshot.best.frameKeyStable || snapshot.best.frameKey || "fk::unknown";
+  const mode = snapshot.mode || "run";
+  const raw = resolveSnapshotRaw(snapshot, rawAppendix) || {};
+  const findings = Array.isArray(raw.findings) ? raw.findings : [];
+  for (const f of findings) {
+    const sig = buildStableSignature(f, frameKeyStable, mode);
+    if (out[sig]) continue; // first finding wins for a given identity
+    out[sig] = {
+      sig: sig,
+      name: (f && (f.name || f.testId)) || "",
+      type: (f && f.type) || "UNKNOWN_RULE",
+      severity: (f && f.severity) || "info",
+      wcag: (f && f.wcag) || "",
+    };
+  }
+  return out;
+}
+
+/**
+ * Diff a step's issue set against the previous step at finding identity.
+ * @returns {{appeared:Array,persisting:Array,resolved:Array}} each an array of
+ *   finding-metadata objects. Resolved items come from prevStep's index.
+ */
+function bucketStepDiff(step, prevStep) {
+  const cur = (step && step.findingIndex) || {};
+  const prev = (prevStep && prevStep.findingIndex) || {};
+  const appeared = [], persisting = [], resolved = [];
+  for (const sig in cur) {
+    if (!Object.prototype.hasOwnProperty.call(cur, sig)) continue;
+    (prev[sig] ? persisting : appeared).push(cur[sig]);
+  }
+  for (const sig in prev) {
+    if (!Object.prototype.hasOwnProperty.call(prev, sig)) continue;
+    if (!cur[sig]) resolved.push(prev[sig]);
+  }
+  return { appeared: _sortFindingMeta(appeared), persisting: _sortFindingMeta(persisting), resolved: _sortFindingMeta(resolved) };
+}
+
+/**
+ * Build one lane per recurring signature across the whole flow, for the
+ * lifecycle swimlane. Lanes are ordered by severity then first appearance.
+ * @returns {{lanes:Array<{sig,label,severity,firstStep,lastStep,presentSteps:number[]}>}}
+ */
+function buildIssueLifecycle(steps) {
+  const list = Array.isArray(steps) ? steps : [];
+  const byS = {};
+  for (const step of list) {
+    const idx = step && step.findingIndex;
+    if (!idx) continue;
+    for (const sig in idx) {
+      if (!Object.prototype.hasOwnProperty.call(idx, sig)) continue;
+      const meta = idx[sig];
+      if (!byS[sig]) {
+        byS[sig] = { sig: sig, label: meta.name || meta.type || sig, severity: meta.severity || "info", firstStep: step.index, lastStep: step.index, presentSteps: [] };
+      }
+      byS[sig].presentSteps.push(step.index);
+      byS[sig].lastStep = step.index;
+      if (step.index < byS[sig].firstStep) byS[sig].firstStep = step.index;
+    }
+  }
+  const lanes = Object.keys(byS).map(function (k) { return byS[k]; }).sort(function (a, b) {
+    return _flowSevRank(a.severity) - _flowSevRank(b.severity) || a.firstStep - b.firstStep || String(a.sig).localeCompare(String(b.sig));
+  });
+  return { lanes: lanes };
+}
+
 function computeStableSignatureSet(snapshot, rawAppendix = null) {
   const empty = { stableFindingSignatureSet: [], severityCounts: { high: 0, medium: 0, low: 0, info: 0 }, blockingSet: [], summaryScore: 0 };
   if (!snapshot || !snapshot.best) return empty;
