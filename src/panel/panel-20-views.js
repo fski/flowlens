@@ -37,38 +37,62 @@ function showView(tab, sub) {
   updateSessionButtons();
 }
 
-function updateResultsVisibility(forceValue = null) {
-  const hasResults = typeof forceValue === "boolean" ? forceValue : state.records.length > 0;
+// ═══ RESULTS SHELL ════════════════════════════════════════════════════════
+// One level above the section-view core: decides what fills the Snap body —
+// the idle CTA / the results zone / a blocking error — from a single view
+// token. Previously updateResultsVisibility and showErrorEmptyState each
+// poked emptyText/emptyHint/emptyRetry by getElementById with inline copy,
+// and the idle path never cleared a prior error's text/class (a latent
+// stuck-error state). renderResultsShell is the only writer now.
+const RESULTS_SHELL_COPY = {
+  idle: {
+    text: "Run an audit to see results",
+    hint: "Choose a mode above and click the button to start scanning",
+  },
+  error: {
+    text: "Audit failed",
+    hint: "Check the console for details, or try again",
+  },
+};
+
+/**
+ * @param {{view:"idle"|"results"|"error", message?:string}} shell
+ */
+function renderResultsShell(shell) {
+  const view = shell?.view || "idle";
+  const showResults = view === "results";
+  const showError = view === "error";
   const hasSessionExport = !!(sessionState.current || sessionState.lastEndedSession);
-  if (els.emptyState) els.emptyState.hidden = hasResults;
-  if (els.resultsZone) {
-    els.resultsZone.hidden = !hasResults;
-    els.resultsZone.classList.toggle("visible", !!hasResults);
+
+  if (els.emptyState) {
+    els.emptyState.hidden = showResults;
+    els.emptyState.classList.toggle("emptyState--error", showError);
   }
-  if (els.exportAnchor) els.exportAnchor.hidden = !(hasResults || hasSessionExport);
-  // Reset error state when showing results
-  if (hasResults && els.emptyState) {
-    els.emptyState.classList.remove("emptyState--error");
-    const retryBtn = document.getElementById("emptyRetry");
-    if (retryBtn) retryBtn.hidden = true;
+  if (els.resultsZone) {
+    els.resultsZone.hidden = !showResults;
+    els.resultsZone.classList.toggle("visible", showResults);
+  }
+  if (els.exportAnchor) els.exportAnchor.hidden = !(showResults || hasSessionExport);
+
+  // Empty-state body only matters when the empty state is visible.
+  if (!showResults) {
+    const copy = RESULTS_SHELL_COPY[showError ? "error" : "idle"];
     const txt = document.getElementById("emptyText");
     const hint = document.getElementById("emptyHint");
-    if (txt) txt.textContent = "Run an audit to see results";
-    if (hint) hint.textContent = "Choose a mode above and click the button to start scanning";
+    const retryBtn = document.getElementById("emptyRetry");
+    if (txt) txt.textContent = (showError && shell.message) ? shell.message : copy.text;
+    if (hint) hint.textContent = copy.hint;
+    if (retryBtn) retryBtn.hidden = !showError;
   }
 }
 
+function updateResultsVisibility(forceValue = null) {
+  const hasResults = typeof forceValue === "boolean" ? forceValue : state.records.length > 0;
+  renderResultsShell({ view: hasResults ? "results" : "idle" });
+}
+
 function showErrorEmptyState(message) {
-  if (!els.emptyState) return;
-  els.emptyState.hidden = false;
-  els.emptyState.classList.add("emptyState--error");
-  if (els.resultsZone) { els.resultsZone.hidden = true; els.resultsZone.classList.remove("visible"); }
-  const txt = document.getElementById("emptyText");
-  const hint = document.getElementById("emptyHint");
-  const retryBtn = document.getElementById("emptyRetry");
-  if (txt) txt.textContent = message || "Audit failed";
-  if (hint) hint.textContent = "Check the console for details, or try again";
-  if (retryBtn) retryBtn.hidden = false;
+  renderResultsShell({ view: "error", message });
 }
 
 function buildCombinedGradient(colors) {
@@ -84,6 +108,17 @@ function buildCombinedGradient(colors) {
   return `conic-gradient(from 180deg at 50% 50%, ${stops.join(", ")})`;
 }
 
+// Shared filter-tab button for both the severity strip and the contrast
+// all/fail/pass strip — the two renderers built byte-identical markup with
+// their own copies.
+function sevTabButton(sev, label, count, active, title = "") {
+  const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
+  return `<button class="sevTab" role="tab" data-sev="${sev}" aria-selected="${active}" tabindex="${active ? 0 : -1}" type="button"${titleAttr}>
+      <span class="sevLabel">${escapeHtml(label)}</span>
+      <span class="sevCount">${count != null ? count : "&ndash;"}</span>
+    </button>`;
+}
+
 function renderSevTabs(findings = null) {
   if (!els.sevTabs) return;
   const c = findings ? countBySeverity(findings) : null;
@@ -92,10 +127,7 @@ function renderSevTabs(findings = null) {
   const isAll = sel.size === 0;
 
   const renderTab = (sev, label, count, active) =>
-    `<button class="sevTab" role="tab" data-sev="${sev}" aria-selected="${active}" tabindex="${active ? 0 : -1}" type="button" title="${sev ? "Shift+click to combine" : "Show all severities"}">
-      <span class="sevLabel">${escapeHtml(label)}</span>
-      <span class="sevCount">${count != null ? count : "&ndash;"}</span>
-    </button>`;
+    sevTabButton(sev, label, count, active, sev ? "Shift+click to combine" : "Show all severities");
 
   const allTab = renderTab("", "All", total, isAll);
 
@@ -141,16 +173,10 @@ function renderContrastSevTabs() {
   const pass = total - fail;
   const f = state.contrastFilter;
 
-  const renderTab = (sev, label, count, active) =>
-    `<button class="sevTab" role="tab" data-sev="${sev}" aria-selected="${active}" tabindex="${active ? 0 : -1}" type="button">
-      <span class="sevLabel">${escapeHtml(label)}</span>
-      <span class="sevCount">${count != null ? count : "&ndash;"}</span>
-    </button>`;
-
   els.sevTabs.innerHTML = [
-    renderTab("", "All", total, f === "all"),
-    renderTab("fail", "Fail", fail, f === "fail"),
-    renderTab("pass", "Pass", pass, f === "pass"),
+    sevTabButton("", "All", total, f === "all"),
+    sevTabButton("fail", "Fail", fail, f === "fail"),
+    sevTabButton("pass", "Pass", pass, f === "pass"),
   ].join("");
 }
 
