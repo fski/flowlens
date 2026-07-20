@@ -525,13 +525,7 @@ function registerSnapshotRawAppendix(session, snapshot, stepIndex) {
     clearSnapshotRaw(snapshot, session.rawAppendix);
     return { stored: false, reason: "raw_capped" };
   }
-  const baseRef = `raw::s${stepIndex}::${mode}::${snapshot.best.frameKey || snapshot.best.frameId || "unknown"}`;
-  let ref = baseRef;
-  let i = 1;
-  while (session.rawAppendix[ref] && i < 200) {
-    ref = `${baseRef}::${i}`;
-    i += 1;
-  }
+  const ref = uniqueRawRef(session.rawAppendix, stepIndex, mode, snapshot.best, 200);
   session.rawAppendix[ref] = compactRawForSession(raw, mode);
   snapshot.best.rawRef = ref;
   delete snapshot.best.raw;
@@ -539,6 +533,22 @@ function registerSnapshotRawAppendix(session, snapshot, stepIndex) {
     delete snapshot.best.normalized.raw;
   }
   return { stored: true, reason: "ok" };
+}
+
+// Collision-free appendix ref for a snapshot's raw payload. ONE ref scheme —
+// two hand-rolled copies of this loop existed (session path and export path)
+// and a drift between them silently orphans a step's findings. The probe cap
+// only bounds collision retries and is kept per call site (200 session / 50
+// export) — flagged as probably-unintended divergence, preserved as-is.
+function uniqueRawRef(appendix, stepIndex, mode, best, probeCap) {
+  const baseRef = `raw::s${stepIndex}::${mode}::${best?.frameKey || best?.frameId || "unknown"}`;
+  let ref = baseRef;
+  let i = 1;
+  while (appendix[ref] && i < probeCap) {
+    ref = `${baseRef}::${i}`;
+    i += 1;
+  }
+  return ref;
 }
 
 function pruneSessionRawAppendix(session) {

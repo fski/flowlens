@@ -54,13 +54,7 @@ function compactSessionForExport(session) {
         ? snap.best.raw
         : snap.best?.normalized?.raw;
       if (inlineRaw && typeof inlineRaw === "object") {
-        const baseRef = `raw::s${step.index || "x"}::${mode}::${snap.best.frameKey || snap.best.frameId || "unknown"}`;
-        let ref = baseRef;
-        let i = 1;
-        while (clone.rawAppendix[ref] && i < 50) {
-          ref = `${baseRef}::${i}`;
-          i += 1;
-        }
+        const ref = uniqueRawRef(clone.rawAppendix, step.index || "x", mode, snap.best, 50);
         clone.rawAppendix[ref] = compactRawForSession(inlineRaw, mode);
         snap.best.rawRef = ref;
       }
