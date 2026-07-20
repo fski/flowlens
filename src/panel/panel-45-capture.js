@@ -365,7 +365,14 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     // success re-persist so the hasShot marker survives a reload, then
     // re-render the filmstrip.
     const _shotSessionId = sessionState.current.id;
-    captureStepShot(_shotSessionId, step, { url }, capturedAt)
+    // Embedded-scope (or all-subframe manual pin) sessions crop the shot to
+    // the audited iframe — a full-page screenshot of a widget audit both
+    // confuses and leaks the host page around it.
+    const _allSubframes = usedFrameIds.length > 0 && usedFrameIds.every((id) => id !== 0);
+    const _cropFrameUrl = (baseTargeting.scope === "embedded" || (baseTargeting.manual && _allSubframes))
+      ? (r?.run?.bestEntry?.frameUrl || null)
+      : null;
+    captureStepShot(_shotSessionId, step, { url, cropFrameUrl: _cropFrameUrl }, capturedAt)
       .then((landed) => {
         if (landed && sessionState.current && sessionState.current.id === _shotSessionId) {
           persistActiveSessionBestEffort(compactSessionForExport(sessionState.current)).catch(() => {});

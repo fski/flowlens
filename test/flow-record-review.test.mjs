@@ -447,6 +447,47 @@ describe('UX audit 2026-07-20 (foodora session feedback)', () => {
   });
 });
 
+describe('embedded-scope sessions (2026-07-20 evening report)', () => {
+  let ctx;
+  beforeEach(() => { ctx = createContext(); });
+
+  it('frame scope persists in uiPrefs and survives a panel reload past the recipe', async () => {
+    await ctx.storageSet({ uiPrefs: { frameScope: 'embedded' } });
+    await ctx.loadUiPrefs();
+    assert.equal(ctx.document.getElementById('target').value, 'embedded');
+  });
+
+  it('invalid saved scope is ignored', async () => {
+    ctx.document.getElementById('target').value = 'primary';
+    await ctx.storageSet({ uiPrefs: { frameScope: 'bogus' } });
+    await ctx.loadUiPrefs();
+    assert.equal(ctx.document.getElementById('target').value, 'primary');
+  });
+
+  it('computeShotCropRect scales by dpr and clamps to image bounds', () => {
+    assert.equal(JSON.stringify(ctx.computeShotCropRect({ x: 10, y: 20, w: 100, h: 50, dpr: 2 }, 1000, 800)),
+      JSON.stringify({ x: 20, y: 40, w: 200, h: 100 }));
+    // Rect extends past the image → clamped.
+    assert.equal(JSON.stringify(ctx.computeShotCropRect({ x: 400, y: 300, w: 400, h: 300, dpr: 2 }, 1000, 700)),
+      JSON.stringify({ x: 800, y: 600, w: 200, h: 100 }));
+    // Degenerate / out-of-bounds → null (keep the full shot).
+    assert.equal(ctx.computeShotCropRect(null, 1000, 800), null);
+    assert.equal(ctx.computeShotCropRect({ x: 0, y: 0, w: 4, h: 4, dpr: 1 }, 1000, 800), null);
+    assert.equal(ctx.computeShotCropRect({ x: 2000, y: 0, w: 100, h: 100, dpr: 1 }, 1000, 800), null);
+  });
+
+  it('captureStepShot forwards cropFrameUrl and applies the SW crop rect path', async () => {
+    const sent = [];
+    ctx.send = async (m) => { sent.push(m); return { ok: true, dataUrl: 'data:image/png;base64,AA==', cropRect: { x: 0, y: 0, w: 100, h: 100, dpr: 1 } }; };
+    ctx.fetch = async () => ({ blob: async () => ({ size: 2 }) });
+    ctx.flowMediaStore.putShot = async () => ({ ok: true });
+    ctx.sessionState.current = { id: 's1' };
+    const landed = await ctx.captureStepShot('s1', { id: 'step_1' }, { url: 'https://x.com/a', cropFrameUrl: 'https://mfe.vendor.com/w' }, 0);
+    assert.equal(landed, true);
+    assert.equal(sent[0].cropFrameUrl, 'https://mfe.vendor.com/w');
+  });
+});
+
 describe('screenshot export (store-only ZIP, zero deps)', () => {
   let ctx;
   beforeEach(() => { ctx = createContext(); });

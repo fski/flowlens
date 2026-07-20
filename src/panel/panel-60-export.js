@@ -381,6 +381,14 @@ async function loadUiPrefs() {
     applyRecipe(uiPrefs.recipeId);
   }
   if (els.depthMax && uiPrefs.depthMax) els.depthMax.value = String(uiPrefs.depthMax);
+  // Frame scope AFTER the recipe — recipes set their own frameScope and used
+  // to clobber the user's saved choice on every panel load.
+  if (els.target && typeof uiPrefs.frameScope === "string"
+      && typeof SCOPE_LABELS !== "undefined"
+      && Object.prototype.hasOwnProperty.call(SCOPE_LABELS, uiPrefs.frameScope)) {
+    els.target.value = uiPrefs.frameScope;
+    if (typeof updateScopeUi === "function") updateScopeUi();
+  }
   // Auto-capture: default ON (HTML default) — undefined must not read as false,
   // but a deliberate OFF has to survive a panel reload.
   if (els.autoCaptureNav) els.autoCaptureNav.checked = uiPrefs.autoCaptureNav !== false;
