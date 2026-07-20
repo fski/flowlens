@@ -190,6 +190,7 @@ async function deleteStep(stepIndex) {
     toast("Step not found");
     return;
   }
+  const removedStep = steps[idx];
   steps.splice(idx, 1);
   const rawAppendix = sessionState.current.rawAppendix || {};
   for (let i = 0; i < steps.length; i++) {
@@ -197,12 +198,25 @@ async function deleteStep(stepIndex) {
     const prevStep = i > 0 ? steps[i - 1] : null;
     steps[i].diffs = buildStepDiffs(steps[i], prevStep, rawAppendix);
   }
+  // Selection is positional (step.index): deleting an earlier step shifts every
+  // later index down, so remap or the selection silently jumps to another step.
+  const sel = sessionState.selectedStepIndex;
+  if (sel != null) {
+    if (sel === stepIndex) sessionState.selectedStepIndex = null;
+    else if (sel > stepIndex) sessionState.selectedStepIndex = sel - 1;
+  }
+  // Best-effort: drop the deleted step's screenshot so it doesn't sit orphaned
+  // in IndexedDB until the whole session is pruned.
+  if (typeof flowMediaStore !== "undefined" && removedStep?.id) {
+    flowMediaStore.deleteShot(sessionState.current.id, removedStep.id);
+  }
   pruneSessionRawAppendix(sessionState.current);
   const compacted = compactSessionForExport(sessionState.current);
-  await persistActiveSessionBestEffort(compacted);
+  const persisted = await persistActiveSessionBestEffort(compacted);
   sessionState.expandedStepIndex = null;
   renderSessionHud();
-  toast(`Step deleted, ${steps.length} remaining`);
+  if (persisted) toast(`Step deleted, ${steps.length} remaining`);
+  else toast("Step deleted in memory — save failed, it may reappear after reload");
 }
 
 function updateSessionButtons() {
@@ -259,10 +273,20 @@ function updateSessionButtons() {
   renderSessionHud();
 }
 
+// Storage keys derive from the SESSION's own scope, not the live inspected
+// URL — mid-session cross-origin navigation (OAuth hop, hosted checkout) used
+// to re-key the active session under the foreign origin, leaving a stale copy
+// under the original key that got resurrected as a zombie "active" session.
+function sessionScopeKeys(session, sessionId = null) {
+  const scope = getCurrentScopeInfo();
+  const origin = session?.inspectedOrigin || scope.origin || "";
+  const env = session?.env || scope.env || "prod";
+  return getSessionKeys(origin, env, sessionId);
+}
+
 async function persistActiveSessionBestEffort(session) {
   if (!session) return false;
-  const { origin, env } = getCurrentScopeInfo();
-  const keys = getSessionKeys(origin || session.inspectedOrigin || "", env || "prod");
+  const keys = sessionScopeKeys(session);
   const estimatedBytes = estimateJsonBytes(session);
   renderSaveStatus("saving");
   try {
@@ -304,18 +328,19 @@ async function archiveSessionBestEffort(session) {
   const sessionId = session.id || "";
   if (_archiveInFlight.has(sessionId)) {
     debugSession("archive_skipped_inflight", { sessionId });
-    return false;
+    // Distinct sentinel: a concurrent End is already archiving this session —
+    // callers must NOT treat this as a storage failure.
+    return "in-flight";
   }
   _archiveInFlight.add(sessionId);
   try {
-    const { origin, env } = getCurrentScopeInfo();
-    const keys = getSessionKeys(origin || session.inspectedOrigin || "", env || "prod", session.id);
+    const keys = sessionScopeKeys(session, session.id);
     const estimatedBytes = estimateJsonBytes(session);
     renderSaveStatus("saving");
     try {
       await storageSet({
         [keys.archive]: session,
-        [getSessionKeys(origin || session.inspectedOrigin || "", env || "prod").active]: null
+        [sessionScopeKeys(session).active]: null
       });
       sessionState.lastArchiveId = session.id;
       debugSession("archive_ok", { estimatedBytes });

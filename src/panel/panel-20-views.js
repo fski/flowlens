@@ -1126,6 +1126,9 @@ function normalizeLoadedSession(session) {
 
   out.signatureVersion = asNumber(out.signatureVersion, 1);
   out.frameKeyVersion = asNumber(out.frameKeyVersion, 1);
+  // Sessions persisted before session.env existed derive it from their own
+  // origin (env is a pure function of hostname) — storage keys depend on it.
+  if (!out.env) out.env = detectEnv(out.inspectedOrigin || "");
   if (!out.rawAppendix || typeof out.rawAppendix !== "object") out.rawAppendix = {};
   if (!Array.isArray(out.steps)) out.steps = [];
   for (const step of out.steps) {

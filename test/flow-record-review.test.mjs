@@ -138,6 +138,93 @@ describe('critical severity participates', () => {
   });
 });
 
+describe('session storage keys derive from the session, not the live URL', () => {
+  let ctx;
+  beforeEach(() => { ctx = createContext(); });
+
+  it('persist writes under the session origin during a cross-origin hop', async () => {
+    ctx.document._elCache['inspectedUrl'].dataset.full = 'https://checkout.foreign.com/pay';
+    const session = { id: 'sess_x', inspectedOrigin: 'https://app.example.com', env: 'prod', steps: [] };
+    await ctx.persistActiveSessionBestEffort(session);
+    const own = await ctx.storageGet(['session::active::https://app.example.com::prod']);
+    const foreign = await ctx.storageGet(['session::active::https://checkout.foreign.com::prod']);
+    assert.ok(own['session::active::https://app.example.com::prod'], 'written under session origin');
+    assert.equal(foreign['session::active::https://checkout.foreign.com::prod'], undefined, 'no foreign-origin copy');
+  });
+
+  it('archive clears the session-origin active key, not the current-origin one', async () => {
+    ctx.document._elCache['inspectedUrl'].dataset.full = 'https://checkout.foreign.com/pay';
+    const session = { id: 'sess_y', inspectedOrigin: 'https://app.example.com', env: 'prod', steps: [] };
+    await ctx.persistActiveSessionBestEffort(session);
+    const ok = await ctx.archiveSessionBestEffort(session);
+    assert.equal(ok, true);
+    const active = await ctx.storageGet(['session::active::https://app.example.com::prod']);
+    assert.ok(!active['session::active::https://app.example.com::prod'], 'own active key cleared');
+    const archived = await ctx.storageGet(['session::archive::https://app.example.com::prod::sess_y']);
+    assert.ok(archived['session::archive::https://app.example.com::prod::sess_y'], 'archived under session scope');
+  });
+
+  it('normalizeLoadedSession derives env for pre-env sessions', () => {
+    const out = ctx.normalizeLoadedSession({ id: 's', schemaVersion: 4, inspectedOrigin: 'https://app.example.com', steps: [] });
+    assert.ok(typeof out.env === 'string' && out.env.length > 0);
+  });
+});
+
+describe('concurrent End is not a storage failure', () => {
+  let ctx;
+  beforeEach(() => { ctx = createContext(); });
+
+  it('second archive of the same session returns the in-flight sentinel', async () => {
+    const session = { id: 'sess_dbl', inspectedOrigin: 'https://app.example.com', env: 'prod', steps: [] };
+    const [first, second] = await Promise.all([
+      ctx.archiveSessionBestEffort(session),
+      ctx.archiveSessionBestEffort(session),
+    ]);
+    assert.equal(first, true);
+    assert.equal(second, 'in-flight');
+  });
+});
+
+describe('deleteStep hygiene', () => {
+  let ctx;
+  beforeEach(() => { ctx = createContext(); });
+
+  function seedSession() {
+    const s1 = mkStep(ctx, 1, []);
+    const s2 = mkStep(ctx, 2, []);
+    const s3 = mkStep(ctx, 3, []);
+    ctx.sessionState.current = {
+      id: 'sess_del', inspectedOrigin: 'https://app.example.com', env: 'prod',
+      rawAppendix: {}, steps: [s1, s2, s3], frames: { frameKeys: [], frameKeyToLastFrameId: {} },
+    };
+    return [s1, s2, s3];
+  }
+
+  it('remaps a later selection down after deleting an earlier step', async () => {
+    seedSession();
+    ctx.sessionState.selectedStepIndex = 3;
+    await ctx.deleteStep(1);
+    assert.equal(ctx.sessionState.selectedStepIndex, 2, 'same step, renumbered');
+  });
+
+  it('falls back to the latest step when the selected step is deleted', async () => {
+    seedSession();
+    ctx.sessionState.selectedStepIndex = 2;
+    await ctx.deleteStep(2);
+    // deleteStep nulls the selection; renderFlow materializes the default
+    // (latest step) back into sessionState — steps [1,2] remain.
+    assert.equal(ctx.sessionState.selectedStepIndex, 2);
+  });
+
+  it('drops the deleted step\'s screenshot from the media store', async () => {
+    const [s1] = seedSession();
+    const deleted = [];
+    ctx.flowMediaStore.deleteShot = (sid, stepId) => { deleted.push(`${sid}::${stepId}`); return Promise.resolve({ ok: true }); };
+    await ctx.deleteStep(1);
+    assert.deepEqual(deleted.join(','), `sess_del::${s1.id}`);
+  });
+});
+
 describe('stable consolidated countsDelta merges run+active', () => {
   let ctx;
   beforeEach(() => { ctx = createContext(); });

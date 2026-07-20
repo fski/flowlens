@@ -1699,7 +1699,7 @@ async function startSession() {
     toast("Session already active");
     return false;
   }
-  const { url, origin, envTag } = getCurrentScopeInfo();
+  const { url, origin, env, envTag } = getCurrentScopeInfo();
   if (!origin) {
     toast("Open a page before starting a session");
     return false;
@@ -1713,6 +1713,7 @@ async function startSession() {
     endedAt: null,
     frameKeyVersion: 1,
     inspectedOrigin: origin,
+    env,
     envTag,
     settings: buildSessionSettings(),
     frames: { frameKeys: [], frameKeyToLastFrameId: {} },
@@ -1743,6 +1744,11 @@ async function endSession() {
   if (flowRecorder.isRecording()) { try { await flowRecorder.stop(); } catch (_) {} }
   const exportableEndedSession = compactSessionForExport(normalizeLoadedSession(sessionState.current));
   const archived = await archiveSessionBestEffort(compactSessionForExport(sessionState.current));
+  if (archived === "in-flight") {
+    // A concurrent End (double-click / hotkey repeat) is already archiving this
+    // session — let it finish; don't undo its endedAt or scare the user.
+    return false;
+  }
   if (!archived) {
     // Keep active in-memory session so user can retry archive/export without data loss.
     sessionState.current.endedAt = previousEndedAt;
@@ -1953,6 +1959,15 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
       toast("Raw appendix capped; continuing without raw");
     }
     const routeHint = await deriveStepRouteHint(url, baseTargeting.profileIds);
+    // R1 (second check): deriveStepRouteHint can await a DevTools eval
+    // round-trip (title fallback), so End/Start can interleave here exactly
+    // like during CAPTURE_STEP — without this, the step below would crash on
+    // null or land in the wrong session.
+    if (!sessionState.current || sessionState.current.id !== _captureSessionId) {
+      console.warn("captureStepOptionC: session changed during route-hint derivation — discarding result");
+      toast("Session was ended during capture");
+      return false;
+    }
 
     const step = {
       id: makeId("step"),

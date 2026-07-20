@@ -99,6 +99,14 @@ var flowMediaStore = (function () {
     });
   }
 
+  function deleteShot(sessionId, stepId) {
+    return api._openDb().then(function (db) {
+      return db.store(SHOTS).delete(shotKey(sessionId, stepId));
+    }).then(function () { return { ok: true }; }).catch(function (e) {
+      return { ok: false, reason: (e && e.message) || "delete-shot-failed" };
+    });
+  }
+
   function deleteSession(sessionId) {
     var sid = String(sessionId);
     return api._openDb().then(function (db) {
@@ -141,6 +149,7 @@ var flowMediaStore = (function () {
     getShot: getShot,
     putVideo: putVideo,
     getVideo: getVideo,
+    deleteShot: deleteShot,
     deleteSession: deleteSession,
     pruneToSessions: pruneToSessions,
   };
