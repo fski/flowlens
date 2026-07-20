@@ -883,6 +883,39 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           },
         });
       } catch (_) { /* overlay clear is best-effort */ }
+      // Embedded-scope sessions: measure the audited iframe's viewport rect so
+      // the panel can crop the full-tab shot down to the target app.
+      let cropRect = null, cropError = null;
+      const cropFrameUrl = typeof msg.cropFrameUrl === "string" && msg.cropFrameUrl.length <= 2048 ? msg.cropFrameUrl : null;
+      if (cropFrameUrl) {
+        try {
+          const [res] = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: (frameUrl) => {
+              try {
+                const want = new URL(frameUrl).origin;
+                const cands = [...document.querySelectorAll("iframe")].filter((el) => {
+                  try { return el.src && new URL(el.src, location.href).origin === want; } catch (_) { return false; }
+                });
+                if (!cands.length) return null;
+                // Several same-origin iframes: the audited app is almost
+                // certainly the biggest one on screen.
+                cands.sort((a, b) => {
+                  const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+                  return rb.width * rb.height - ra.width * ra.height;
+                });
+                const r = cands[0].getBoundingClientRect();
+                return { x: r.x, y: r.y, w: r.width, h: r.height, dpr: window.devicePixelRatio || 1 };
+              } catch (_) { return null; }
+            },
+            args: [cropFrameUrl],
+          });
+          cropRect = res && res.result ? res.result : null;
+        } catch (e) {
+          // Best-effort — fall back to the full shot, but keep the WHY.
+          cropError = (e && e.message) || "crop-inject-failed";
+        }
+      }
       let dataUrl = null, reason = null;
       try {
         const tab = await chrome.tabs.get(tabId);
@@ -890,7 +923,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (e) {
         reason = (e && e.message) || "capture-failed";
       }
-      sendResponse(dataUrl ? { ok: true, dataUrl } : { ok: false, reason: reason || "no-dataurl" });
+      sendResponse(dataUrl ? { ok: true, dataUrl, cropRect, cropError } : { ok: false, reason: reason || "no-dataurl" });
       return;
     }
 

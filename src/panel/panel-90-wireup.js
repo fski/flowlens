@@ -88,8 +88,11 @@ if (els.exportToggle && els.exportMenu) {
 
 
 els.refreshFrames.addEventListener("click", refreshFrames);
-els.target.addEventListener("change", () => {
+els.target.addEventListener("change", async () => {
   updateScopeUi();
+  // Persist — scope silently reverted on every panel reload (recipe re-apply
+  // clobbered it), so "embedded only" sessions recorded the whole page.
+  await updateUiPrefs({ frameScope: getScopeValue() });
 });
 if (els.pinFrame) {
   els.pinFrame.addEventListener("change", async () => {

@@ -571,10 +571,28 @@ function shouldCaptureShot(scopeInfo) {
  * step load a different step's screenshot.
  * @returns {Promise<boolean>} whether the shot landed (so the caller can persist).
  */
+// Crop a full-tab shot down to the audited iframe (embedded-scope sessions).
+// Best-effort: any failure returns the original blob.
+async function cropShotBlob(blob, rect) {
+  if (typeof createImageBitmap !== "function" || typeof document === "undefined") return blob;
+  try {
+    const bmp = await createImageBitmap(blob);
+    const c = computeShotCropRect(rect, bmp.width, bmp.height);
+    if (!c) return blob;
+    const canvas = document.createElement("canvas");
+    canvas.width = c.w;
+    canvas.height = c.h;
+    canvas.getContext("2d").drawImage(bmp, c.x, c.y, c.w, c.h, 0, 0, c.w, c.h);
+    return await new Promise((res) => canvas.toBlob((b) => res(b || blob), "image/png"));
+  } catch (_) {
+    return blob;
+  }
+}
+
 async function captureStepShot(sessionId, step, scopeInfo, at) {
   try {
     if (!shouldCaptureShot(scopeInfo)) return false;
-    const r = await send({ type: "CAPTURE_SHOT" });
+    const r = await send({ type: "CAPTURE_SHOT", cropFrameUrl: scopeInfo?.cropFrameUrl || undefined });
     if (!r || !r.ok || !r.dataUrl) {
       step.shotError = true;
       // Keep the WHY — "!" tiles with no reason made a permission problem
@@ -582,7 +600,8 @@ async function captureStepShot(sessionId, step, scopeInfo, at) {
       step.shotErrorReason = (r && r.reason) || "transport";
       return false;
     }
-    const blob = await (await fetch(r.dataUrl)).blob();
+    let blob = await (await fetch(r.dataUrl)).blob();
+    if (r.cropRect) blob = await cropShotBlob(blob, r.cropRect);
     // Session ended/replaced while the shot was in flight: the archived JSON
     // already froze hasShot:false, so writing now would only orphan the blob
     // in IndexedDB (invisible until the session ages out of the prune window).

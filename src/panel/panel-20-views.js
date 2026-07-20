@@ -1444,6 +1444,23 @@ function flowVerdictHeaderHtml(sess) {
     + '</div>' + systemicNote;
 }
 
+// Clamp a CSS-pixel iframe rect to physical image bounds for the shot crop.
+// Returns null when the rect is missing/degenerate (caller keeps the full
+// shot — fail-open, a full screenshot beats none).
+function computeShotCropRect(rect, imgW, imgH) {
+  if (!rect || !(rect.w > 0) || !(rect.h > 0)) return null;
+  var scale = rect.dpr > 0 ? rect.dpr : 1;
+  var x = Math.max(0, Math.round(rect.x * scale));
+  var y = Math.max(0, Math.round(rect.y * scale));
+  var w = Math.round(rect.w * scale);
+  var h = Math.round(rect.h * scale);
+  if (!(imgW > 0) || !(imgH > 0) || x >= imgW || y >= imgH) return null;
+  w = Math.min(w, imgW - x);
+  h = Math.min(h, imgH - y);
+  if (w < 16 || h < 16) return null;
+  return { x: x, y: y, w: w, h: h };
+}
+
 // Single source for a step's screenshot storage key: the stable step.id, with
 // the numeric-index fallback pre-id sessions were written under. Write side
 // (captureStepShot) and both read sites must agree — they drifted before.
