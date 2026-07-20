@@ -444,6 +444,21 @@ function applySectionView(section, rows, emptyText) {
 // ═══ FLOW VIDEO RECORDER ══════════════════════════════════════════════════
 // Local flow video via getDisplayMedia (user picks the tab — no permission)
 // recorded with MediaRecorder to webm, stored in flowMediaStore. Fully local.
+
+// NotAllowedError covers BOTH "user closed the picker" and "permissions
+// policy forbids display-capture in this document" (the DevTools panel is an
+// iframe inside devtools:// — the embedder's policy may block it). The first
+// is a user choice and stays silent; the second is an environment failure and
+// MUST be loud, or a broken recorder looks like the user changing their mind.
+function classifyDisplayMediaError(e) {
+  var name = (e && e.name) || "";
+  var msg = (e && e.message) || "";
+  var policyBlocked = /permissions? policy|not allowed in this document|disallowed by/i.test(msg);
+  if (policyBlocked) return "blocked";
+  if (name === "NotAllowedError" || name === "AbortError") return "cancelled";
+  return "failed";
+}
+
 function pickRecorderMime(isSupported) {
   var check = typeof isSupported === "function"
     ? isSupported
@@ -468,7 +483,12 @@ var flowRecorder = (function () {
     try {
       _stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
     } catch (e) {
-      return { ok: false, reason: "cancelled" }; // user dismissed the picker
+      return {
+        ok: false,
+        reason: classifyDisplayMediaError(e),
+        errorName: (e && e.name) || "",
+        errorMessage: String((e && e.message) || "").slice(0, 200),
+      };
     }
     _sessionId = sessionId;
     _chunks = [];

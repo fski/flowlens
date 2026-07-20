@@ -374,7 +374,13 @@ function stepIndicesForNav() {
       const r = await flowRecorder.start(sess.id);
       if (r?.ok) { setRecordVideoUi(true); toast("Recording — pick the tab to capture"); }
       else if (r?.reason === "cancelled") { /* user dismissed picker, no-op */ }
-      else toast("Screen recording unavailable");
+      else if (r?.reason === "blocked") {
+        console.warn("getDisplayMedia blocked by permissions policy", r);
+        toast("Recording blocked in the DevTools panel (display-capture policy)");
+      } else {
+        console.warn("getDisplayMedia failed", r);
+        toast("Screen recording unavailable" + (r?.errorName ? ` — ${r.errorName}` : ""));
+      }
     });
   }
 }
