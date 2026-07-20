@@ -1055,6 +1055,14 @@ initScrollShadows();
 // fires both sources only captures once.
 function maybeAutoCapture(url) {
   if (!sessionState.current || !els.autoCaptureNav?.checked) return;
+  if (isForeignAutoCaptureOrigin(url, sessionState.current)) {
+    // Fail loud (once per session): a silently skipped step reads as covered.
+    if (!sessionState.foreignSkipNotified) {
+      sessionState.foreignSkipNotified = true;
+      toast("Auto-capture paused on third-party origin (privacy)");
+    }
+    return;
+  }
   if (!classifyNavForCapture(url, sessionState.lastAutoNavUrl)) return;
   if (sessionState.autoCapturePending) clearTimeout(sessionState.autoCapturePending);
   const debounceMs = Number(els.autoCaptureDelay?.value) || 500;
