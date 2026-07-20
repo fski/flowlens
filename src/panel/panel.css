@@ -2729,11 +2729,6 @@ kbd {
 }
 
 /* ═══ FLOW DE-CLUNK (2026-07-20) ═══ */
-/* Reviewing an ended session: the hero Record CTA shrinks to a normal button —
-   a full-width 48px banner above results read as the primary content. */
-#flowContent.hasEnded .ctaSlot { padding: 8px; }
-#flowContent.hasEnded #sessionStart { width: auto; min-height: 30px; padding: 6px 14px; font: 700 12px/1 var(--font-mono); }
-
 .flowSystemic { padding: 4px 12px 6px; }
 
 /* Collapse bars: chrome, not content — slim them down. */
@@ -2760,5 +2755,3 @@ kbd {
    and the action bar all at once. Hidden means hidden. */
 .ctaSlot [hidden] { display: none !important; }
 
-/* Reviewing an ended session: the CTA helper line is orphaned chrome. */
-#flowContent.hasEnded #flowRecordHelper { display: none; }
