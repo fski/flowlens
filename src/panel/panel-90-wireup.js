@@ -1164,7 +1164,6 @@ chrome.devtools.network.onNavigated.addListener(async () => {
 // the panel's life while full-nav capture kept working.
 (function connectNavPort() {
   if (!hasRuntime() || typeof __runtime.connect !== "function") return;
-  let attempt = 0;
   function handleFrameNav(m, retried) {
     if (!sessionState.current || !els.autoCaptureNav?.checked) return;
     // Relevance is judged against the LAST step's audited frame set — during
@@ -1183,36 +1182,20 @@ chrome.devtools.network.onNavigated.addListener(async () => {
     logNavDecision(m.url, "frame-nav");
     maybeAutoCapture(m.url, { fromAuditedFrame: true });
   }
-  function schedule() {
-    const delay = Math.min(30000, 1000 * Math.pow(2, attempt++));
-    setTimeout(open, delay);
-  }
-  function open() {
-    let port;
-    try {
-      port = __runtime.connect({ name: "flowlens-nav" });
-      port.postMessage({ tabId });
-    } catch (e) {
-      console.warn("nav port connect failed", e);
-      schedule();
-      return;
-    }
-    port.onMessage.addListener(async (m) => {
-      if (!m) return;
+  createNavPortClient({
+    connect: () => __runtime.connect({ name: "flowlens-nav" }),
+    tabId,
+    warn: (msg, e) => console.warn(msg, e),
+    onNavMessage: async (m) => {
       if (m.type === "FRAME_NAV") {
-        attempt = 0;
         handleFrameNav(m, false);
         return;
       }
-      if (m.type !== "SPA_NAV") return;
-      attempt = 0; // live traffic proves the connection — reset backoff
       if (!sessionState.current || !els.autoCaptureNav?.checked) return;
       await refreshInspectedUrl();
       maybeAutoCapture(getCurrentScopeInfo().url);
-    });
-    port.onDisconnect.addListener(() => { schedule(); });
-  }
-  open();
+    },
+  }).open();
 })();
 
 // Bottom sheet toggles

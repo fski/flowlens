@@ -205,6 +205,43 @@ function classifyNavForCapture(url, lastUrl) {
   return true;
 }
 
+// Transport for the SW "flowlens-nav" port: connect, announce the tabId,
+// reconnect with exponential backoff (1s → 30s cap) after every disconnect —
+// MV3 reaps the SW at will and each reap drops the port. Live nav traffic
+// resets the backoff. Pure wiring lives here so the harness can drive it with
+// fake ports/timers; message semantics stay with the caller (onNavMessage).
+function createNavPortClient(opts) {
+  var connect = opts.connect;
+  var tabId = opts.tabId;
+  var schedule = opts.setTimeout || setTimeout;
+  var onNavMessage = opts.onNavMessage;
+  var warn = opts.warn || function () {};
+  var attempt = 0;
+  function scheduleReconnect() {
+    var delay = Math.min(30000, 1000 * Math.pow(2, attempt++));
+    schedule(open, delay);
+  }
+  function open() {
+    var port;
+    try {
+      port = connect();
+      port.postMessage({ tabId: tabId });
+    } catch (e) {
+      warn("nav port connect failed", e);
+      scheduleReconnect();
+      return;
+    }
+    port.onMessage.addListener(function (m) {
+      if (!m) return;
+      if (m.type !== "FRAME_NAV" && m.type !== "SPA_NAV") return;
+      attempt = 0; // live traffic proves the connection — reset backoff
+      onNavMessage(m);
+    });
+    port.onDisconnect.addListener(function () { scheduleReconnect(); });
+  }
+  return { open: open };
+}
+
 function updateResultsVisibility(forceValue = null) {
   const hasResults = typeof forceValue === "boolean" ? forceValue : state.records.length > 0;
   renderResultsShell({ view: hasResults ? "results" : "idle" });
