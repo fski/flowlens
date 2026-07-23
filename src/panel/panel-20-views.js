@@ -187,9 +187,23 @@ function decideNavAction(url, fromAuditedFrame, nav, session, autoOn, now) {
   return { action: "capture", reason: fromAuditedFrame ? "frame-nav" : "top-nav", nav: next };
 }
 
+// Is a URL fragment a client-side ROUTE rather than an in-page anchor?
+// Hash routers use #/path, #!/path or #?key=value (the DH help-center MFE
+// navigates exclusively via #?…); plain anchors are bare slugs (#section).
+function isRouteLikeHash(hash) {
+  if (!hash || hash === "#") return false;
+  var h = hash.charAt(0) === "#" ? hash.slice(1) : hash;
+  if (!h) return false;
+  var first = h.charAt(0);
+  if (first === "/" || first === "!" || first === "?") return true;
+  return h.indexOf("=") !== -1 || h.indexOf("&") !== -1 || h.indexOf("/") !== -1;
+}
+
 // Decide whether a navigation event is a real new step for auto-capture.
 // Accepts path/query changes (incl. SPA route changes) and the first nav;
-// rejects self-navigation and hash-only jumps that would just add noise.
+// rejects self-navigation. Hash-only changes are a step ONLY when the hash
+// looks like a client-side route (hash routers — common in embedded MFEs);
+// plain in-page anchors stay rejected as noise.
 function classifyNavForCapture(url, lastUrl) {
   if (!url || typeof url !== "string") return false;
   if (!lastUrl) return true;
@@ -197,8 +211,10 @@ function classifyNavForCapture(url, lastUrl) {
   try {
     const a = new URL(url);
     const b = new URL(lastUrl);
-    // Same origin + path + search, differing only in hash → in-page anchor.
-    if (a.origin === b.origin && a.pathname === b.pathname && a.search === b.search) return false;
+    // Same origin + path + search → only the fragment differs.
+    if (a.origin === b.origin && a.pathname === b.pathname && a.search === b.search) {
+      return isRouteLikeHash(a.hash) || isRouteLikeHash(b.hash);
+    }
   } catch (_) {
     // Unparseable — fall back to a raw inequality (already known non-equal).
   }
