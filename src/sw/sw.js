@@ -1388,14 +1388,21 @@ chrome.runtime.onConnect.addListener((port) => {
     if (details.frameId === 0) return;
     try { port.postMessage({ type: "FRAME_NAV", url: details.url, frameId: details.frameId }); } catch (_) { /* port closed */ }
   };
+  // Hash routers (…#/route, …#?screen=…) fire NEITHER onHistoryStateUpdated
+  // nor onCommitted — pure fragment changes arrive via
+  // onReferenceFragmentUpdated. Same routing as onHistory: frame 0 → SPA_NAV,
+  // subframe → FRAME_NAV (MFEs like the DH help center navigate only this way).
+  const onFragment = (details) => onHistory(details);
   port.onMessage.addListener((m) => {
     if (m && isNonNegativeInt(m.tabId)) watchedTabId = Number(m.tabId);
   });
   chrome.webNavigation.onHistoryStateUpdated.addListener(onHistory);
   chrome.webNavigation.onCommitted.addListener(onCommitted);
+  chrome.webNavigation.onReferenceFragmentUpdated.addListener(onFragment);
   port.onDisconnect.addListener(() => {
     try { chrome.webNavigation.onHistoryStateUpdated.removeListener(onHistory); } catch (_) {}
     try { chrome.webNavigation.onCommitted.removeListener(onCommitted); } catch (_) {}
+    try { chrome.webNavigation.onReferenceFragmentUpdated.removeListener(onFragment); } catch (_) {}
   });
 });
 }
