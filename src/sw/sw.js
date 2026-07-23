@@ -606,7 +606,7 @@ async function collectFrameProbeData({ tabId, frames, match }) {
   return byFrameId;
 }
 
-async function execAuditActionInFrame({ tabId, frameId, action, alsoConsole, wcagLevel, modeHints, appMarkers, rootSelector }) {
+async function execAuditActionInFrame({ tabId, frameId, action, alsoConsole, wcagLevel, modeHints, appMarkers, rootSelector, fastSettle = false }) {
   try {
     await chrome.scripting.executeScript({
       target: { tabId, frameIds: [frameId] },
@@ -621,7 +621,7 @@ async function execAuditActionInFrame({ tabId, frameId, action, alsoConsole, wca
     const r = await chrome.scripting.executeScript({
       target: { tabId, frameIds: [frameId] },
       world: "MAIN",
-      func: async (action, alsoConsole, wcagLevel, modeHints, appMarkers, rootSelector) => {
+      func: async (action, alsoConsole, wcagLevel, modeHints, appMarkers, rootSelector, fastSettle) => {
         const api = window.A11YFlowAudit;
         if (!api) return { ok: false, reason: "NO_API" };
 
@@ -632,8 +632,12 @@ async function execAuditActionInFrame({ tabId, frameId, action, alsoConsole, wca
 
         const res = await (async () => {
           if (action === "run") return api.run?.(runCfg);
-          if (action === "observe") return api.observe?.({ seconds: 12, runConfig: runCfg });
-          if (action === "watch") return api.watch?.({ seconds: 40 });
+          // fastSettle (capture path): the transition already happened before
+          // CAPTURE_STEP fired, so end the window early once the page is quiet
+          // instead of always sleeping the full 12s/40s. Manual runs keep the
+          // full window — the user is interacting with the page during it.
+          if (action === "observe") return api.observe?.({ seconds: 12, runConfig: runCfg, settleTicks: fastSettle ? 3 : 0, minTicks: 4 });
+          if (action === "watch") return api.watch?.({ seconds: 40, settleMs: fastSettle ? 5000 : 0, minMs: 8000 });
           if (action === "tabWalk") return api.tabWalk?.({ steps: 80 });
           if (action === "contrast") return api.contrastScan?.({ limit: 250, wcagLevel });
           return null;
@@ -645,7 +649,7 @@ async function execAuditActionInFrame({ tabId, frameId, action, alsoConsole, wca
         }
         return { ok: true, result: res };
       },
-      args: [action, !!alsoConsole, wcagLevel || "2.1-AA", modeHints || null, appMarkers || null, rootSelector || null]
+      args: [action, !!alsoConsole, wcagLevel || "2.1-AA", modeHints || null, appMarkers || null, rootSelector || null, !!fastSettle]
     });
     return (r && r[0]) ? r[0] : { frameId, result: { ok: false, reason: "NO_RESULT" } };
   } catch (e) {
@@ -666,6 +670,7 @@ async function executeAuditAcrossFrames({
   frames,
   finalTarget,
   frameProbeById,
+  fastSettle = false,
 }) {
   const allFrames = Array.isArray(frames) ? frames : await chrome.webNavigation.getAllFrames({ tabId });
   const frameUrlById = new Map((allFrames || []).map(f => [f.frameId, f.url || ""]));
@@ -704,10 +709,20 @@ async function executeAuditAcrossFrames({
   }
 
   const probeByFrameId = frameProbeById instanceof Map ? frameProbeById : await collectFrameProbeData({ tabId, frames: allFrames, match });
-  const execRes = [];
-  for (const frameId of usedFrameIds) {
-    // Deterministic sequential execution per frame.
-    execRes.push(await execAuditActionInFrame({ tabId, frameId, action, alsoConsole, wcagLevel, modeHints, appMarkers, rootSelector }));
+  // Audits are read-only DOM scans, so frames run concurrently — sequential
+  // execution multiplied every fixed observe/watch window by the frame count
+  // (2 frames = 24s per step), and gave each frame a DIFFERENT observation
+  // window (frame 2 started 12s after the transition it was meant to watch).
+  // Result order stays deterministic: Promise.all preserves usedFrameIds
+  // order. tabWalk is the exception — it moves real focus, which is
+  // tab-global, so parallel walks would fight over focus in both frames.
+  let execRes;
+  const execOne = (frameId) => execAuditActionInFrame({ tabId, frameId, action, alsoConsole, wcagLevel, modeHints, appMarkers, rootSelector, fastSettle });
+  if (action === "tabWalk") {
+    execRes = [];
+    for (const frameId of usedFrameIds) execRes.push(await execOne(frameId));
+  } else {
+    execRes = await Promise.all(usedFrameIds.map(execOne));
   }
 
   const scoredFrames = (execRes || []).map(r => {
@@ -1280,6 +1295,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         frames,
         finalTarget: resolved,
         frameProbeById,
+        fastSettle: true,
       });
 
       const active = safeActiveMode === "run"
@@ -1297,6 +1313,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           frames,
           finalTarget: resolved,
           frameProbeById,
+          fastSettle: true,
         });
 
       const mergedFrameKeyByFrameId = {

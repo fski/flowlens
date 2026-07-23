@@ -3588,8 +3588,20 @@
     return res;
   };
 
+  // ──────── Capture settle predicates (pure) ────
+  // observe/watch hold fixed windows (12s/40s) so the user can trigger flows
+  // manually. CAPTURE_STEP has no user in the loop — the transition already
+  // happened — so the capture path opts into early exit once the page is
+  // provably quiet. Both default OFF; manual console + Snap RUN_AUDIT keep
+  // full-window semantics. Extracted by test/snippet-harness.mjs.
+  const observeShouldSettle = ({ ticksDone, minTicks, settleTicks, quietStreak }) =>
+    settleTicks > 0 && ticksDone >= minTicks && quietStreak >= settleTicks;
+  const watchShouldSettle = ({ elapsedMs, minMs, settleMs, quietForMs }) =>
+    settleMs > 0 && elapsedMs >= minMs && quietForMs >= settleMs;
+  // ──────── End capture settle predicates ────
+
   // ---------------- observe (periodic run) ----------------
-  const observe = ({ seconds = 10, intervalMs = 900, runConfig = { strict: true } } = {}) => {
+  const observe = ({ seconds = 10, intervalMs = 900, runConfig = { strict: true }, settleTicks = 0, minTicks = 4 } = {}) => {
     if (observeInFlight?.promise) {
       console.info("🧠 A11YFlowAudit.observe already running; returning active session.");
       return observeInFlight.promise;
@@ -3603,14 +3615,41 @@
       let timer = null;
       let timeout = null;
 
-      const finish = () => {
+      // Early-settle bookkeeping (capture path only; settleTicks=0 disables).
+      // Quiet tick = zero new unique findings AND zero DOM mutations since the
+      // previous tick. A mutating page (spinner, streaming list) never settles
+      // early — worst case is today's full window.
+      const findingKey = (x) => `${x.type}|${x.severity}|${x.product||""}|${x.path||""}|${JSON.stringify(x.extra||{})}`;
+      const seenKeys = new Set();
+      let processedIdx = 0;
+      let quietStreak = 0;
+      let mutationsSinceTick = 0;
+      let settleObserver = null;
+      if (settleTicks > 0) {
+        try {
+          settleObserver = new MutationObserver((records) => { mutationsSinceTick += records.length; });
+          // Same attribute filter as watch's loader-gate; characterData is
+          // deliberately out — a ticking clock/counter would block settle
+          // forever, and text-driven findings still reset the streak via the
+          // new-findings check.
+          settleObserver.observe(doc.documentElement || doc.body, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+            attributeFilter: ["aria-busy", "role", "class", "id", "style", "hidden", "data-testid"],
+          });
+        } catch { /* settle falls back to findings-quiet only */ }
+      }
+
+      const finish = (settledEarly = false) => {
         if (settled) return;
         settled = true;
         _timedDisposers.delete(finish);
         if (timer) clearInterval(timer);
         if (timeout) clearTimeout(timeout);
-        const unique = uniqBy(merged, x => `${x.type}|${x.severity}|${x.product||""}|${x.path||""}|${JSON.stringify(x.extra||{})}`);
-        const result = { timestamp: nowIso(), seconds, intervalMs, snapshots, findings: unique, href: w.location.href, transitionStateSummaries: transitionSummaries.length ? transitionSummaries : null };
+        if (settleObserver) { try { settleObserver.disconnect(); } catch {} }
+        const unique = uniqBy(merged, findingKey);
+        const result = { timestamp: nowIso(), seconds, intervalMs, snapshots, findings: unique, href: w.location.href, transitionStateSummaries: transitionSummaries.length ? transitionSummaries : null, settledEarly: !!settledEarly, elapsedMs: Math.round(performance.now() - startedAt) };
         api.lastObserved = result;
         observeInFlight = null;
 
@@ -3677,6 +3716,20 @@
           }
           prevTransitionState = nextState;
         } catch {}
+
+        // Early settle (capture path): count this tick's NEW unique findings
+        // (including STE ones pushed above) + DOM mutations since last tick.
+        let newKeys = 0;
+        for (; processedIdx < merged.length; processedIdx++) {
+          const k = findingKey(merged[processedIdx]);
+          if (!seenKeys.has(k)) { seenKeys.add(k); newKeys++; }
+        }
+        const mutations = mutationsSinceTick;
+        mutationsSinceTick = 0;
+        quietStreak = (newKeys === 0 && mutations === 0) ? quietStreak + 1 : 0;
+        if (observeShouldSettle({ ticksDone: snapshots.length, minTicks, settleTicks, quietStreak })) {
+          finish(true);
+        }
       };
 
       tick();
@@ -3690,7 +3743,7 @@
   };
 
   // ---------------- watch (loader chain + focus loss + silent loading) ----------------
-  const watch = ({ seconds = 20, tickMs = 200, budget = {} } = {}) => {
+  const watch = ({ seconds = 20, tickMs = 200, budget = {}, settleMs = 0, minMs = 8000 } = {}) => {
     if (watchInFlight?.promise) {
       console.info("👀 A11YFlowAudit.watch already running; returning active session.");
       return watchInFlight.promise;
@@ -3881,7 +3934,14 @@
       };
       observeLiveRegions();
 
-      const finalize = () => {
+      // Early-settle bookkeeping (capture path only; settleMs=0 disables).
+      // Activity = a visible loader, or any new event/announcement/finding.
+      let lastActivityAt = performance.now();
+      let seenEventsLen = 0;
+      let seenAnnouncementCount = 0;
+      let seenFindingsLen = 0;
+
+      const finalize = (settledEarly = false) => {
         if (settled) return;
         settled = true;
         _timedDisposers.delete(finalize);
@@ -3905,6 +3965,7 @@
           announcements, announcementCount, emptyAnnouncementCount, firstAnnouncementAt,
           announcementLatency: (firstAnnouncementAt != null && totalLoadingMs > 0) ? firstAnnouncementAt : null,
           transitionStateSummaries: watchTransitionSummaries.length ? watchTransitionSummaries : null,
+          settledEarly: !!settledEarly, elapsedMs: Math.round(performance.now() - start),
         };
         api.lastWatch = result;
 
@@ -3996,6 +4057,21 @@
           }
           prevWatchTransitionState = nextWState;
         } catch {}
+
+        // Early settle (capture path): any activity this tick resets the
+        // quiet clock; a page that keeps loading/announcing never settles.
+        const activity = loaderNow
+          || events.length !== seenEventsLen
+          || announcementCount !== seenAnnouncementCount
+          || findings.length !== seenFindingsLen;
+        seenEventsLen = events.length;
+        seenAnnouncementCount = announcementCount;
+        seenFindingsLen = findings.length;
+        if (activity) lastActivityAt = performance.now();
+        if (watchShouldSettle({ elapsedMs: t, minMs, settleMs, quietForMs: performance.now() - lastActivityAt })) {
+          finalize(true);
+          return;
+        }
 
         if (t >= seconds * 1000) {
           finalize();

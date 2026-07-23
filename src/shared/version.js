@@ -1,4 +1,4 @@
 // Single source of truth for the FlowLens extension version.
 // Build reads this value and injects it into manifest.json and panel.js (via esbuild define).
 // Bump this value when preparing a release.
-const FLOWLENS_VERSION = "6.7.3";
+const FLOWLENS_VERSION = "6.8.0";
