@@ -72,6 +72,8 @@ export function createSwContext(opts = {}) {
     this.__validateIncomingMessage = validateIncomingMessage;
     this.__collectFrameProbeData = collectFrameProbeData;
     this.__mergeFrameIntegrity = mergeFrameIntegrity;
+    this.__executeAuditAcrossFrames = executeAuditAcrossFrames;
+    this.__execAuditActionInFrame = execAuditActionInFrame;
     this.__evaluateC4_1 = evaluateC4_1;
     this.__evaluateC4_2 = evaluateC4_2;
   `, { filename: 'sw-expose.js' });
