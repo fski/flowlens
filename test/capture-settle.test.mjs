@@ -83,7 +83,8 @@ describe("watchShouldSettle", () => {
 describe("settle wiring", () => {
   it("observe() consults observeShouldSettle and reports settledEarly", () => {
     assert.match(SNIPPET_SRC, /observeShouldSettle\(\{/, "observe must call the predicate");
-    assert.match(SNIPPET_SRC, /settledEarly/, "early-settled results must be marked (fail loud)");
+    assert.match(SNIPPET_SRC, /finish\(true\)/, "observe must actually finish early (a parameter default alone would satisfy a bare settledEarly match)");
+    assert.match(SNIPPET_SRC, /finalize\(true\)/, "watch must actually finalize early");
   });
 
   it("watch() consults watchShouldSettle", () => {

@@ -3602,6 +3602,10 @@
 
   // ---------------- observe (periodic run) ----------------
   const observe = ({ seconds = 10, intervalMs = 900, runConfig = { strict: true }, settleTicks = 0, minTicks = 4, transitionTicks = 2 } = {}) => {
+    // A settle on tick 0 would finish() synchronously BEFORE the interval/
+    // timeout/in-flight slot are installed — stranding a forever-ticking
+    // interval and a stale observeInFlight. Two quiet ticks minimum.
+    minTicks = Math.max(2, Number(minTicks) || 0);
     if (observeInFlight?.promise) {
       console.info("🧠 A11YFlowAudit.observe already running; returning active session.");
       return observeInFlight.promise;
@@ -3625,9 +3629,19 @@
       let quietStreak = 0;
       let mutationsSinceTick = 0;
       let settleObserver = null;
+      const SETTLE_EXCLUDE = "[role='log'],[role='feed'],[role='status'],[role='alert'],[role='marquee'],[role='timer'],[aria-live='polite'],[aria-live='assertive']";
       if (settleTicks > 0) {
         try {
-          settleObserver = new MutationObserver((records) => { mutationsSinceTick += records.length; });
+          // Streaming live regions (chat widgets!) mutate every tick — without
+          // this filter the early-settle never fires on exactly the pages the
+          // capture path targets. New findings still reset the streak.
+          settleObserver = new MutationObserver((records) => {
+            for (const rec of records) {
+              const t = rec.target && rec.target.nodeType === 1 ? rec.target : (rec.target && rec.target.parentElement);
+              if (t && t.closest && t.closest(SETTLE_EXCLUDE)) continue;
+              mutationsSinceTick += 1;
+            }
+          });
           // Same attribute filter as watch's loader-gate; characterData is
           // deliberately out — a ticking clock/counter would block settle
           // forever, and text-driven findings still reset the streak via the
@@ -3736,9 +3750,12 @@
         }
       };
 
-      tick();
+      // Timers first, then tick 0 — a synchronous settle inside tick() must
+      // find timer/timeout installed so finish() can clear them. The arrow
+      // keeps host setTimeout args (Firefox lateness) out of settledEarly.
       timer = setInterval(tick, intervalMs);
-      timeout = setTimeout(finish, seconds * 1000);
+      timeout = setTimeout(() => finish(), seconds * 1000);
+      tick();
 
       console.info(`🧠 A11YFlowAudit.observe started (${seconds}s). Trigger loader/remount flow now.`);
     });

@@ -1203,40 +1203,109 @@ chrome.devtools.network.onNavigated.addListener(async () => {
 // LiveChat) that navigate purely via DOM state — no URL event ever fires.
 // Decision logic is pure (decideDomStepAction); this is transport + label.
 var DOM_STEP_POLL_MS = 1200;
+var _domPollBusy = false; // async body on an interval — never overlap polls
 async function pollDomStep() {
+  if (_domPollBusy) return;
   if (!sessionState.current || !els.autoCaptureNav?.checked) return;
-  if (sessionState.inFlight || sessionState.autoCapturePending) return;
+  if (sessionState.inFlight || sessionState.autoCapturePending || state.running) return;
+  const _pollSessionId = sessionState.current.id;
   const steps = sessionState.current.steps || [];
   const last = steps.length ? steps[steps.length - 1] : null;
   const ids = last?.frameSelections?.usedFrameIds || [];
   if (!ids.length) return;
-  let r;
-  try { r = await send({ type: "PROBE_DOM_FINGERPRINT", frameIds: ids.slice(0, 20) }); } catch (_) { return; }
-  if (!r?.ok || !Array.isArray(r.frames)) return;
-  if (!sessionState.current) return; // session ended during the await
-  const byFrame = {};
-  for (const f of r.frames) if (f && typeof f.fp === "string") byFrame[String(f.frameId)] = f.fp;
-  const combined = Object.keys(byFrame).sort().map((k) => k + "::" + byFrame[k]).join("\n");
-  if (!combined) return;
-  const st = sessionState.nav.domStep || freshDomStepState();
-  const prevByFrame = st.byFrame || {};
-  const decision = decideDomStepAction(combined, st, steps.length, Date.now());
-  decision.state.byFrame = byFrame;
-  sessionState.nav.domStep = decision.state;
-  if (decision.action !== "capture") return;
-  // Label the step with the changed frame's first heading — DOM steps have
-  // no distinguishing URL, but "Contact us" beats "Screen change".
-  let label = null;
-  for (const k of Object.keys(byFrame)) {
-    if (prevByFrame[k] === byFrame[k]) continue;
-    try { label = (JSON.parse(byFrame[k]).h || [])[0] || null; } catch (_) { /* fp is ours, but stay safe */ }
-    if (label) break;
-  }
-  logNavDecision(label || "(dom step)", "dom-step-capture");
+  _domPollBusy = true;
   try {
-    await captureStepOptionC(label ? String(label).slice(0, 60) : "Screen change", { isAutoCapture: true });
-  } catch (e) {
-    console.error("DOM-step capture failed:", e);
+    let r;
+    try { r = await send({ type: "PROBE_DOM_FINGERPRINT", frameIds: ids.slice(0, 20) }); } catch (_) { return; }
+    // R1 guard: End/Start can interleave with the probe await — writing into
+    // a NEW session's fresh domStep state would poison its baseline.
+    if (!sessionState.current || sessionState.current.id !== _pollSessionId) return;
+    if (!r?.ok || !Array.isArray(r.frames)) return;
+    const byFrame = {};
+    for (const f of r.frames) if (f && typeof f.fp === "string") byFrame[String(f.frameId)] = f.fp;
+    const combined = Object.keys(byFrame).sort().map((k) => k + "::" + byFrame[k]).join("\n");
+    if (!combined) return;
+    const st = sessionState.nav.domStep || freshDomStepState();
+    const decision = decideDomStepAction(combined, st, (sessionState.current.steps || []).length, Date.now());
+    const keepArmed = () => {
+      // Not captured this poll — keep the armed candidate (retry next poll)
+      // and NEVER advance the baseline: silently adopting a missed screen
+      // would swallow the step forever.
+      sessionState.nav.domStep = { ...st, byFrame, baselineByFrame: st.baselineByFrame || byFrame };
+    };
+    if (decision.action !== "capture") {
+      const nextState = { ...decision.state, byFrame };
+      nextState.baselineByFrame = decision.action === "adopt" ? byFrame : (st.baselineByFrame || byFrame);
+      sessionState.nav.domStep = nextState;
+      return;
+    }
+    // Privacy: the same skips decideNavAction applies — a foreign top-level
+    // page must never be auto-captured (screenshots show SSO/payment pages),
+    // and a token-bearing top URL must never land in step.url. Adopt the
+    // fingerprint so returning to the audited site doesn't fire a stale step.
+    if (hasSensitiveFragment(getCurrentScopeInfo().url)) {
+      sessionState.nav.domStep = {
+        ...st, baselineFp: combined, candidateFp: null, candidateCount: 0,
+        lastStepCount: (sessionState.current.steps || []).length,
+        byFrame, baselineByFrame: byFrame,
+      };
+      logNavDecision(registrableDomain(getCurrentScopeInfo().url), "dom-step-skip-sensitive");
+      return;
+    }
+    if (isForeignAutoCaptureOrigin(getCurrentScopeInfo().url, sessionState.current)) {
+      sessionState.nav.domStep = {
+        ...st, baselineFp: combined, candidateFp: null, candidateCount: 0,
+        lastStepCount: (sessionState.current.steps || []).length,
+        byFrame, baselineByFrame: byFrame,
+      };
+      logNavDecision(registrableDomain(getCurrentScopeInfo().url), "dom-step-skip-foreign");
+      return;
+    }
+    // Busy re-check AFTER the await: a URL-nav capture may have started while
+    // probing — capturing now would QUEUE a duplicate step of the same screen
+    // (captureStepOptionC queues when inFlight). The landed step re-baselines
+    // us on the next poll instead.
+    if (sessionState.inFlight || sessionState.autoCapturePending || state.running) {
+      keepArmed();
+      return;
+    }
+    // Label: diff vs the BASELINE frame map. The previous poll is identical
+    // to this one by construction (capture requires 2 stable polls), so
+    // diffing against it would never find the changed frame.
+    const baseByFrame = st.baselineByFrame || {};
+    let label = null;
+    for (const k of Object.keys(byFrame)) {
+      if (baseByFrame[k] === byFrame[k]) continue;
+      try { label = (JSON.parse(byFrame[k]).h || [])[0] || null; } catch (_) { /* fp is ours, but stay safe */ }
+      if (label) break;
+    }
+    logNavDecision(label || "(dom step)", "dom-step-capture");
+    let captured = false;
+    try {
+      captured = await captureStepOptionC(label ? String(label).slice(0, 60) : "Screen change", { isAutoCapture: true });
+    } catch (e) {
+      console.error("DOM-step capture failed:", e);
+    }
+    if (!sessionState.current || sessionState.current.id !== _pollSessionId) return;
+    if (captured) {
+      sessionState.nav.domStep = { ...decision.state, byFrame, baselineByFrame: byFrame, captureFailures: 0 };
+    } else {
+      // Fail loud, retry transient failures — but a terminal rejection
+      // (MAX_STEPS) or a persistently failing capture must DISARM instead:
+      // re-arming would re-attempt the same capture every poll, repeating
+      // the step-limit toast until the session ends (Codex P2).
+      const failures = (st.captureFailures || 0) + 1;
+      const terminal = (sessionState.current.steps || []).length >= MAX_STEPS;
+      if (terminal || failures >= 3) {
+        logNavDecision(label || "(dom step)", terminal ? "dom-step-step-limit" : "dom-step-gave-up");
+        sessionState.nav.domStep = { ...decision.state, byFrame, baselineByFrame: byFrame, captureFailures: 0 };
+      } else {
+        logNavDecision(label || "(dom step)", "dom-step-capture-failed");
+        sessionState.nav.domStep = { ...st, byFrame, baselineByFrame: st.baselineByFrame || byFrame, captureFailures: failures };
+      }
+    }
+  } finally {
+    _domPollBusy = false;
   }
 }
 setInterval(pollDomStep, DOM_STEP_POLL_MS);

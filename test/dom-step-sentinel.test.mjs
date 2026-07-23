@@ -134,17 +134,43 @@ const WIREUP_SRC = readFileSync(join(__dirname, "..", "src", "panel", "panel-90-
 const SW_SRC = readFileSync(join(__dirname, "..", "src", "sw", "sw.js"), "utf8");
 
 describe("dom-step wiring", () => {
+  const poller = WIREUP_SRC.slice(WIREUP_SRC.indexOf("function pollDomStep"), WIREUP_SRC.indexOf("setInterval(pollDomStep"));
+  const afterAwait = poller.slice(poller.indexOf("PROBE_DOM_FINGERPRINT"));
+
   it("poller is guarded by session, Auto toggle and in-flight state", () => {
     assert.match(WIREUP_SRC, /PROBE_DOM_FINGERPRINT/);
-    const poller = WIREUP_SRC.slice(WIREUP_SRC.indexOf("function pollDomStep"));
-    for (const guard of ["sessionState.current", "autoCaptureNav", "sessionState.inFlight", "autoCapturePending"]) {
+    for (const guard of ["sessionState.current", "autoCaptureNav", "sessionState.inFlight", "autoCapturePending", "state.running", "_domPollBusy"]) {
       assert.match(poller, new RegExp(guard), `poller must check ${guard}`);
     }
   });
 
-  it("fingerprint excludes live/log/feed subtrees (chat messages are not steps)", () => {
+  it("re-checks busy state and session identity AFTER the probe await (TOCTOU: queued duplicate step)", () => {
+    assert.match(afterAwait, /_pollSessionId/, "session-id guard must run after the await");
+    assert.match(afterAwait, /sessionState\.inFlight/, "inFlight re-check must run after the await");
+    assert.match(afterAwait, /autoCapturePending/, "debounce re-check must run after the await");
+  });
+
+  it("applies the foreign-site and sensitive-URL privacy skips before capturing", () => {
+    assert.match(afterAwait, /isForeignAutoCaptureOrigin/, "sentinel must honor the 2026-07-20 privacy decision");
+    assert.match(afterAwait, /dom-step-skip-foreign/, "and log the skip (fail loud)");
+    assert.match(afterAwait, /hasSensitiveFragment/, "a token-bearing top URL must never land in step.url");
+    assert.match(afterAwait, /dom-step-skip-sensitive/);
+  });
+
+  it("disarms on terminal capture failures instead of retrying every poll (Codex P2 r2)", () => {
+    assert.match(afterAwait, /MAX_STEPS/, "step-limit rejection is terminal");
+    assert.match(afterAwait, /dom-step-step-limit/);
+    assert.match(afterAwait, /dom-step-gave-up/, "persistent failures back off after 3 attempts");
+  });
+
+  it("labels the step against the BASELINE frame map, not the previous poll", () => {
+    assert.match(afterAwait, /baselineByFrame/, "previous poll equals the current one at capture time by construction");
+  });
+
+  it("fingerprint excludes live/log/feed subtrees and carries no URL", () => {
     const fpFn = SW_SRC.slice(SW_SRC.indexOf("function computeDomFingerprint"), SW_SRC.indexOf("// ──────── End DOM step fingerprint"));
     assert.match(fpFn, /role='log'|role="log"/);
-    assert.match(fpFn, /aria-live/);
+    assert.match(fpFn, /aria-live='polite'/, "bare [aria-live] would also exclude aria-live=off (means NOT live)");
+    assert.doesNotMatch(fpFn, /location\.href/, "a URL field would resurrect every nav the URL pipeline deliberately rejects");
   });
 });

@@ -46,8 +46,8 @@ Everything runs locally. No network requests, no telemetry, no data leaves the b
 
 | Mode | Shortcut | What it does | Duration |
 |------|----------|-------------|----------|
-| **Observe** | `O` | Re-runs audit checks every ~900ms for 12 seconds to catch dynamically rendered content and DOM fluctuations | 12s |
-| **Watch** | `W` | Monitors loader chains, silent loading, and focus loss for 40 seconds. Measures bursts, total loading time, focus loss events | 40s |
+| **Observe** | `O` | Re-runs audit checks every ~900ms for up to 12 seconds to catch dynamically rendered content and DOM fluctuations. Manual runs always use the full window; flow step captures tick every ~600ms and end early once the page settles | 12s cap |
+| **Watch** | `W` | Monitors loader chains, silent loading, and focus loss for up to 40 seconds. Measures bursts, total loading time, focus loss events. Manual runs always use the full window; flow step captures end early after ≥8s once the page is quiet | 40s cap |
 
 ### Quick Start Presets
 
@@ -337,7 +337,7 @@ After 2+ steps, diffs show issue evolution:
 2. Settings → enable the **Help Center** profile (pill toggle).
 3. Scope: **Embedded frame only** (targeting the help center iframe).
 4. Refresh frames → select the frame whose URL contains `helpcenter`.
-5. Active mode: **Observe** (12s monitoring of dynamic changes in the help center).
+5. Active mode: **Observe** (monitors dynamic changes in the help center; step captures end early once the frame settles, 12s cap).
 6. **Start session**.
 7. Mark step: "Help center home".
 8. Click a category → Mark step: "Category".

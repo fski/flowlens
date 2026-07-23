@@ -850,27 +850,43 @@ async function executeAuditAcrossFrames({
 // messages arriving (Intercom/Zendesk/LiveChat) never look like a new
 // screen. Must stay dependency-free: executeScript serializes the function.
 function computeDomFingerprint() {
-  const EXCLUDE = "[role='log'],[role='feed'],[role='marquee'],[role='timer'],[aria-live]";
+  // NO URL in the fingerprint: URL transitions are the nav pipeline's job,
+  // and every nav it deliberately REJECTS (in-page anchors, foreign-site
+  // skips, settle-window absorption) would leak back in as a "DOM step"
+  // through a href field. Screens are identified by their skeleton only.
+  // aria-live='off' explicitly means NOT live — only polite/assertive (and
+  // the implicitly-live roles) mark chat/announcement noise.
+  const EXCLUDE = "[role='log'],[role='feed'],[role='status'],[role='alert'],[role='marquee'],[role='timer'],[aria-live='polite'],[aria-live='assertive']";
+  // Two-tier scan bound: excluded nodes (chat transcripts!) cost only a
+  // cheap closest() and must NOT exhaust the budget for the real screen
+  // controls below them; visibility checks force style/layout and get their
+  // own tighter budget. RAW caps total nodes touched on pathological DOMs.
+  const RAW_SCAN_CAP = 4000;
+  const VIS_BUDGET = 400;
   const vis = (el) => { try { return typeof el.checkVisibility === "function" ? el.checkVisibility() : true; } catch (_) { return true; } };
-  const keep = (el) => vis(el) && !el.closest(EXCLUDE);
   const label = (el) => ((el.getAttribute("aria-label") || el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 60));
+  let rawScanned = 0;
+  let visChecked = 0;
   const grab = (sel, n) => {
     const out = [];
     for (const el of document.querySelectorAll(sel)) {
-      if (out.length >= n) break;
-      if (!keep(el)) continue;
+      if (out.length >= n || ++rawScanned > RAW_SCAN_CAP) break;
+      if (el.closest(EXCLUDE)) continue; // cheap — doesn't burn the vis budget
+      if (++visChecked > VIS_BUDGET) break;
+      if (!vis(el)) continue;
       out.push(label(el));
     }
     return out;
   };
   const marks = [];
   for (const el of document.querySelectorAll("main,[role='main'],form,[role='dialog'],[role='tabpanel'],[role='region']")) {
-    if (marks.length >= 8) break;
-    if (!keep(el)) continue;
+    if (marks.length >= 8 || ++rawScanned > RAW_SCAN_CAP) break;
+    if (el.closest(EXCLUDE)) continue;
+    if (++visChecked > VIS_BUDGET) break;
+    if (!vis(el)) continue;
     marks.push(el.tagName + ":" + (el.getAttribute("role") || ""));
   }
   return JSON.stringify({
-    u: location.href.slice(0, 300),
     h: grab("h1,h2,h3,[role='heading']", 6),
     a: grab("button,[role='button'],a[href],input[type='submit']", 14),
     m: marks,

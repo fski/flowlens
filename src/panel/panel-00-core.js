@@ -356,7 +356,7 @@ const sessionState = {
 };
 
 function freshDomStepState() {
-  return { baselineFp: null, candidateFp: null, candidateCount: 0, lastCaptureAt: 0, lastStepCount: 0, byFrame: {} };
+  return { baselineFp: null, candidateFp: null, candidateCount: 0, lastCaptureAt: 0, lastStepCount: 0, byFrame: {}, captureFailures: 0 };
 }
 
 function freshNavState() {

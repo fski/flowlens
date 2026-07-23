@@ -137,11 +137,11 @@ Komunikacja Panel → SW jest przez `chrome.runtime.sendMessage`. SW waliduje ka
 | Pole | Wartość |
 |------|---------|
 | **Nazwa** | Observe |
-| **Co robi** | Powtarza audyt `run` co ~900ms przez 12 sekund, by wykryć dynamicznie renderowaną treść i fluktuacje DOM |
+| **Co robi** | Powtarza audyt `run` co ~900ms (w flow capture co ~600ms) przez maks. 12 sekund, by wykryć dynamicznie renderowaną treść i fluktuacje DOM; flow capture kończy okno wcześniej, gdy strona się ustabilizuje |
 | **Pliki** | `a11y-audit-snippet.js` (`observe()`), `panel.js`, `sw.js` |
-| **Wejścia** | `seconds: 12`, scope/frame |
+| **Wejścia** | `seconds: 12` (cap), `settleTicks`/`minTicks`/`transitionTicks` (ścieżka capture), scope/frame |
 | **Wyjścia** | Findings + trend (peak/jumps), snapshots |
-| **Timeout** | 12 sekund |
+| **Timeout** | 12 sekund (cap; manual = zawsze pełne okno, flow capture kończy po ustabilizowaniu) |
 | **Limity** | Raw cap: 220 findings, 140 snapshots per step |
 | **Failure modes** | Jak Run |
 
@@ -150,11 +150,11 @@ Komunikacja Panel → SW jest przez `chrome.runtime.sendMessage`. SW waliduje ka
 | Pole | Wartość |
 |------|---------|
 | **Nazwa** | Watch |
-| **Co robi** | Monitoruje loader chains, silent loading i focus loss przez 40 sekund. Mierzy bursts, total loading time, focus loss events |
+| **Co robi** | Monitoruje loader chains, silent loading i focus loss przez maks. 40 sekund. Mierzy bursts, total loading time, focus loss events; flow capture kończy po ≥8 s ciszy |
 | **Pliki** | `a11y-audit-snippet.js` (`watch()`), `panel.js`, `sw.js` |
 | **Wejścia** | `seconds: 40`, scope/frame |
 | **Wyjścia** | Verdicts (metryki), focus loss count, bursts, silent time, total loading time |
-| **Timeout** | 40 sekund |
+| **Timeout** | 40 sekund (cap; manual = zawsze pełne okno) |
 | **Limity** | Raw cap: 200 events, 80 verdicts per step |
 | **Failure modes** | Jak Run |
 
@@ -512,7 +512,7 @@ Po 2+ krokach, diffy pokazują ewolucję issues:
 2. Settings → włącz profil **Help Center** (pill toggle).
 3. Scope: **Embedded frame only** (celujemy w iframe help center).
 4. Odśwież ramki → wybierz frame z URL zawierającym `helpcenter`.
-5. Active mode: **Observe** (12s monitoring dynamicznych zmian w help center).
+5. Active mode: **Observe** (monitoring dynamicznych zmian w help center; capture kroku kończy się wcześniej po ustabilizowaniu frame'u, cap 12 s).
 6. **Start session**.
 7. Mark step: „Strona główna help center".
 8. Kliknij kategorię → Mark step: „Kategoria".
