@@ -49,7 +49,9 @@ function makeExecuteScript({ delayMs = 300, delayByFrame = {}, calls = [] } = {}
     return new Promise((resolve) => {
       setTimeout(() => {
         call.endedAt = Date.now();
-        resolve([{ frameId, result: { ok: false, reason: "TEST" } }]);
+        // ok:true — an all-frames-failed run now correctly promotes to a
+        // top-level AUDIT_FAILED; these tests assert timing, not failure.
+        resolve([{ frameId, result: { ok: true, result: { findings: [], mode: "run" } } }]);
       }, wait);
     });
   };

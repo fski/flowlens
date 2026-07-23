@@ -2240,7 +2240,7 @@
         for (let i = 0; i < cap; i++) {
           const el = scrollContainers[i];
           if (isHidden(el)) continue;
-          const style = win.getComputedStyle ? win.getComputedStyle(el) : null;
+          const style = w.getComputedStyle ? w.getComputedStyle(el) : null;
           const isScrollable = style && (style.overflowY === "auto" || style.overflowY === "scroll");
           if (!isScrollable) continue;
           const ti = el.getAttribute("tabindex");
@@ -3611,7 +3611,7 @@
       return observeInFlight.promise;
     }
 
-    const promise = new Promise((resolve) => {
+    const promise = new Promise((resolve, reject) => {
       const startedAt = performance.now();
       const snapshots = [];
       const merged = [];
@@ -3662,8 +3662,17 @@
         if (timer) clearInterval(timer);
         if (timeout) clearTimeout(timeout);
         if (settleObserver) { try { settleObserver.disconnect(); } catch {} }
+        // Zero successful ticks = there IS no audit result. Resolving would
+        // let the SW wrap it as ok:true and a totally-failed observe would
+        // display/export as a clean zero-finding audit. Reject instead —
+        // the SW surfaces it as a failed frame (EXEC_FAILED).
+        if (snapshots.length === 0 && firstTickError) {
+          observeInFlight = null;
+          reject(new Error("observe failed on every tick: " + firstTickError));
+          return;
+        }
         const unique = uniqBy(merged, findingKey);
-        const result = { timestamp: nowIso(), seconds, intervalMs, snapshots, findings: unique, href: w.location.href, transitionStateSummaries: transitionSummaries.length ? transitionSummaries : null, settledEarly: !!settledEarly, elapsedMs: Math.round(performance.now() - startedAt) };
+        const result = { timestamp: nowIso(), seconds, intervalMs, snapshots, findings: unique, href: w.location.href, transitionStateSummaries: transitionSummaries.length ? transitionSummaries : null, settledEarly: !!settledEarly, elapsedMs: Math.round(performance.now() - startedAt), tickError: firstTickError || null };
         api.lastObserved = result;
         observeInFlight = null;
 
@@ -3683,7 +3692,23 @@
       steResolveElement._fallbackCount = 0;
 
       const totalTicks = Math.max(1, Math.ceil((seconds * 1000) / intervalMs));
+      let tickErrors = 0;
+      let firstTickError = null;
       const tick = () => {
+        try {
+          tickBody();
+          tickErrors = 0;
+        } catch (err) {
+          // A single broken rule must not reject the whole observe — the
+          // ReferenceError in CHAT_SCROLL_REGION_NOT_FOCUSABLE killed every
+          // capture on pages with a chat feed (the extension's core case).
+          tickErrors++;
+          if (!firstTickError) firstTickError = String(err && err.message || err);
+          console.error("A11YFlowAudit.observe tick failed:", err);
+          if (tickErrors >= 3) finish(false);
+        }
+      };
+      const tickBody = () => {
         const tickIndex = snapshots.length;
         // Capture path passes transitionTicks: 0 — it fires well after the
         // navigation (debounce + nav settle), so the blanket transition window

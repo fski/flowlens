@@ -838,12 +838,15 @@ async function executeAuditAcrossFrames({
   // a timed-out audit masquerading as a pass. Fail loud instead.
   if (picked?.reason === "no_ok_frames_fallback"
       && scoredFrames.length
-      && scoredFrames.every(f => f?.ok !== true)
-      && scoredFrames.some(f => f?.reason === "EXEC_TIMEOUT")) {
+      && scoredFrames.every(f => f?.ok !== true)) {
+    // Same fail-loud rule for every all-frames-failed shape: a run with zero
+    // surviving frames must never masquerade as a clean 0-finding audit.
+    const anyTimeout = scoredFrames.some(f => f?.reason === "EXEC_TIMEOUT");
+    const code = anyTimeout ? "AUDIT_TIMED_OUT" : "AUDIT_FAILED";
     return {
       ok: false,
-      error: "AUDIT_TIMED_OUT",
-      reason: "AUDIT_TIMED_OUT",
+      error: code,
+      reason: code,
       bestEntry: null,
       perFrame: scoredFrames.map(compactFramePayload),
       usedFrameIds,
