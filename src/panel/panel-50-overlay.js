@@ -424,6 +424,13 @@ function applySectionView(section, rows, emptyText) {
   const vt = VT[cfg.vt];
   if (vt) {
     vt.setData(rows);
+    // VT paints on rAF — and rAF does NOT run while the DevTools panel tab
+    // is hidden. An empty-state write is synchronous, so without this a
+    // zero-row update could show the empty message UNDER still-painted
+    // stale rows until the user's next visible frame ("Run an Audit to see
+    // results" at the end of the findings list, report 23.07). Clearing the
+    // container synchronously keeps the pair atomic in both directions.
+    if (rows.length === 0 && cfg.tbody()) cfg.tbody().innerHTML = "";
   } else if (cfg.tbody()) {
     cfg.tbody().innerHTML = rows.slice(0, 200).map(cfg.rowHtml).join("");
   }
