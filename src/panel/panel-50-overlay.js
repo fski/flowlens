@@ -424,6 +424,13 @@ function applySectionView(section, rows, emptyText) {
   const vt = VT[cfg.vt];
   if (vt) {
     vt.setData(rows);
+    // VT paints on rAF — and rAF does NOT run while the DevTools panel tab
+    // is hidden. An empty-state write is synchronous, so without this a
+    // zero-row update could show the empty message UNDER still-painted
+    // stale rows until the user's next visible frame ("Run an Audit to see
+    // results" at the end of the findings list, report 23.07). Clearing the
+    // container synchronously keeps the pair atomic in both directions.
+    if (rows.length === 0 && cfg.tbody()) cfg.tbody().innerHTML = "";
   } else if (cfg.tbody()) {
     cfg.tbody().innerHTML = rows.slice(0, 200).map(cfg.rowHtml).join("");
   }
@@ -706,8 +713,12 @@ function updateContrastView() {
   } else if (state.contrastFilter === "pass") {
     data = state.contrastSamples.filter(s => s.ratio >= s.required);
   } else {
-    // "all" — show all samples
-    data = state.contrastSamples;
+    // "all" — show all samples. Restored past-runs can arrive WITHOUT
+    // samples (persist compaction caps them at 30→…→5 and pre-APCA-era
+    // records never had the field) — falling back to failures keeps the
+    // invariant that existing results are never hidden behind an empty
+    // state ("empty message above data" bug class, report 23.07).
+    data = state.contrastSamples.length ? state.contrastSamples : state.contrastData;
   }
   data = data || [];
   const hasData = state.contrastData.length > 0 || state.contrastSamples.length > 0;

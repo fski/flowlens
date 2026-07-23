@@ -58,6 +58,40 @@ describe("applySectionView — rows and empty state applied atomically", () => {
     assert.match(ctx.els.contrastTbody.innerHTML, /trow/);
   });
 
+  it("contrast failures WITHOUT samples still render (restored/compacted records) — empty must hide", () => {
+    // Persist compaction caps samples at 30→…→5 and pre-APCA records never
+    // had the field: a restored past-run can be failures>0, samples=[].
+    // Filter "all" used to render an empty table with the empty state
+    // showing above real results (report 23.07).
+    ctx.state.hasRunMode.add("contrast");
+    ctx.state.contrastData = [{ ratio: 2.1, apcaLc: -40, required: 4.5, largeText: false, text: "x", tag: "a", testId: "", path: "a", note: "" }];
+    ctx.state.contrastSamples = [];
+    ctx.state.contrastFilter = "all";
+    ctx.updateContrastView();
+    assert.equal(ctx.els.contrastEmpty.hidden, true, "results exist — the empty state must disappear");
+    assert.match(ctx.els.contrastTbody.innerHTML, /trow/);
+    // Tab counts must use the same fallback — samples-only math showed
+    // "All 0 / Pass -1" beside a visible row (Codex on #91).
+    ctx.renderContrastSevTabs();
+    const counts = [...ctx.els.sevTabs.innerHTML.matchAll(/sevCount">([^<]+)</g)].map((m) => m[1]);
+    assert.deepEqual(counts, ["1", "1", "0"], "All=1 (fallback rows), Fail=1, Pass=0 — never negative");
+  });
+
+  it("zero-row update clears the table container SYNCHRONOUSLY (hidden-panel rAF race)", () => {
+    // VT paints on rAF, which does not run while the panel tab is hidden;
+    // the empty write is sync. Without a sync clear, the CTA could render
+    // under still-painted stale rows (report 23.07).
+    ctx.state.hasRunMode.add("run");
+    // Simulate the real panel: VT exists but its rAF paint never runs
+    // (hidden panel) — setData is a deferred no-op here. Without the sync
+    // clear this is exactly the state the user saw.
+    ctx.__VT.all = { setData: () => {} };
+    ctx.els.allTableBody.innerHTML = '<div class="trow">stale painted row</div>';
+    ctx.applySectionView("explorer", [], "Run an Audit to see results");
+    assert.equal(ctx.els.allTableBody.innerHTML, "", "stale rows must vanish in the same sync pass as the empty message");
+    assert.equal(ctx.els.explorerEmpty.hidden, false);
+  });
+
   it("contrast without data: empty visible with CTA text, zero rows", () => {
     ctx.state.contrastData = [];
     ctx.state.contrastSamples = [];

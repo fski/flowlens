@@ -1161,6 +1161,12 @@ chrome.devtools.network.onNavigated.addListener(async () => {
   state.findingsByMode = {};
   state.hasRunMode = new Set();
   state.contrastFilter = "all";
+  // Data and view must reset TOGETHER: clearing findingsByMode/hasRunMode
+  // while the explorer kept its painted rows left the view lying about
+  // state — the next partial re-render then showed the run-CTA under the
+  // stale list (rAF-deferred VT clear vs sync empty write).
+  state.currentFindings = [];
+  scheduleRerenderFindings("navigation");
   await refreshInspectedUrl();
   await refreshFrames();
   toast("Navigated — refreshed frames");

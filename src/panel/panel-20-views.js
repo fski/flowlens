@@ -403,9 +403,12 @@ function renderSevTabs(findings = null) {
 
 function renderContrastSevTabs() {
   if (!els.sevTabs) return;
-  const total = state.contrastSamples.length;
   const fail = state.contrastData.length;
-  const pass = total - fail;
+  // Same fallback as updateContrastView's "all" filter: restored/compacted
+  // records can carry failures without samples — counting from samples alone
+  // would render "All 0 / Pass -N" beside N visible rows (Codex on #91).
+  const total = state.contrastSamples.length || fail;
+  const pass = Math.max(0, total - fail);
   const f = state.contrastFilter;
 
   els.sevTabs.innerHTML = [
