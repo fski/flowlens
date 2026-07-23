@@ -90,6 +90,12 @@ describe("settle wiring", () => {
     assert.match(SNIPPET_SRC, /watchShouldSettle\(\{/, "watch must call the predicate");
   });
 
+  it("capture-context observe skips the blanket transition window and ticks faster; defaults preserve old behavior", () => {
+    assert.match(SNIPPET_SRC, /transitionTicks = 2/, "default transition window stays 2 ticks (old `tickIndex <= 1`)");
+    assert.match(SNIPPET_SRC, /tickIndex < transitionTicks/, "window must be derived from the option");
+    assert.match(SW_SRC, /intervalMs:\s*600[\s\S]{0,80}transitionTicks:\s*0/, "fastSettle observe passes intervalMs 600 + transitionTicks 0");
+  });
+
   it("sw CAPTURE_STEP opts into fastSettle; RUN_AUDIT does not", () => {
     const captureBlock = SW_SRC.slice(SW_SRC.indexOf('msg.type === "CAPTURE_STEP"', SW_SRC.indexOf("chrome.runtime.onMessage")));
     assert.match(captureBlock, /fastSettle:\s*true/, "CAPTURE_STEP must pass fastSettle: true");
