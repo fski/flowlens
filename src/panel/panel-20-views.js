@@ -221,6 +221,44 @@ function classifyNavForCapture(url, lastUrl) {
   return true;
 }
 
+// DOM-step sentinel decision (pure). Widgets like Intercom, Zendesk
+// messaging and LiveChat navigate without touching the URL — the poller
+// feeds a combined screen fingerprint of the audited frames here. A step is
+// captured only when a NEW fingerprint holds stable for consecutive polls
+// (a churning screen — carousel, animation — never stabilizes and never
+// captures), with a minimum gap between DOM-step captures. Any step landing
+// from another source re-baselines silently so URL navs don't double-fire.
+var DOM_STEP_STABLE_POLLS = 2;
+var DOM_STEP_MIN_GAP_MS = 4000;
+function decideDomStepAction(fp, domState, stepCount, now) {
+  var next = Object.assign({}, domState);
+  if (stepCount !== domState.lastStepCount || domState.baselineFp == null) {
+    next.lastStepCount = stepCount;
+    next.baselineFp = fp;
+    next.candidateFp = null;
+    next.candidateCount = 0;
+    return { action: "adopt", state: next };
+  }
+  if (fp === domState.baselineFp) {
+    next.candidateFp = null;
+    next.candidateCount = 0;
+    return { action: "none", state: next };
+  }
+  if (fp !== domState.candidateFp) {
+    next.candidateFp = fp;
+    next.candidateCount = 1;
+    return { action: "wait", state: next };
+  }
+  next.candidateCount = domState.candidateCount + 1;
+  if (next.candidateCount < DOM_STEP_STABLE_POLLS) return { action: "wait", state: next };
+  if (now - (domState.lastCaptureAt || 0) < DOM_STEP_MIN_GAP_MS) return { action: "skip-gap", state: next };
+  next.baselineFp = fp;
+  next.candidateFp = null;
+  next.candidateCount = 0;
+  next.lastCaptureAt = now;
+  return { action: "capture", state: next };
+}
+
 // Transport for the SW "flowlens-nav" port: connect, announce the tabId,
 // reconnect with exponential backoff (1s → 30s cap) after every disconnect —
 // MV3 reaps the SW at will and each reap drops the port. Live nav traffic

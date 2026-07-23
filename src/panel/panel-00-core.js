@@ -355,8 +355,12 @@ const sessionState = {
   },
 };
 
+function freshDomStepState() {
+  return { baselineFp: null, candidateFp: null, candidateCount: 0, lastCaptureAt: 0, lastStepCount: 0, byFrame: {} };
+}
+
 function freshNavState() {
-  return { lastAutoNavUrl: null, lastFrameNavUrl: null, lastTopNavAt: 0, foreignSkips: 0, foreignSkipNotified: false };
+  return { lastAutoNavUrl: null, lastFrameNavUrl: null, lastTopNavAt: 0, foreignSkips: 0, foreignSkipNotified: false, domStep: freshDomStepState() };
 }
 
 function debugSession(...args) {
