@@ -58,6 +58,20 @@ describe("applySectionView — rows and empty state applied atomically", () => {
     assert.match(ctx.els.contrastTbody.innerHTML, /trow/);
   });
 
+  it("contrast failures WITHOUT samples still render (restored/compacted records) — empty must hide", () => {
+    // Persist compaction caps samples at 30→…→5 and pre-APCA records never
+    // had the field: a restored past-run can be failures>0, samples=[].
+    // Filter "all" used to render an empty table with the empty state
+    // showing above real results (report 23.07).
+    ctx.state.hasRunMode.add("contrast");
+    ctx.state.contrastData = [{ ratio: 2.1, apcaLc: -40, required: 4.5, largeText: false, text: "x", tag: "a", testId: "", path: "a", note: "" }];
+    ctx.state.contrastSamples = [];
+    ctx.state.contrastFilter = "all";
+    ctx.updateContrastView();
+    assert.equal(ctx.els.contrastEmpty.hidden, true, "results exist — the empty state must disappear");
+    assert.match(ctx.els.contrastTbody.innerHTML, /trow/);
+  });
+
   it("contrast without data: empty visible with CTA text, zero rows", () => {
     ctx.state.contrastData = [];
     ctx.state.contrastSamples = [];

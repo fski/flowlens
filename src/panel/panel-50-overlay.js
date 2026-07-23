@@ -706,8 +706,12 @@ function updateContrastView() {
   } else if (state.contrastFilter === "pass") {
     data = state.contrastSamples.filter(s => s.ratio >= s.required);
   } else {
-    // "all" — show all samples
-    data = state.contrastSamples;
+    // "all" — show all samples. Restored past-runs can arrive WITHOUT
+    // samples (persist compaction caps them at 30→…→5 and pre-APCA-era
+    // records never had the field) — falling back to failures keeps the
+    // invariant that existing results are never hidden behind an empty
+    // state ("empty message above data" bug class, report 23.07).
+    data = state.contrastSamples.length ? state.contrastSamples : state.contrastData;
   }
   data = data || [];
   const hasData = state.contrastData.length > 0 || state.contrastSamples.length > 0;
