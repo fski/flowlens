@@ -70,6 +70,11 @@ describe("applySectionView — rows and empty state applied atomically", () => {
     ctx.updateContrastView();
     assert.equal(ctx.els.contrastEmpty.hidden, true, "results exist — the empty state must disappear");
     assert.match(ctx.els.contrastTbody.innerHTML, /trow/);
+    // Tab counts must use the same fallback — samples-only math showed
+    // "All 0 / Pass -1" beside a visible row (Codex on #91).
+    ctx.renderContrastSevTabs();
+    assert.match(ctx.els.sevTabs.innerHTML, /All[\s\S]*?1/, "All must count the fallback rows");
+    assert.doesNotMatch(ctx.els.sevTabs.innerHTML, /-1/, "Pass must never go negative");
   });
 
   it("contrast without data: empty visible with CTA text, zero rows", () => {
