@@ -490,7 +490,11 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     // started throwing mid-window (tickError) or frames that died mid-run
     // truncate coverage even when the capture "succeeds".
     const tickErrWarn = !!(r?.active?.bestEntry?.result?.tickError || r?.run?.bestEntry?.result?.tickError);
-    const failedFrames = (r?.run?.perFrame || []).filter((f) => f && f.ok !== true).length;
+    // Count failures across BOTH passes — an active-mode frame that died
+    // (with another surviving) leaves r.active.ok true and would otherwise
+    // read as a fully clean step (Codex on #90).
+    const failedFrames = [...(r?.run?.perFrame || []), ...(r?.active?.perFrame || [])]
+      .filter((f) => f && f.ok !== true).length;
     if (activeFailed) setLastMarkStatus("PARTIAL", activeReasonCode);
     else if (persistWarn) setLastMarkStatus("PARTIAL", sessionState.lastPersistReasonCode || "persist:error");
     else if (rawWarn) setLastMarkStatus("PARTIAL", "raw:capped");
