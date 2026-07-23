@@ -1239,10 +1239,19 @@ async function pollDomStep() {
       sessionState.nav.domStep = nextState;
       return;
     }
-    // Privacy: the same skip decideNavAction applies — a foreign top-level
-    // page must never be auto-captured (screenshots show SSO/payment pages).
-    // Adopt the foreign fingerprint so returning to the audited site doesn't
-    // fire a stale capture of the foreign screen.
+    // Privacy: the same skips decideNavAction applies — a foreign top-level
+    // page must never be auto-captured (screenshots show SSO/payment pages),
+    // and a token-bearing top URL must never land in step.url. Adopt the
+    // fingerprint so returning to the audited site doesn't fire a stale step.
+    if (hasSensitiveFragment(getCurrentScopeInfo().url)) {
+      sessionState.nav.domStep = {
+        ...st, baselineFp: combined, candidateFp: null, candidateCount: 0,
+        lastStepCount: (sessionState.current.steps || []).length,
+        byFrame, baselineByFrame: byFrame,
+      };
+      logNavDecision(registrableDomain(getCurrentScopeInfo().url), "dom-step-skip-sensitive");
+      return;
+    }
     if (isForeignAutoCaptureOrigin(getCurrentScopeInfo().url, sessionState.current)) {
       sessionState.nav.domStep = {
         ...st, baselineFp: combined, candidateFp: null, candidateCount: 0,
@@ -1279,11 +1288,21 @@ async function pollDomStep() {
     }
     if (!sessionState.current || sessionState.current.id !== _pollSessionId) return;
     if (captured) {
-      sessionState.nav.domStep = { ...decision.state, byFrame, baselineByFrame: byFrame };
+      sessionState.nav.domStep = { ...decision.state, byFrame, baselineByFrame: byFrame, captureFailures: 0 };
     } else {
-      // Fail loud + retry — a failed capture must not swallow the screen.
-      logNavDecision(label || "(dom step)", "dom-step-capture-failed");
-      keepArmed();
+      // Fail loud, retry transient failures — but a terminal rejection
+      // (MAX_STEPS) or a persistently failing capture must DISARM instead:
+      // re-arming would re-attempt the same capture every poll, repeating
+      // the step-limit toast until the session ends (Codex P2).
+      const failures = (st.captureFailures || 0) + 1;
+      const terminal = (sessionState.current.steps || []).length >= MAX_STEPS;
+      if (terminal || failures >= 3) {
+        logNavDecision(label || "(dom step)", terminal ? "dom-step-step-limit" : "dom-step-gave-up");
+        sessionState.nav.domStep = { ...decision.state, byFrame, baselineByFrame: byFrame, captureFailures: 0 };
+      } else {
+        logNavDecision(label || "(dom step)", "dom-step-capture-failed");
+        sessionState.nav.domStep = { ...st, byFrame, baselineByFrame: st.baselineByFrame || byFrame, captureFailures: failures };
+      }
     }
   } finally {
     _domPollBusy = false;

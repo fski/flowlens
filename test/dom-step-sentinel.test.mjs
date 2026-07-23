@@ -150,9 +150,17 @@ describe("dom-step wiring", () => {
     assert.match(afterAwait, /autoCapturePending/, "debounce re-check must run after the await");
   });
 
-  it("applies the foreign-site privacy skip before capturing", () => {
+  it("applies the foreign-site and sensitive-URL privacy skips before capturing", () => {
     assert.match(afterAwait, /isForeignAutoCaptureOrigin/, "sentinel must honor the 2026-07-20 privacy decision");
     assert.match(afterAwait, /dom-step-skip-foreign/, "and log the skip (fail loud)");
+    assert.match(afterAwait, /hasSensitiveFragment/, "a token-bearing top URL must never land in step.url");
+    assert.match(afterAwait, /dom-step-skip-sensitive/);
+  });
+
+  it("disarms on terminal capture failures instead of retrying every poll (Codex P2 r2)", () => {
+    assert.match(afterAwait, /MAX_STEPS/, "step-limit rejection is terminal");
+    assert.match(afterAwait, /dom-step-step-limit/);
+    assert.match(afterAwait, /dom-step-gave-up/, "persistent failures back off after 3 attempts");
   });
 
   it("labels the step against the BASELINE frame map, not the previous poll", () => {

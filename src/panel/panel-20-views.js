@@ -177,13 +177,17 @@ function decideNavAction(url, fromAuditedFrame, nav, session, autoOn, now) {
   if (!session) return { action: "skip", reason: "no-session", nav: next };
   if (!autoOn) return { action: "skip", reason: "auto-off", nav: next };
   if (!fromAuditedFrame) {
-    var isStep = classifyNavForCapture(url, nav.lastAutoNavUrl);
+    var sensitive = hasSensitiveFragment(url);
+    var isStep = !sensitive && classifyNavForCapture(url, nav.lastAutoNavUrl);
     // Only a REAL top navigation drags iframes along — anchor/scroll-spy
     // hash noise must not refresh the frame-settle window, or a scroll-spy
     // page would starve every audited-MFE FRAME_NAV into skip-frame-settle.
-    // Foreign real navs still anchor the window (they do reload iframes).
-    if (isStep || isForeignAutoCaptureOrigin(url, session)) next.lastTopNavAt = now;
+    // Foreign and token-bearing real navs still anchor it: they DO reload
+    // iframes, and a FRAME_NAV captured outside the window would store the
+    // top URL — token included — plus a screenshot.
+    if (isStep || sensitive || isForeignAutoCaptureOrigin(url, session)) next.lastTopNavAt = now;
     if (isForeignAutoCaptureOrigin(url, session)) return { action: "skip", reason: "skip-foreign-site", nav: next };
+    if (sensitive) return { action: "skip", reason: "skip-sensitive-url", nav: next };
     if (!isStep) return { action: "skip", reason: "skip-not-a-step", nav: next };
     return { action: "capture", reason: "top-nav", nav: next };
   }

@@ -99,6 +99,15 @@ describe("decideNavAction settle window vs hash noise", () => {
     assert.equal(d.reason, "skip-foreign-site");
     assert.equal(d.nav.lastTopNavAt, T);
   });
+
+  it("a same-site token-bearing full nav is skipped BUT anchors the settle window (Codex P1 r2)", () => {
+    // /callback#access_token reloads audited iframes; without the anchor a
+    // FRAME_NAV outside the window would store the token top-URL + screenshot.
+    const d = ctx.decideNavAction("https://app.example.com/callback#access_token=eyJ", false, NAV(), SESSION, true, T);
+    assert.equal(d.action, "skip");
+    assert.equal(d.reason, "skip-sensitive-url");
+    assert.equal(d.nav.lastTopNavAt, T, "settle window must anchor on the sensitive nav");
+  });
 });
 
 // ── SW nav port: onReferenceFragmentUpdated forwarding ──────────────────
