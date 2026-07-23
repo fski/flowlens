@@ -383,6 +383,11 @@ function applyExplorerFilters(findings) {
  */
 function sectionEmptyText(section, ctx) {
   const filters = ctx.filters || [];
+  // Post-navigation window: the scope HAS run records but they are not
+  // loaded yet (refreshInspectedUrl restores them a beat later). Neither
+  // the run-CTA ("never ran") nor "came back clean" (findings unknown!)
+  // is true here — say what is actually happening.
+  if (ctx.restoring) return "Restoring last audit…";
   if (!ctx.ran) {
     if (section === "contrast") return "Run a Contrast check to see results";
     if (section === "tabWalk") return "Run a Tab Walk to see results";
@@ -1206,7 +1211,19 @@ function renderExplorer(findings) {
   if ((els.q?.value || "").trim()) filters.push("search");
 
   applySectionView("explorer", filtered, sectionEmptyText("explorer", {
-    ran: state.hasRunMode.has("run") || state.hasRunMode.has("observe"),
+    // "ran" must survive navigation: hasRunMode is wiped by onNavigated, but
+    // the run RECORDS for this scope persist and restore — showing the
+    // "Run an Audit to see results" CTA while a just-finished audit exists
+    // in records was the 23.07 report. Any durable evidence counts.
+    ran: state.hasRunMode.has("run") || state.hasRunMode.has("observe")
+      || (state.currentFindings || []).length > 0
+      || (state.records || []).some((r) => r.action === "run" || r.action === "observe"),
+    // Records exist but live state is wiped (post-nav, pre-restore): rawTotal
+    // is 0 there, and "came back clean" would misreport an audit whose
+    // findings simply aren't loaded yet (Codex on #92).
+    restoring: !(state.hasRunMode.has("run") || state.hasRunMode.has("observe"))
+      && (state.currentFindings || []).length === 0
+      && (state.records || []).some((r) => r.action === "run" || r.action === "observe"),
     total: rawTotal,
     shown: filtered.length,
     filters,

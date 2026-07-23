@@ -2755,3 +2755,13 @@ kbd {
    and the action bar all at once. Hidden means hidden. */
 .ctaSlot [hidden] { display: none !important; }
 
+
+/* ═══ [hidden] MUST ALWAYS WIN ═════════════════════════════════════════════
+   Any class-level `display:` on the same element silently defeats the UA's
+   [hidden]{display:none} — this bug class shipped at least three times
+   (flow groups/CTA in round 23, and the whole 23.07 empty-states saga:
+   .sectionEmpty{display:flex} kept "Run an Audit to see results" rendered
+   under populated tables regardless of the hidden attribute, immune to every
+   JS-side fix). Restore standard semantics globally; per-class [hidden]
+   fixups above become redundant but stay harmless. */
+[hidden] { display: none !important; }

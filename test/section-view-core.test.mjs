@@ -10,6 +10,7 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { Script } from "node:vm";
 import { createContext } from "./harness.mjs";
+import { readFileSync as fsReadFileSync } from "node:fs";
 
 describe("sectionEmptyText — pure decisions", () => {
   const ctx = createContext();
@@ -41,6 +42,13 @@ describe("sectionEmptyText — pure decisions", () => {
   it("rows visible → null (empty state hidden)", () => {
     assert.equal(ctx.sectionEmptyText("explorer", { ran: true, total: 5, shown: 5, filters: [] }), null);
     assert.equal(ctx.sectionEmptyText("contrast", { ran: true, total: 5, shown: 2, filters: ["search"] }), null);
+  });
+});
+
+describe("stylesheet hidden semantics", () => {
+  it("panel.css has the global [hidden] guard — class display rules must never resurrect hidden elements", () => {
+    const css = fsReadFileSync(new URL("../src/panel/panel.css", import.meta.url), "utf8");
+    assert.match(css, /\[hidden\]\s*\{\s*display:\s*none\s*!important/, ".sectionEmpty{display:flex} defeated [hidden] for weeks");
   });
 });
 
@@ -90,6 +98,20 @@ describe("applySectionView — rows and empty state applied atomically", () => {
     ctx.applySectionView("explorer", [], "Run an Audit to see results");
     assert.equal(ctx.els.allTableBody.innerHTML, "", "stale rows must vanish in the same sync pass as the empty message");
     assert.equal(ctx.els.explorerEmpty.hidden, false);
+  });
+
+  it("run CTA never shows while run records exist — even after onNavigated wiped hasRunMode", () => {
+    // Navigation clears hasRunMode/findingsByMode; the scope's records
+    // persist and restore. Rendering the explorer in that window used to
+    // produce "Run an Audit to see results" right after a finished audit.
+    ctx.state.hasRunMode = new Set();
+    ctx.state.findingsByMode = {};
+    ctx.state.records = [{ id: "r1", action: "run", best: {} }];
+    ctx.state.currentFindings = [];
+    ctx.renderExplorer([]);
+    assert.equal(ctx.els.explorerEmpty.hidden, false, "empty shows (no rows yet)");
+    assert.equal(ctx.els.explorerEmpty.textContent, "Restoring last audit…",
+      "not the CTA (an audit ran) and not 'came back clean' (findings not loaded yet — Codex on #92)");
   });
 
   it("contrast without data: empty visible with CTA text, zero rows", () => {
