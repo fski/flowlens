@@ -52,6 +52,44 @@ describe("classifyNavForCapture hash routes", () => {
   it("still rejects identical urls", () => {
     assert.equal(f("https://x.com/a#/contact", "https://x.com/a#/contact"), false);
   });
+
+  it("rejects Chrome text fragments (#:~:text=…) — link targets, not routes", () => {
+    assert.equal(f("https://x.com/a#:~:text=hello", "https://x.com/a"), false);
+  });
+
+  it("rejects OAuth implicit-flow fragments (token must not land in a stored session)", () => {
+    assert.equal(f("https://x.com/cb#access_token=eyJ&state=abc", "https://x.com/cb"), false);
+    assert.equal(f("https://x.com/cb#id_token=eyJ", "https://x.com/cb"), false);
+  });
+});
+
+describe("decideNavAction settle window vs hash noise", () => {
+  const ctx = createContext();
+  const NAV = () => ({ lastAutoNavUrl: null, lastFrameNavUrl: null, lastTopNavAt: 0, foreignSkips: 0, foreignSkipNotified: false });
+  const SESSION = { inspectedOrigin: "https://app.example.com" };
+  const T = 100000;
+
+  it("anchor/scroll-spy noise does NOT refresh the frame-settle window", () => {
+    // A scroll-spy page rewriting location.hash while the user scrolls used to
+    // keep lastTopNavAt fresh forever, starving every audited-MFE FRAME_NAV
+    // into skip-frame-settle.
+    const nav = { ...NAV(), lastAutoNavUrl: "https://app.example.com/docs" };
+    const d = ctx.decideNavAction("https://app.example.com/docs#section-3", false, nav, SESSION, true, T);
+    assert.equal(d.reason, "skip-not-a-step");
+    assert.equal(d.nav.lastTopNavAt, 0, "settle window must not be anchored by rejected noise");
+  });
+
+  it("a real top nav still anchors the settle window", () => {
+    const d = ctx.decideNavAction("https://app.example.com/next", false, NAV(), SESSION, true, T);
+    assert.equal(d.action, "capture");
+    assert.equal(d.nav.lastTopNavAt, T);
+  });
+
+  it("a foreign top nav still anchors the settle window (it reloads iframes)", () => {
+    const d = ctx.decideNavAction("https://accounts.google.com/x", false, NAV(), SESSION, true, T);
+    assert.equal(d.reason, "skip-foreign-site");
+    assert.equal(d.nav.lastTopNavAt, T);
+  });
 });
 
 // ── SW nav port: onReferenceFragmentUpdated forwarding ──────────────────

@@ -29,24 +29,33 @@ const FINAL_TARGET = {
 };
 
 /** executeScript mock: injections resolve instantly, per-frame audit funcs
- *  take `delayMs` (host wall clock). Records call metadata for assertions. */
+ *  take `delayMs` (host wall clock). Records start/end times per call so the
+ *  tests can assert OVERLAP (load-immune) instead of wall clock (a slow CI
+ *  runner overshooting a timer must not flake the suite). */
 function makeExecuteScript({ delayMs = 300, delayByFrame = {}, calls = [] } = {}) {
   return (opts) => {
     const frameId = Array.isArray(opts?.target?.frameIds) ? opts.target.frameIds[0] : 0;
-    calls.push({
+    const call = {
       frameId,
       kind: opts.files ? "inject" : "func",
       args: opts.args || null,
-      at: Date.now(),
-    });
-    if (opts.files) return Promise.resolve([]);
-    if (opts.target?.allFrames) return Promise.resolve([]); // probe pass
+      startedAt: Date.now(),
+      endedAt: null,
+    };
+    calls.push(call);
+    if (opts.files) { call.endedAt = Date.now(); return Promise.resolve([]); }
+    if (opts.target?.allFrames) { call.endedAt = Date.now(); return Promise.resolve([]); } // probe pass
     const wait = delayByFrame[frameId] ?? delayMs;
     return new Promise((resolve) => {
-      setTimeout(() => resolve([{ frameId, result: { ok: false, reason: "TEST" } }]), wait);
+      setTimeout(() => {
+        call.endedAt = Date.now();
+        resolve([{ frameId, result: { ok: false, reason: "TEST" } }]);
+      }, wait);
     });
   };
 }
+
+const funcCall = (calls, frameId) => calls.find((c) => c.kind === "func" && c.frameId === frameId);
 
 async function runAcrossFrames(ctx, { action, fastSettle = undefined }) {
   const t0 = Date.now();
@@ -70,16 +79,21 @@ async function runAcrossFrames(ctx, { action, fastSettle = undefined }) {
 
 describe("executeAuditAcrossFrames parallelism", () => {
   it("runs non-focus actions concurrently across frames", async () => {
-    const ctx = createSwContext({ executeScript: makeExecuteScript({ delayMs: 300 }) });
-    const { out, elapsed } = await runAcrossFrames(ctx, { action: "run" });
+    const calls = [];
+    const ctx = createSwContext({ executeScript: makeExecuteScript({ delayMs: 300, calls }) });
+    const { out } = await runAcrossFrames(ctx, { action: "run" });
     assert.equal(out.ok, true);
-    assert.ok(elapsed < 500, `2×300ms frames should overlap, took ${elapsed}ms`);
+    // Overlap: frame 7's audit starts BEFORE frame 0's resolves.
+    assert.ok(funcCall(calls, 7).startedAt < funcCall(calls, 0).endedAt,
+      "frame 7 must start while frame 0 is still running");
   });
 
   it("keeps tabWalk sequential (focus is tab-global)", async () => {
-    const ctx = createSwContext({ executeScript: makeExecuteScript({ delayMs: 300 }) });
-    const { elapsed } = await runAcrossFrames(ctx, { action: "tabWalk" });
-    assert.ok(elapsed >= 550, `tabWalk frames must not overlap, took ${elapsed}ms`);
+    const calls = [];
+    const ctx = createSwContext({ executeScript: makeExecuteScript({ delayMs: 300, calls }) });
+    await runAcrossFrames(ctx, { action: "tabWalk" });
+    assert.ok(funcCall(calls, 7).startedAt >= funcCall(calls, 0).endedAt,
+      "frame 7 must not start until frame 0 finished");
   });
 
   it("preserves usedFrameIds order in perFrame even when the first frame is slower", async () => {

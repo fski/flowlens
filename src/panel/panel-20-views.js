@@ -177,14 +177,21 @@ function decideNavAction(url, fromAuditedFrame, nav, session, autoOn, now) {
   if (!session) return { action: "skip", reason: "no-session", nav: next };
   if (!autoOn) return { action: "skip", reason: "auto-off", nav: next };
   if (!fromAuditedFrame) {
-    next.lastTopNavAt = now;
+    var isStep = classifyNavForCapture(url, nav.lastAutoNavUrl);
+    // Only a REAL top navigation drags iframes along — anchor/scroll-spy
+    // hash noise must not refresh the frame-settle window, or a scroll-spy
+    // page would starve every audited-MFE FRAME_NAV into skip-frame-settle.
+    // Foreign real navs still anchor the window (they do reload iframes).
+    if (isStep || isForeignAutoCaptureOrigin(url, session)) next.lastTopNavAt = now;
     if (isForeignAutoCaptureOrigin(url, session)) return { action: "skip", reason: "skip-foreign-site", nav: next };
-  } else if (now - (nav.lastTopNavAt || 0) < FRAME_NAV_SETTLE_MS) {
+    if (!isStep) return { action: "skip", reason: "skip-not-a-step", nav: next };
+    return { action: "capture", reason: "top-nav", nav: next };
+  }
+  if (now - (nav.lastTopNavAt || 0) < FRAME_NAV_SETTLE_MS) {
     return { action: "skip", reason: "skip-frame-settle", nav: next };
   }
-  var last = fromAuditedFrame ? nav.lastFrameNavUrl : nav.lastAutoNavUrl;
-  if (!classifyNavForCapture(url, last)) return { action: "skip", reason: "skip-not-a-step", nav: next };
-  return { action: "capture", reason: fromAuditedFrame ? "frame-nav" : "top-nav", nav: next };
+  if (!classifyNavForCapture(url, nav.lastFrameNavUrl)) return { action: "skip", reason: "skip-not-a-step", nav: next };
+  return { action: "capture", reason: "frame-nav", nav: next };
 }
 
 // Is a URL fragment a client-side ROUTE rather than an in-page anchor?
@@ -194,6 +201,11 @@ function isRouteLikeHash(hash) {
   if (!hash || hash === "#") return false;
   var h = hash.charAt(0) === "#" ? hash.slice(1) : hash;
   if (!h) return false;
+  // Chrome text fragments (#:~:text=…) are link targets, not routes.
+  if (h.slice(0, 3) === ":~:") return false;
+  // OAuth implicit-flow fragments: a token-bearing URL (plus screenshot)
+  // must never land in a stored session — not a flow step.
+  if (/(?:^|[?&])(access_token|id_token)=/.test(h)) return false;
   var first = h.charAt(0);
   if (first === "/" || first === "!" || first === "?") return true;
   return h.indexOf("=") !== -1 || h.indexOf("&") !== -1 || h.indexOf("/") !== -1;
