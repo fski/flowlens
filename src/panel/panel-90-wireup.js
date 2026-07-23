@@ -120,9 +120,15 @@ if (els.copyFrameUrl) {
 }
 
 els.copyJson.addEventListener("click", async () => {
-  await copyText(pretty(enrichRunJsonExport(state.lastResult)));
+  // Silent "{}" in the clipboard reads as broken export — say what's missing.
+  if (!state.lastResult) {
+    toast("No Snap result to copy — run an audit first (Session JSON covers flows)");
+    setExportMenuOpen(false);
+    return;
+  }
+  const ok = await copyText(pretty(enrichRunJsonExport(state.lastResult)));
   setExportMenuOpen(false);
-  toast("Copied JSON");
+  if (ok) toast("Copied JSON");
 });
 
 els.downloadJson.addEventListener("click", () => {
@@ -156,6 +162,12 @@ els.copyMd.addEventListener("click", async () => {
 if (els.exportSessionJsonMenu) {
   els.exportSessionJsonMenu.addEventListener("click", async () => {
     await exportSessionJson();
+    setExportMenuOpen(false);
+  });
+}
+if (els.copySessionJsonMenu) {
+  els.copySessionJsonMenu.addEventListener("click", async () => {
+    await copySessionJson();
     setExportMenuOpen(false);
   });
 }
@@ -1197,6 +1209,28 @@ chrome.devtools.network.onNavigated.addListener(async () => {
     },
   }).open();
 })();
+
+// Capture watchdog: ANY unresolved await inside captureStepOptionC's try
+// (a lost DevTools eval callback, a dead SW response channel) leaves
+// inFlight true forever — no further steps, recording looks frozen. The
+// longest legitimate capture is a watch escalation (~40s window) plus
+// baseline and evals, so 90s means stuck, not slow. Fail loud and recover.
+var CAPTURE_WATCHDOG_MS = 90000;
+setInterval(() => {
+  if (!sessionState.inFlight) return;
+  const since = sessionState.inFlightSince || 0;
+  if (!since || Date.now() - since < CAPTURE_WATCHDOG_MS) return;
+  console.error("Capture watchdog: capture stuck for", Date.now() - since, "ms — resetting inFlight");
+  logNavDecision("", "capture-watchdog-reset");
+  sessionState.inFlight = false;
+  sessionState.captureSlow = false;
+  if (sessionState.captureSlowTimer) {
+    window.clearTimeout(sessionState.captureSlowTimer);
+    sessionState.captureSlowTimer = null;
+  }
+  updateSessionButtons();
+  toast("Step capture timed out and was reset — try Mark step again");
+}, 5000);
 
 // DOM-step sentinel: poll the audited frames' screen fingerprint while a
 // session records with Auto ON. Catches widget MFEs (Intercom, Zendesk,

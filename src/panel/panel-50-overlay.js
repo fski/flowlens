@@ -1873,6 +1873,30 @@ async function exportSessionJson() {
   }
 }
 
+// Clipboard sibling of exportSessionJson — the download-only path left no
+// way to paste a session anywhere (MD had copy, JSON didn't).
+async function copySessionJson() {
+  const session = sessionState.current || sessionState.lastEndedSession;
+  if (!session) {
+    toast("No active session");
+    return false;
+  }
+  try {
+    const payload = compactSessionForExport(normalizeLoadedSession(session));
+    if (!payload || typeof payload !== "object") {
+      toast("Session JSON copy failed");
+      return false;
+    }
+    const ok = await copyText(JSON.stringify(payload, null, 2));
+    if (ok) toast("Session JSON copied");
+    return ok;
+  } catch (err) {
+    console.error("session json copy failed", err);
+    toast("Session JSON copy failed");
+    return false;
+  }
+}
+
 async function exportSessionMarkdown() {
   const session = sessionState.current || sessionState.lastEndedSession;
   if (!session) {

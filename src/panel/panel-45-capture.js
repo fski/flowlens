@@ -152,6 +152,7 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
 
   // R6: Set inFlight immediately after the guard to minimise race window.
   sessionState.inFlight = true;
+  sessionState.inFlightSince = Date.now(); // capture watchdog anchor
   // R1: Capture session identity before any async work so we can detect if
   // the session was ended/replaced while we were awaiting.
   const _captureSessionId = sessionState.current.id;

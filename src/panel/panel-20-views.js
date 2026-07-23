@@ -1010,12 +1010,27 @@ function deriveHelpCenterRouteHint(url, activeProfileIds = []) {
   return null;
 }
 
+// DevTools evals can silently LOSE their callback when the page navigates
+// mid-eval (SPA churn, live-region-heavy pages like the DH help center).
+// captureStepOptionC awaits this inside its try — an unresolved promise
+// meant finally never ran, inFlight stayed true forever and the whole
+// recording hung. Hard timeout: a missing title only costs a nicer label.
+var INSPECTED_EVAL_TIMEOUT_MS = 1500;
 function fetchInspectedTitleBestEffort() {
   return new Promise(resolve => {
-    chrome.devtools.inspectedWindow.eval("document.title", (res, err) => {
-      if (err) return resolve("");
-      resolve(String(res || ""));
-    });
+    var settled = false;
+    var done = (v) => { if (!settled) { settled = true; resolve(v); } };
+    var t = setTimeout(() => done(""), INSPECTED_EVAL_TIMEOUT_MS);
+    try {
+      chrome.devtools.inspectedWindow.eval("document.title", (res, err) => {
+        clearTimeout(t);
+        if (err) return done("");
+        done(String(res || ""));
+      });
+    } catch (_) {
+      clearTimeout(t);
+      done("");
+    }
   });
 }
 

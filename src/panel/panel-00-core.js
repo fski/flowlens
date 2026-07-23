@@ -27,6 +27,7 @@ const els = {
   copyMd: document.getElementById("copyMd"),
   sessionExportMenuLabel: document.getElementById("sessionExportMenuLabel"),
   exportSessionJsonMenu: document.getElementById("exportSessionJsonMenu"),
+  copySessionJsonMenu: document.getElementById("copySessionJsonMenu"),
   exportSessionMdMenu: document.getElementById("exportSessionMdMenu"),
   exportDiffReportMenu: document.getElementById("exportDiffReportMenu"),
   exportShotsMenu: document.getElementById("exportShotsMenu"),
