@@ -13,7 +13,7 @@ const TAB_BLOCKING_EVENT_TYPES = new Set([
   "focus_on_body",
   "focus_failed",
 ]);
-const MESSAGE_TYPES = new Set(["LIST_FRAMES", "HIGHLIGHT", "RUN_AUDIT", "CAPTURE_STEP", "CAPTURE_SHOT"]);
+const MESSAGE_TYPES = new Set(["LIST_FRAMES", "HIGHLIGHT", "RUN_AUDIT", "CAPTURE_STEP", "CAPTURE_SHOT", "PROBE_DOM_FINGERPRINT"]);
 const AUDIT_ACTIONS = new Set(["run", "observe", "watch", "tabWalk", "contrast"]);
 const WCAG_LEVELS = new Set(["2.1-AA", "2.1-AAA", "2.2-AA", "2.2-AAA"]);
 
@@ -36,9 +36,15 @@ function validateIncomingMessage(msg, sender) {
   if (!isPlainObject(msg)) return { ok: false, error: "BAD_MESSAGE_SCHEMA" };
   if (!MESSAGE_TYPES.has(msg.type)) return { ok: false, error: "UNKNOWN_MESSAGE" };
 
-  if ((msg.type === "LIST_FRAMES" || msg.type === "RUN_AUDIT" || msg.type === "CAPTURE_STEP" || msg.type === "HIGHLIGHT" || msg.type === "CAPTURE_SHOT")
+  if ((msg.type === "LIST_FRAMES" || msg.type === "RUN_AUDIT" || msg.type === "CAPTURE_STEP" || msg.type === "HIGHLIGHT" || msg.type === "CAPTURE_SHOT" || msg.type === "PROBE_DOM_FINGERPRINT")
       && !isNonNegativeInt(msg.tabId)) {
     return { ok: false, error: "BAD_TAB_ID" };
+  }
+
+  if (msg.type === "PROBE_DOM_FINGERPRINT") {
+    if (!Array.isArray(msg.frameIds) || msg.frameIds.length > 50 || !msg.frameIds.every(isNonNegativeInt)) {
+      return { ok: false, error: "BAD_FRAME_IDS" };
+    }
   }
 
   if (msg.type === "HIGHLIGHT") {
@@ -837,6 +843,56 @@ async function executeAuditAcrossFrames({
   };
 }
 
+// ──────── DOM step fingerprint (injected) ────
+// Serialized into audited frames by PROBE_DOM_FINGERPRINT (isolated world,
+// read-only). Captures the SCREEN skeleton — headings, visible action
+// labels, landmark shape — while EXCLUDING live/log/feed subtrees, so chat
+// messages arriving (Intercom/Zendesk/LiveChat) never look like a new
+// screen. Must stay dependency-free: executeScript serializes the function.
+function computeDomFingerprint() {
+  const EXCLUDE = "[role='log'],[role='feed'],[role='marquee'],[role='timer'],[aria-live]";
+  const vis = (el) => { try { return typeof el.checkVisibility === "function" ? el.checkVisibility() : true; } catch (_) { return true; } };
+  const keep = (el) => vis(el) && !el.closest(EXCLUDE);
+  const label = (el) => ((el.getAttribute("aria-label") || el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 60));
+  const grab = (sel, n) => {
+    const out = [];
+    for (const el of document.querySelectorAll(sel)) {
+      if (out.length >= n) break;
+      if (!keep(el)) continue;
+      out.push(label(el));
+    }
+    return out;
+  };
+  const marks = [];
+  for (const el of document.querySelectorAll("main,[role='main'],form,[role='dialog'],[role='tabpanel'],[role='region']")) {
+    if (marks.length >= 8) break;
+    if (!keep(el)) continue;
+    marks.push(el.tagName + ":" + (el.getAttribute("role") || ""));
+  }
+  return JSON.stringify({
+    u: location.href.slice(0, 300),
+    h: grab("h1,h2,h3,[role='heading']", 6),
+    a: grab("button,[role='button'],a[href],input[type='submit']", 14),
+    m: marks,
+  });
+}
+// ──────── End DOM step fingerprint ────
+
+// Per-frame execution so one dead frame (navigated away mid-poll) yields
+// fp: null instead of sinking the whole probe.
+async function probeDomFingerprints({ tabId, frameIds }) {
+  const frames = await Promise.all((frameIds || []).map(async (frameId) => {
+    try {
+      const r = await chrome.scripting.executeScript({ target: { tabId, frameIds: [frameId] }, func: computeDomFingerprint });
+      const fp = r && r[0] && typeof r[0].result === "string" ? r[0].result : null;
+      return { frameId, fp };
+    } catch (_) {
+      return { frameId, fp: null };
+    }
+  }));
+  return { ok: true, frames };
+}
+
 const _auditLockByTab = new Map();
 async function acquireAuditLock(tabId) {
   while (_auditLockByTab.get(tabId)) await _auditLockByTab.get(tabId);
@@ -1352,6 +1408,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         frameKeyByFrameId: mergedFrameKeyByFrameId,
       });
       } finally { release(); releaseKeepalive(); }
+      return;
+    }
+
+    if (msg.type === "PROBE_DOM_FINGERPRINT") {
+      // Read-only, isolated-world, no audit lock: the panel skips polling
+      // while a capture is in flight, and the probe never mutates the page.
+      sendResponse(await probeDomFingerprints({ tabId: Number(msg.tabId), frameIds: msg.frameIds.map(Number) }));
       return;
     }
 

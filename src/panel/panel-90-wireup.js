@@ -1198,6 +1198,49 @@ chrome.devtools.network.onNavigated.addListener(async () => {
   }).open();
 })();
 
+// DOM-step sentinel: poll the audited frames' screen fingerprint while a
+// session records with Auto ON. Catches widget MFEs (Intercom, Zendesk,
+// LiveChat) that navigate purely via DOM state — no URL event ever fires.
+// Decision logic is pure (decideDomStepAction); this is transport + label.
+var DOM_STEP_POLL_MS = 1200;
+async function pollDomStep() {
+  if (!sessionState.current || !els.autoCaptureNav?.checked) return;
+  if (sessionState.inFlight || sessionState.autoCapturePending) return;
+  const steps = sessionState.current.steps || [];
+  const last = steps.length ? steps[steps.length - 1] : null;
+  const ids = last?.frameSelections?.usedFrameIds || [];
+  if (!ids.length) return;
+  let r;
+  try { r = await send({ type: "PROBE_DOM_FINGERPRINT", frameIds: ids.slice(0, 20) }); } catch (_) { return; }
+  if (!r?.ok || !Array.isArray(r.frames)) return;
+  if (!sessionState.current) return; // session ended during the await
+  const byFrame = {};
+  for (const f of r.frames) if (f && typeof f.fp === "string") byFrame[String(f.frameId)] = f.fp;
+  const combined = Object.keys(byFrame).sort().map((k) => k + "::" + byFrame[k]).join("\n");
+  if (!combined) return;
+  const st = sessionState.nav.domStep || freshDomStepState();
+  const prevByFrame = st.byFrame || {};
+  const decision = decideDomStepAction(combined, st, steps.length, Date.now());
+  decision.state.byFrame = byFrame;
+  sessionState.nav.domStep = decision.state;
+  if (decision.action !== "capture") return;
+  // Label the step with the changed frame's first heading — DOM steps have
+  // no distinguishing URL, but "Contact us" beats "Screen change".
+  let label = null;
+  for (const k of Object.keys(byFrame)) {
+    if (prevByFrame[k] === byFrame[k]) continue;
+    try { label = (JSON.parse(byFrame[k]).h || [])[0] || null; } catch (_) { /* fp is ours, but stay safe */ }
+    if (label) break;
+  }
+  logNavDecision(label || "(dom step)", "dom-step-capture");
+  try {
+    await captureStepOptionC(label ? String(label).slice(0, 60) : "Screen change", { isAutoCapture: true });
+  } catch (e) {
+    console.error("DOM-step capture failed:", e);
+  }
+}
+setInterval(pollDomStep, DOM_STEP_POLL_MS);
+
 // Bottom sheet toggles
 if (els.pastRunsToggle) {
   els.pastRunsToggle.addEventListener("click", () => {
