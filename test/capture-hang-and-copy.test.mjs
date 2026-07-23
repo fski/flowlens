@@ -148,6 +148,30 @@ describe("snippet identifier hygiene", () => {
     assert.doesNotMatch(SNIPPET_SRC, /\bwin\./, "use `w` (the window alias) instead of `win`");
   });
 
+  it("a totally-failed observe rejects instead of resolving as a clean result (Codex on #89)", () => {
+    assert.match(SNIPPET_SRC, /observe failed on every tick/, "zero successful ticks must reject, not resolve");
+  });
+
+  it("all-frames EXEC_FAILED promotes to top-level AUDIT_FAILED", async () => {
+    const ctx = createSwContext({
+      executeScript: (opts) => {
+        if (opts.files) return Promise.resolve([]);
+        if (opts.target?.allFrames) return Promise.resolve([]);
+        return Promise.reject(new Error("boom"));
+      },
+    });
+    const out = await ctx.__executeAuditAcrossFrames({
+      tabId: 1, action: "observe", target: { scope: "all" }, match: null,
+      modeHints: null, appMarkers: null, rootSelector: null, alsoConsole: false,
+      wcagLevel: "2.1-AA",
+      frames: [{ frameId: 0, parentFrameId: -1, url: "https://x.com/a" }],
+      finalTarget: { ok: true, frameIds: [0], scope: "all", selectionReason: "test" },
+      frameProbeById: new Map(),
+    });
+    assert.equal(out.ok, false);
+    assert.equal(out.error, "AUDIT_FAILED");
+  });
+
   it("observe survives a throwing rule and reports it (tickError)", () => {
     assert.match(SNIPPET_SRC, /tickBody\(\)/, "tick body must be wrapped");
     assert.match(SNIPPET_SRC, /tickError/, "tick failures must surface in the result");

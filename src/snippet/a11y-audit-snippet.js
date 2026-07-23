@@ -3611,7 +3611,7 @@
       return observeInFlight.promise;
     }
 
-    const promise = new Promise((resolve) => {
+    const promise = new Promise((resolve, reject) => {
       const startedAt = performance.now();
       const snapshots = [];
       const merged = [];
@@ -3662,6 +3662,15 @@
         if (timer) clearInterval(timer);
         if (timeout) clearTimeout(timeout);
         if (settleObserver) { try { settleObserver.disconnect(); } catch {} }
+        // Zero successful ticks = there IS no audit result. Resolving would
+        // let the SW wrap it as ok:true and a totally-failed observe would
+        // display/export as a clean zero-finding audit. Reject instead —
+        // the SW surfaces it as a failed frame (EXEC_FAILED).
+        if (snapshots.length === 0 && firstTickError) {
+          observeInFlight = null;
+          reject(new Error("observe failed on every tick: " + firstTickError));
+          return;
+        }
         const unique = uniqBy(merged, findingKey);
         const result = { timestamp: nowIso(), seconds, intervalMs, snapshots, findings: unique, href: w.location.href, transitionStateSummaries: transitionSummaries.length ? transitionSummaries : null, settledEarly: !!settledEarly, elapsedMs: Math.round(performance.now() - startedAt), tickError: firstTickError || null };
         api.lastObserved = result;
