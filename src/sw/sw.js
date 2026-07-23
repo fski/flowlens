@@ -833,6 +833,23 @@ async function executeAuditAcrossFrames({
     };
   }
 
+  // Every frame timed out (hung page promise, throttled timers): a "clean"
+  // ok:true with a failed bestEntry would record and export as 0 findings —
+  // a timed-out audit masquerading as a pass. Fail loud instead.
+  if (picked?.reason === "no_ok_frames_fallback"
+      && scoredFrames.length
+      && scoredFrames.every(f => f?.ok !== true)
+      && scoredFrames.some(f => f?.reason === "EXEC_TIMEOUT")) {
+    return {
+      ok: false,
+      error: "AUDIT_TIMED_OUT",
+      reason: "AUDIT_TIMED_OUT",
+      bestEntry: null,
+      perFrame: scoredFrames.map(compactFramePayload),
+      usedFrameIds,
+    };
+  }
+
   // ── C4 cross-frame evaluation ──────────────────────────────────────────
   if (usedFrameIds.length > 1 && bestEntry?.ok && (action === "run" || action === "observe")) {
     const frameSummaries = scoredFrames.map(f => ({

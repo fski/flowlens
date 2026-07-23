@@ -79,6 +79,54 @@ describe("SW exec timeout — a hung page promise must not hold the audit lock",
     assert.equal(r.result.reason, "EXEC_TIMEOUT");
   });
 
+  it("all-frame timeouts surface as a top-level AUDIT_TIMED_OUT failure, not a clean 0-finding run", async () => {
+    const ctx = createSwContext({
+      executeScript: (opts) => {
+        if (opts.files) return Promise.resolve([]);
+        if (opts.target?.allFrames) return Promise.resolve([]);
+        return new Promise(() => {}); // every frame hangs
+      },
+    });
+    ctx.__setExecTimeoutForTest(120);
+    const out = await ctx.__executeAuditAcrossFrames({
+      tabId: 1, action: "observe", target: { scope: "all" }, match: null,
+      modeHints: null, appMarkers: null, rootSelector: null, alsoConsole: false,
+      wcagLevel: "2.1-AA",
+      frames: [{ frameId: 0, parentFrameId: -1, url: "https://x.com/a" }],
+      finalTarget: { ok: true, frameIds: [0], scope: "all", selectionReason: "test" },
+      frameProbeById: new Map(),
+    });
+    assert.equal(out.ok, false);
+    assert.equal(out.error, "AUDIT_TIMED_OUT");
+  });
+
+  it("a single timed-out frame does not sink a run with surviving frames", async () => {
+    const ctx = createSwContext({
+      executeScript: (opts) => {
+        if (opts.files) return Promise.resolve([]);
+        if (opts.target?.allFrames) return Promise.resolve([]);
+        const frameId = opts.target.frameIds[0];
+        if (frameId === 7) return new Promise(() => {}); // MFE frame hangs
+        return Promise.resolve([{ frameId, result: { ok: true, result: { findings: [], mode: "run" } } }]);
+      },
+    });
+    ctx.__setExecTimeoutForTest(120);
+    const out = await ctx.__executeAuditAcrossFrames({
+      tabId: 1, action: "run", target: { scope: "all" }, match: null,
+      modeHints: null, appMarkers: null, rootSelector: null, alsoConsole: false,
+      wcagLevel: "2.1-AA",
+      frames: [
+        { frameId: 0, parentFrameId: -1, url: "https://x.com/a" },
+        { frameId: 7, parentFrameId: 0, url: "https://mfe.example/w" },
+      ],
+      finalTarget: { ok: true, frameIds: [0, 7], scope: "all", selectionReason: "test" },
+      frameProbeById: new Map(),
+    });
+    assert.equal(out.ok, true, "partial results are still a valid run");
+    const timedOut = out.perFrame.find((f) => f.frameId === 7);
+    assert.equal(timedOut.reason, "EXEC_TIMEOUT", "the hung frame stays visible in perFrame");
+  });
+
   it("action-specific caps exist and exceed the corresponding audit windows", () => {
     const ctx = createSwContext();
     const caps = JSON.parse(JSON.stringify(ctx.__EXEC_TIMEOUT_MS));
