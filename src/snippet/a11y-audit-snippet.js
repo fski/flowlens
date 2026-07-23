@@ -3601,7 +3601,7 @@
   // ──────── End capture settle predicates ────
 
   // ---------------- observe (periodic run) ----------------
-  const observe = ({ seconds = 10, intervalMs = 900, runConfig = { strict: true }, settleTicks = 0, minTicks = 4 } = {}) => {
+  const observe = ({ seconds = 10, intervalMs = 900, runConfig = { strict: true }, settleTicks = 0, minTicks = 4, transitionTicks = 2 } = {}) => {
     if (observeInFlight?.promise) {
       console.info("🧠 A11YFlowAudit.observe already running; returning active session.");
       return observeInFlight.promise;
@@ -3671,7 +3671,11 @@
       const totalTicks = Math.max(1, Math.ceil((seconds * 1000) / intervalMs));
       const tick = () => {
         const tickIndex = snapshots.length;
-        const inTransitionWindow = tickIndex <= 1;
+        // Capture path passes transitionTicks: 0 — it fires well after the
+        // navigation (debounce + nav settle), so the blanket transition window
+        // only produced advisory->strict finding flips that reset the settle
+        // streak; per-container isLikelyTransitioning() still softens rules.
+        const inTransitionWindow = tickIndex < transitionTicks;
         const tickConfig = {
           ...(runConfig || {}),
           transitionSource: "observe",

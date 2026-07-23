@@ -636,7 +636,13 @@ async function execAuditActionInFrame({ tabId, frameId, action, alsoConsole, wca
           // CAPTURE_STEP fired, so end the window early once the page is quiet
           // instead of always sleeping the full 12s/40s. Manual runs keep the
           // full window — the user is interacting with the page during it.
-          if (action === "observe") return api.observe?.({ seconds: 12, runConfig: runCfg, settleTicks: fastSettle ? 3 : 0, minTicks: 4 });
+          // Capture also ticks faster (600ms) and skips the blanket transition
+          // window (transitionTicks: 0) — per-container transition heuristics
+          // still soften rules — so a settled page is confirmed quiet after
+          // ~1.8s instead of ~4.5s.
+          if (action === "observe") return api.observe?.(fastSettle
+            ? { seconds: 12, intervalMs: 600, runConfig: runCfg, settleTicks: 3, minTicks: 4, transitionTicks: 0 }
+            : { seconds: 12, runConfig: runCfg });
           if (action === "watch") return api.watch?.({ seconds: 40, settleMs: fastSettle ? 5000 : 0, minMs: 8000 });
           if (action === "tabWalk") return api.tabWalk?.({ steps: 80 });
           if (action === "contrast") return api.contrastScan?.({ limit: 250, wcagLevel });
@@ -1232,8 +1238,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const wcagLevel = sanitizeWcagLevel(msg.wcagLevel);
         let frames;
         try { frames = await chrome.webNavigation.getAllFrames({ tabId }); } catch { frames = []; }
-        const resolved = await resolveTargetFrameIds({ tabId, target, frames, match });
-        const frameProbeById = await collectFrameProbeData({ tabId, frames, match });
+        // Independent given frames — run concurrently (saves a scripting round trip).
+        const [resolved, frameProbeById] = await Promise.all([
+          resolveTargetFrameIds({ tabId, target, frames, match }),
+          collectFrameProbeData({ tabId, frames, match }),
+        ]);
         const out = await executeAuditAcrossFrames({
           tabId,
           action,
@@ -1279,8 +1288,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
       let frames;
       try { frames = await chrome.webNavigation.getAllFrames({ tabId }); } catch { frames = []; }
-      const resolved = await resolveTargetFrameIds({ tabId, target: safeTarget, frames, match: safeMatch });
-      const frameProbeById = await collectFrameProbeData({ tabId, frames, match: safeMatch });
+      // Independent given frames — run concurrently (saves a scripting round trip).
+      const [resolved, frameProbeById] = await Promise.all([
+        resolveTargetFrameIds({ tabId, target: safeTarget, frames, match: safeMatch }),
+        collectFrameProbeData({ tabId, frames, match: safeMatch }),
+      ]);
 
       const baseline = await executeAuditAcrossFrames({
         tabId,
