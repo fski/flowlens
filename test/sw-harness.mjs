@@ -26,8 +26,11 @@ export function createSwContext(opts = {}) {
     Promise, Proxy,
     parseInt, parseFloat, isNaN, isFinite,
     encodeURIComponent, decodeURIComponent,
-    setTimeout: (fn) => { fn(); return 1; },
-    clearTimeout: () => {},
+    // Real host timers: sw.js now races executeScript against per-action
+    // exec timeouts (withExecTimeout) — a synchronously-firing stub would
+    // time every audit out instantly and mask real behavior.
+    setTimeout: (fn, ms) => setTimeout(fn, ms),
+    clearTimeout: (t) => clearTimeout(t),
     TextEncoder,
     URL,
     Uint8Array,
@@ -77,6 +80,8 @@ export function createSwContext(opts = {}) {
     this.__executeAuditAcrossFrames = executeAuditAcrossFrames;
     this.__execAuditActionInFrame = execAuditActionInFrame;
     this.__probeDomFingerprints = probeDomFingerprints;
+    this.__setExecTimeoutForTest = _setExecTimeoutForTest;
+    this.__EXEC_TIMEOUT_MS = EXEC_TIMEOUT_MS;
     this.__evaluateC4_1 = evaluateC4_1;
     this.__evaluateC4_2 = evaluateC4_2;
   `, { filename: 'sw-expose.js' });

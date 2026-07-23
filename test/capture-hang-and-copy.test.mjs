@@ -55,6 +55,40 @@ describe("fetchInspectedTitleBestEffort eval timeout", () => {
   });
 });
 
+import { createSwContext } from "./sw-harness.mjs";
+
+describe("SW exec timeout — a hung page promise must not hold the audit lock", () => {
+  // Round 2 of the hang: the injected observe/watch promise can never
+  // resolve (page timer throttling, document churn). executeScript then
+  // never settles, the CAPTURE_STEP handler keeps _auditLockByTab forever
+  // and EVERY subsequent capture hangs on the lock — the panel watchdog
+  // resets, the user retries, and it hangs again immediately.
+  it("returns EXEC_TIMEOUT instead of hanging when the audit call never settles", async () => {
+    const ctx = createSwContext({
+      executeScript: (opts) => {
+        if (opts.files) return Promise.resolve([]);
+        return new Promise(() => {}); // page-side promise never resolves
+      },
+    });
+    ctx.__setExecTimeoutForTest(150); // shrink the cap for the test
+    const t0 = Date.now();
+    const r = await ctx.__execAuditActionInFrame({ tabId: 1, frameId: 0, action: "observe", alsoConsole: false, wcagLevel: "2.1-AA" });
+    const elapsed = Date.now() - t0;
+    assert.ok(elapsed < 5000, `must not hang (took ${elapsed}ms)`);
+    assert.equal(r.result.ok, false);
+    assert.equal(r.result.reason, "EXEC_TIMEOUT");
+  });
+
+  it("action-specific caps exist and exceed the corresponding audit windows", () => {
+    const ctx = createSwContext();
+    const caps = JSON.parse(JSON.stringify(ctx.__EXEC_TIMEOUT_MS));
+    assert.ok(caps.observe > 12000, "observe cap must exceed the 12s window");
+    assert.ok(caps.watch > 40000, "watch cap must exceed the 40s window");
+    assert.ok(caps.run >= 15000);
+    assert.ok(caps.tabWalk >= 30000);
+  });
+});
+
 describe("capture watchdog + clipboard wiring", () => {
   it("captureStepOptionC anchors inFlightSince for the watchdog", () => {
     assert.match(CAPTURE_SRC, /inFlightSince = Date\.now\(\)/);

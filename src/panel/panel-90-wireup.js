@@ -1213,9 +1213,11 @@ chrome.devtools.network.onNavigated.addListener(async () => {
 // Capture watchdog: ANY unresolved await inside captureStepOptionC's try
 // (a lost DevTools eval callback, a dead SW response channel) leaves
 // inFlight true forever — no further steps, recording looks frozen. The
-// longest legitimate capture is a watch escalation (~40s window) plus
-// baseline and evals, so 90s means stuck, not slow. Fail loud and recover.
-var CAPTURE_WATCHDOG_MS = 90000;
+// longest legitimate capture is baseline (SW cap 20s) + a watch escalation
+// (SW cap 55s) + evals/persist, so 2 minutes means stuck, not slow. The SW
+// side has its own per-action exec caps releasing the audit lock; this is
+// the panel-side backstop. Fail loud and recover.
+var CAPTURE_WATCHDOG_MS = 120000;
 setInterval(() => {
   if (!sessionState.inFlight) return;
   const since = sessionState.inFlightSince || 0;
