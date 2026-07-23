@@ -86,6 +86,10 @@ async function endSession() {
   sessionState.queuedCapture = null;
   // An in-flight capture will discard its own result (session-id guard); drop
   // the busy flag now so End takes effect immediately and the view is clean.
+  // Bump the epoch too: without it the zombie's finally would still run and
+  // stomp inFlight/captureSlowTimer/queuedCapture belonging to a capture of
+  // the NEXT session (the exact hazard the epoch exists for).
+  sessionState.captureEpoch = (sessionState.captureEpoch || 0) + 1;
   sessionState.inFlight = false;
   sessionState.selectedStepIndex = null;
   updateSessionButtons();
@@ -125,6 +129,48 @@ async function endSession() {
   } else {
     toast("Session ended");
   }
+  return true;
+}
+
+// Watchdog budget: flat default, widened for sequential tabWalk (45s SW cap
+// per frame, frames NOT parallel). Capped so a pathological frame count can't
+// disable the watchdog entirely.
+var CAPTURE_WATCHDOG_MS = 120000;
+function computeCaptureBudgetMs(activeMode, frameCount) {
+  if (activeMode !== "tabWalk") return CAPTURE_WATCHDOG_MS;
+  var frames = Math.max(1, Math.min(Number(frameCount) || 1, 8));
+  return Math.max(CAPTURE_WATCHDOG_MS, 60000 + 50000 * frames);
+}
+
+// The stuck-capture watchdog body — lives here (harness-loaded zone) so it is
+// behaviorally testable; the wireup only puts it on an interval. Any
+// unresolved await inside captureStepOptionC's try (lost eval callback, dead
+// SW response channel) leaves inFlight true forever; past the per-capture
+// budget that means stuck, not slow. Fail loud and recover.
+function captureWatchdogTick(now) {
+  if (!sessionState.inFlight) return false;
+  const since = sessionState.inFlightSince || 0;
+  const budget = sessionState.captureBudgetMs || CAPTURE_WATCHDOG_MS;
+  if (!since || now - since < budget) return false;
+  console.error("Capture watchdog: capture stuck for", now - since, "ms — resetting inFlight");
+  logNavDecision("", "capture-watchdog-reset");
+  // Invalidate the stuck capture: if its await ever resolves, the zombie
+  // must not append a step or release state owned by a newer capture.
+  sessionState.captureEpoch = (sessionState.captureEpoch || 0) + 1;
+  // A capture queued during the hang would otherwise fire as a stale
+  // duplicate on the next drain (or strand forever) — drop it, fail loud.
+  if (sessionState.queuedCapture) {
+    sessionState.queuedCapture = null;
+    logNavDecision("", "capture-watchdog-dropped-queued");
+  }
+  sessionState.inFlight = false;
+  sessionState.captureSlow = false;
+  if (sessionState.captureSlowTimer) {
+    window.clearTimeout(sessionState.captureSlowTimer);
+    sessionState.captureSlowTimer = null;
+  }
+  updateSessionButtons();
+  toast("Step capture timed out and was reset — try Mark step again");
   return true;
 }
 
@@ -174,6 +220,11 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
   const t0 = performance.now();
   try {
     const activeMode = getSmartModeForCapture(isAutoCapture);
+    // Watchdog budget for THIS capture: tabWalk is the one mode the SW runs
+    // sequentially per frame (45s cap each — focus is tab-global), so a
+    // legitimate 3-frame tabWalk capture exceeds the flat 120s default and
+    // the watchdog would kill a LIVE capture and discard its step.
+    sessionState.captureBudgetMs = computeCaptureBudgetMs(activeMode, (state.frames || []).length || 1);
     const target = getTargetSpec();
     const match = buildMatch();
     const baseTargeting = {
@@ -202,10 +253,21 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
         wcagLevel: els.wcagLevel?.value || "2.1-AA",
       });
     } catch (err) {
+      if (!sessionState.current || sessionState.current.id !== _captureSessionId || !_epochAlive()) {
+        console.warn("captureStepOptionC: zombie transport failure discarded", err);
+        return false;
+      }
       console.error("CAPTURE_STEP transport failure", err);
       setLastMarkStatus("FAILED", "baseline:transport");
       updateSessionButtons();
       toast("Step capture failed", { label: "Retry", fn: () => captureStepOptionC(label, { isAutoCapture }) });
+      return false;
+    }
+
+    // A zombie's LATE failure response must not toast over / clobber the
+    // status of a newer live capture — discard before any error UI runs.
+    if (!sessionState.current || sessionState.current.id !== _captureSessionId || !_epochAlive()) {
+      console.warn("captureStepOptionC: session changed or capture invalidated — discarding response");
       return false;
     }
 
@@ -396,6 +458,13 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     }
     const persisted = await persistActiveSessionBestEffort(compacted);
     if (!persisted) console.warn("session persistence failed; continuing in-memory");
+    // The persist await is the last watchdog window: the step already landed
+    // and persisted, but if the watchdog declared this capture dead meanwhile,
+    // the success UI below belongs to a newer capture — stop silently.
+    if (!sessionState.current || sessionState.current.id !== _captureSessionId || !_epochAlive()) {
+      console.warn("captureStepOptionC: invalidated after persist — step kept, success UI skipped");
+      return false;
+    }
     debugSession("capture_step", {
       durationMs: Math.round(performance.now() - t0),
       usedFrames: usedFrameIds.length,
@@ -417,9 +486,16 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
       ));
     const persistWarn = !persisted;
     const rawWarn = runRawStored.reason === "raw_capped" || activeRawStored.reason === "raw_capped";
+    // A partially-failed audit must not read as fully clean: a rule that
+    // started throwing mid-window (tickError) or frames that died mid-run
+    // truncate coverage even when the capture "succeeds".
+    const tickErrWarn = !!(r?.active?.bestEntry?.result?.tickError || r?.run?.bestEntry?.result?.tickError);
+    const failedFrames = (r?.run?.perFrame || []).filter((f) => f && f.ok !== true).length;
     if (activeFailed) setLastMarkStatus("PARTIAL", activeReasonCode);
     else if (persistWarn) setLastMarkStatus("PARTIAL", sessionState.lastPersistReasonCode || "persist:error");
     else if (rawWarn) setLastMarkStatus("PARTIAL", "raw:capped");
+    else if (tickErrWarn) setLastMarkStatus("PARTIAL", "observe:tick-error");
+    else if (failedFrames > 0) setLastMarkStatus("PARTIAL", "frames:failed");
     else setLastMarkStatus("OK", "-");
     updateSessionButtons();
     toast(`Step ${step.index} captured (${baselineFindings} baseline findings)`);

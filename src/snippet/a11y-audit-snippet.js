@@ -3655,20 +3655,26 @@
         } catch { /* settle falls back to findings-quiet only */ }
       }
 
+      let aborted = false;
+      const abortFinish = () => { aborted = true; finish(false); };
       const finish = (settledEarly = false) => {
         if (settled) return;
         settled = true;
-        _timedDisposers.delete(finish);
+        _timedDisposers.delete(abortFinish);
         if (timer) clearInterval(timer);
         if (timeout) clearTimeout(timeout);
         if (settleObserver) { try { settleObserver.disconnect(); } catch {} }
         // Zero successful ticks = there IS no audit result. Resolving would
         // let the SW wrap it as ok:true and a totally-failed observe would
         // display/export as a clean zero-finding audit. Reject instead —
-        // the SW surfaces it as a failed frame (EXEC_FAILED).
-        if (snapshots.length === 0 && firstTickError) {
+        // the SW surfaces it as a failed frame (EXEC_FAILED). EXCEPTION: a
+        // generation abort (snippet re-injection) is a routine handover —
+        // rejecting would only spray "Uncaught (in promise)" at console
+        // callers, so resolve with the error surfaced in tickError.
+        if (snapshots.length === 0 && firstTickError && !aborted) {
           observeInFlight = null;
-          reject(new Error("observe failed on every tick: " + firstTickError));
+          api.lastObserved = null; // a stale "last" result must not look current
+          reject(new Error("observe failed on every completed tick: " + firstTickError));
           return;
         }
         const unique = uniqBy(merged, findingKey);
@@ -3683,7 +3689,7 @@
 
         resolve(result);
       };
-      _timedDisposers.add(finish);
+      _timedDisposers.add(abortFinish);
 
       // State Transition Engine — observe mode
       let prevTransitionState = null;
@@ -3795,7 +3801,7 @@
       return watchInFlight.promise;
     }
 
-    const promise = new Promise((resolve) => {
+    const promise = new Promise((resolve, reject) => {
       const B = {
         maxBursts: 3,
         maxSilentMs: 2500,
@@ -3987,10 +3993,19 @@
       let seenAnnouncementCount = 0;
       let seenFindingsLen = 0;
 
+      let watchAborted = false;
+      const abortFinalize = () => { watchAborted = true; finalize(false); };
+      // Same armor observe got after the `win` crash: one deterministically
+      // throwing rule in the bare interval body would otherwise prevent
+      // finalize() forever and every watch capture would burn its full
+      // 55s EXEC_TIMEOUT.
+      let watchTickErrors = 0;
+      let completedWatchTicks = 0;
+      let firstWatchTickError = null;
       const finalize = (settledEarly = false) => {
         if (settled) return;
         settled = true;
-        _timedDisposers.delete(finalize);
+        _timedDisposers.delete(abortFinalize);
         if (timer) clearInterval(timer);
         if (pendingLoaderRecalc) clearTimeout(pendingLoaderRecalc);
         try { observer.disconnect(); } catch {}
@@ -4012,7 +4027,17 @@
           announcementLatency: (firstAnnouncementAt != null && totalLoadingMs > 0) ? firstAnnouncementAt : null,
           transitionStateSummaries: watchTransitionSummaries.length ? watchTransitionSummaries : null,
           settledEarly: !!settledEarly, elapsedMs: Math.round(performance.now() - start),
+          tickError: firstWatchTickError || null,
         };
+        // Symmetric with observe: a watch whose every tick threw has garbage
+        // metrics — reject (unless aborted in a generation handover) so the
+        // SW surfaces a failed frame instead of a clean-looking result.
+        if (completedWatchTicks === 0 && firstWatchTickError && !watchAborted) {
+          watchInFlight = null;
+          api.lastWatch = null;
+          reject(new Error("watch failed on every completed tick: " + firstWatchTickError));
+          return;
+        }
         api.lastWatch = result;
 
         console.groupCollapsed(`⏱️ A11YFlowAudit.watch — ${seconds}s — bursts=${bursts} loading=${totalLoadingMs}ms silent=${silentMs}ms focusLoss=${focusLoss}`);
@@ -4024,10 +4049,9 @@
 
         resolve(result);
       };
-      _timedDisposers.add(finalize);
+      _timedDisposers.add(abortFinalize);
 
-      timer = setInterval(() => {
-        const t = +(performance.now() - start).toFixed(0);
+      const watchTickBody = (t) => {
 
         if (loaderNow) totalLoadingMs += tickMs;
         if (loaderNow && !announcementHookNow) silentMs += tickMs;
@@ -4119,8 +4143,21 @@
           return;
         }
 
+        completedWatchTicks++;
+        watchTickErrors = 0;
         if (t >= seconds * 1000) {
           finalize();
+        }
+      };
+      timer = setInterval(() => {
+        const t = +(performance.now() - start).toFixed(0);
+        try {
+          watchTickBody(t);
+        } catch (err) {
+          watchTickErrors++;
+          if (!firstWatchTickError) firstWatchTickError = String(err && err.message || err);
+          console.error("A11YFlowAudit.watch tick failed:", err);
+          if (watchTickErrors >= 3 || t >= seconds * 1000) finalize(false);
         }
       }, tickMs);
 

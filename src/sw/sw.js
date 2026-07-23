@@ -820,29 +820,16 @@ async function executeAuditAcrossFrames({
   // Every frame failed to inject (chrome://, Web Store, file:// without access):
   // surface it as a hard failure instead of ok:true with a failed bestEntry —
   // the panel would otherwise render a "successful" audit with zero findings.
-  if (picked?.reason === "no_ok_frames_fallback"
-      && scoredFrames.length
-      && scoredFrames.every(f => f?.ok !== true && (f?.reason === "INJECT_FAILED" || f?.error === "INJECT_FAILED"))) {
-    return {
-      ok: false,
-      error: "PAGE_NOT_SCRIPTABLE",
-      reason: "PAGE_NOT_SCRIPTABLE",
-      bestEntry: null,
-      perFrame: scoredFrames.map(compactFramePayload),
-      usedFrameIds,
-    };
-  }
-
-  // Every frame timed out (hung page promise, throttled timers): a "clean"
-  // ok:true with a failed bestEntry would record and export as 0 findings —
-  // a timed-out audit masquerading as a pass. Fail loud instead.
-  if (picked?.reason === "no_ok_frames_fallback"
-      && scoredFrames.length
-      && scoredFrames.every(f => f?.ok !== true)) {
-    // Same fail-loud rule for every all-frames-failed shape: a run with zero
-    // surviving frames must never masquerade as a clean 0-finding audit.
+  // Fail-loud promotion for EVERY all-frames-failed shape — a run with zero
+  // surviving frames must never masquerade as a clean 0-finding audit. Gated
+  // on the frames themselves, NOT on picked.reason: a manual/pinned selection
+  // (manual_pinned_override) returns the failed entry too and used to bypass
+  // this entirely, rendering a hung pinned audit as an empty pass.
+  const allFramesFailed = scoredFrames.length > 0 && scoredFrames.every(f => f?.ok !== true);
+  if (allFramesFailed) {
+    const allInjectFailed = scoredFrames.every(f => f?.reason === "INJECT_FAILED" || f?.error === "INJECT_FAILED");
     const anyTimeout = scoredFrames.some(f => f?.reason === "EXEC_TIMEOUT");
-    const code = anyTimeout ? "AUDIT_TIMED_OUT" : "AUDIT_FAILED";
+    const code = allInjectFailed ? "PAGE_NOT_SCRIPTABLE" : (anyTimeout ? "AUDIT_TIMED_OUT" : "AUDIT_FAILED");
     return {
       ok: false,
       error: code,
@@ -957,10 +944,18 @@ function computeDomFingerprint() {
 
 // Per-frame execution so one dead frame (navigated away mid-poll) yields
 // fp: null instead of sinking the whole probe.
+const PROBE_FP_TIMEOUT_MS = 5000;
 async function probeDomFingerprints({ tabId, frameIds }) {
   const frames = await Promise.all((frameIds || []).map(async (frameId) => {
     try {
-      const r = await chrome.scripting.executeScript({ target: { tabId, frameIds: [frameId] }, func: computeDomFingerprint });
+      // Same premise as the audit exec caps: executeScript itself can stall
+      // on an unresponsive frame — an unbounded probe would leave the panel
+      // sentinel's busy flag stuck and kill DOM-step detection silently.
+      const r = await withExecTimeout(
+        chrome.scripting.executeScript({ target: { tabId, frameIds: [frameId] }, func: computeDomFingerprint }),
+        PROBE_FP_TIMEOUT_MS,
+      );
+      if (r && (r.__execTimedOut || r.__execError)) return { frameId, fp: null };
       const fp = r && r[0] && typeof r[0].result === "string" ? r[0].result : null;
       return { frameId, fp };
     } catch (_) {
