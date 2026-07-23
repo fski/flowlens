@@ -10,6 +10,7 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { Script } from "node:vm";
 import { createContext } from "./harness.mjs";
+import { readFileSync as fsReadFileSync } from "node:fs";
 
 describe("sectionEmptyText — pure decisions", () => {
   const ctx = createContext();
@@ -41,6 +42,13 @@ describe("sectionEmptyText — pure decisions", () => {
   it("rows visible → null (empty state hidden)", () => {
     assert.equal(ctx.sectionEmptyText("explorer", { ran: true, total: 5, shown: 5, filters: [] }), null);
     assert.equal(ctx.sectionEmptyText("contrast", { ran: true, total: 5, shown: 2, filters: ["search"] }), null);
+  });
+});
+
+describe("stylesheet hidden semantics", () => {
+  it("panel.css has the global [hidden] guard — class display rules must never resurrect hidden elements", () => {
+    const css = fsReadFileSync(new URL("../src/panel/panel.css", import.meta.url), "utf8");
+    assert.match(css, /\[hidden\]\s*\{\s*display:\s*none\s*!important/, ".sectionEmpty{display:flex} defeated [hidden] for weeks");
   });
 });
 
