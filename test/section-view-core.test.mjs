@@ -102,8 +102,8 @@ describe("applySectionView — rows and empty state applied atomically", () => {
     ctx.state.currentFindings = [];
     ctx.renderExplorer([]);
     assert.equal(ctx.els.explorerEmpty.hidden, false, "empty shows (no rows yet)");
-    assert.notEqual(ctx.els.explorerEmpty.textContent, "Run an Audit to see results",
-      "an audit DID run — the CTA would gaslight the user");
+    assert.equal(ctx.els.explorerEmpty.textContent, "Restoring last audit…",
+      "not the CTA (an audit ran) and not 'came back clean' (findings not loaded yet — Codex on #92)");
   });
 
   it("contrast without data: empty visible with CTA text, zero rows", () => {
