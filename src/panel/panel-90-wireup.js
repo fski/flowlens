@@ -1224,6 +1224,15 @@ setInterval(() => {
   if (!since || Date.now() - since < CAPTURE_WATCHDOG_MS) return;
   console.error("Capture watchdog: capture stuck for", Date.now() - since, "ms — resetting inFlight");
   logNavDecision("", "capture-watchdog-reset");
+  // Invalidate the stuck capture: if its await ever resolves, the zombie
+  // must not append a step or release state owned by a newer capture.
+  sessionState.captureEpoch = (sessionState.captureEpoch || 0) + 1;
+  // A capture queued during the hang would otherwise fire as a stale
+  // duplicate on the next drain (or strand forever) — drop it, fail loud.
+  if (sessionState.queuedCapture) {
+    sessionState.queuedCapture = null;
+    logNavDecision("", "capture-watchdog-dropped-queued");
+  }
   sessionState.inFlight = false;
   sessionState.captureSlow = false;
   if (sessionState.captureSlowTimer) {

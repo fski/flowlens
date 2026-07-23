@@ -101,6 +101,15 @@ describe("capture watchdog + clipboard wiring", () => {
     assert.match(wd, /sessionState\.inFlight = false/);
   });
 
+  it("watchdog invalidates the stuck capture (epoch) and drops a queued one (Codex P1+P2)", () => {
+    const wd = WIREUP_SRC.slice(WIREUP_SRC.indexOf("CAPTURE_WATCHDOG_MS"));
+    assert.match(wd, /captureEpoch/, "zombie captures must be invalidated, not just unlocked");
+    assert.match(wd, /capture-watchdog-dropped-queued/, "a stale queued capture must not fire as a duplicate");
+    // captureStepOptionC must check the epoch at both R1 checkpoints and in finally
+    const epochChecks = (CAPTURE_SRC.match(/_epochAlive\(\)/g) || []).length;
+    assert.ok(epochChecks >= 3, `expected >=3 epoch checks in capture path, found ${epochChecks}`);
+  });
+
   it("Copy JSON refuses to silently copy an empty Snap result", () => {
     const handler = WIREUP_SRC.slice(WIREUP_SRC.indexOf('els.copyJson.addEventListener'));
     assert.match(handler.slice(0, 600), /if \(!state\.lastResult\)/);
