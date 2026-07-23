@@ -115,6 +115,9 @@ function updateSessionButtons() {
   if (els.flowRecordingBanner) els.flowRecordingBanner.hidden = true;
   if (els.flowRecordActions) els.flowRecordActions.hidden = !hasSession;
   if (els.sessionExportMenuLabel) els.sessionExportMenuLabel.hidden = !hasExportableSession;
+  if (els.copySessionJsonMenu) {
+    els.copySessionJsonMenu.hidden = !hasExportableSession;
+  }
   if (els.exportSessionJsonMenu) {
     els.exportSessionJsonMenu.hidden = !hasExportableSession;
     const desc = els.exportSessionJsonMenu.querySelector(".dd");

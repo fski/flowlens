@@ -612,6 +612,40 @@ async function collectFrameProbeData({ tabId, frames, match }) {
   return byFrameId;
 }
 
+// Hard caps on the in-page audit call. The injected observe/watch promise
+// can never settle (background-tab timer throttling, document churn) — then
+// executeScript never settles either, the CAPTURE_STEP handler keeps
+// _auditLockByTab forever and EVERY later capture hangs on the lock: the
+// panel-side watchdog resets, the user retries, and it hangs again
+// immediately. Caps are per action, comfortably above each audit window.
+const EXEC_TIMEOUT_MS = {
+  run: 20000,
+  contrast: 20000,
+  observe: 25000,   // 12s window + per-tick audit cost + slack
+  watch: 55000,     // 40s window + slack
+  tabWalk: 45000,   // 80 focus steps on a heavy page
+};
+let _execTimeoutOverride = null; // test seam
+function _setExecTimeoutForTest(ms) { _execTimeoutOverride = ms; }
+function execTimeoutFor(action) {
+  return _execTimeoutOverride || EXEC_TIMEOUT_MS[action] || 30000;
+}
+
+function withExecTimeout(promise, ms) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let t = null;
+    const done = (v) => {
+      if (settled) return;
+      settled = true;
+      if (t !== null) clearTimeout(t);
+      resolve(v);
+    };
+    t = setTimeout(() => done({ __execTimedOut: true }), ms);
+    promise.then((v) => done(v), (e) => done({ __execError: e }));
+  });
+}
+
 async function execAuditActionInFrame({ tabId, frameId, action, alsoConsole, wcagLevel, modeHints, appMarkers, rootSelector, fastSettle = false }) {
   try {
     await chrome.scripting.executeScript({
@@ -624,7 +658,7 @@ async function execAuditActionInFrame({ tabId, frameId, action, alsoConsole, wca
   }
 
   try {
-    const r = await chrome.scripting.executeScript({
+    const raced = await withExecTimeout(chrome.scripting.executeScript({
       target: { tabId, frameIds: [frameId] },
       world: "MAIN",
       func: async (action, alsoConsole, wcagLevel, modeHints, appMarkers, rootSelector, fastSettle) => {
@@ -662,7 +696,14 @@ async function execAuditActionInFrame({ tabId, frameId, action, alsoConsole, wca
         return { ok: true, result: res };
       },
       args: [action, !!alsoConsole, wcagLevel || "2.1-AA", modeHints || null, appMarkers || null, rootSelector || null, !!fastSettle]
-    });
+    }), execTimeoutFor(action));
+    if (raced && raced.__execTimedOut) {
+      return { frameId, result: { ok: false, reason: "EXEC_TIMEOUT", error: `audit '${action}' did not settle within ${execTimeoutFor(action)}ms` } };
+    }
+    if (raced && raced.__execError) {
+      return { frameId, result: { ok: false, reason: "EXEC_FAILED", error: String(raced.__execError?.message || raced.__execError) } };
+    }
+    const r = raced;
     return (r && r[0]) ? r[0] : { frameId, result: { ok: false, reason: "NO_RESULT" } };
   } catch (e) {
     return { frameId, result: { ok: false, reason: "EXEC_FAILED", error: String(e?.message || e) } };
@@ -786,6 +827,23 @@ async function executeAuditAcrossFrames({
       ok: false,
       error: "PAGE_NOT_SCRIPTABLE",
       reason: "PAGE_NOT_SCRIPTABLE",
+      bestEntry: null,
+      perFrame: scoredFrames.map(compactFramePayload),
+      usedFrameIds,
+    };
+  }
+
+  // Every frame timed out (hung page promise, throttled timers): a "clean"
+  // ok:true with a failed bestEntry would record and export as 0 findings —
+  // a timed-out audit masquerading as a pass. Fail loud instead.
+  if (picked?.reason === "no_ok_frames_fallback"
+      && scoredFrames.length
+      && scoredFrames.every(f => f?.ok !== true)
+      && scoredFrames.some(f => f?.reason === "EXEC_TIMEOUT")) {
+    return {
+      ok: false,
+      error: "AUDIT_TIMED_OUT",
+      reason: "AUDIT_TIMED_OUT",
       bestEntry: null,
       perFrame: scoredFrames.map(compactFramePayload),
       usedFrameIds,

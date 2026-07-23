@@ -152,6 +152,12 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
 
   // R6: Set inFlight immediately after the guard to minimise race window.
   sessionState.inFlight = true;
+  sessionState.inFlightSince = Date.now(); // capture watchdog anchor
+  // Capture epoch: the watchdog bumps it when it declares this capture dead.
+  // A zombie capture whose stuck await later resolves must neither append a
+  // step nor release state that now belongs to a NEWER capture.
+  const _captureEpoch = sessionState.captureEpoch || 0;
+  const _epochAlive = () => (sessionState.captureEpoch || 0) === _captureEpoch;
   // R1: Capture session identity before any async work so we can detect if
   // the session was ended/replaced while we were awaiting.
   const _captureSessionId = sessionState.current.id;
@@ -222,10 +228,11 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
       return false;
     }
 
-    // R1: Verify session wasn't ended/replaced during the await.
-    if (!sessionState.current || sessionState.current.id !== _captureSessionId) {
-      console.warn("captureStepOptionC: session changed during capture — discarding result");
-      toast("Session was ended during capture");
+    // R1: Verify session wasn't ended/replaced during the await, and that
+    // the watchdog didn't declare this capture dead in the meantime.
+    if (!sessionState.current || sessionState.current.id !== _captureSessionId || !_epochAlive()) {
+      console.warn("captureStepOptionC: session changed or capture invalidated during capture — discarding result");
+      if (_epochAlive()) toast("Session was ended during capture");
       return false;
     }
 
@@ -282,9 +289,9 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     // round-trip (title fallback), so End/Start can interleave here exactly
     // like during CAPTURE_STEP — without this, the step below would crash on
     // null or land in the wrong session.
-    if (!sessionState.current || sessionState.current.id !== _captureSessionId) {
-      console.warn("captureStepOptionC: session changed during route-hint derivation — discarding result");
-      toast("Session was ended during capture");
+    if (!sessionState.current || sessionState.current.id !== _captureSessionId || !_epochAlive()) {
+      console.warn("captureStepOptionC: session changed or capture invalidated during route-hint derivation — discarding result");
+      if (_epochAlive()) toast("Session was ended during capture");
       return false;
     }
 
@@ -419,6 +426,11 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     if (!label && !isAutoCapture) showStepLabelInput(step.index);
     return true;
   } finally {
+    if (!_epochAlive()) {
+      // The watchdog invalidated this capture and a newer one may own
+      // inFlight/timers/queue now — a zombie must not touch any of it.
+      console.warn("captureStepOptionC: zombie capture finished after watchdog reset — state untouched");
+    } else {
     sessionState.inFlight = false;
     sessionState.captureSlow = false;
     if (sessionState.captureSlowTimer) {
@@ -441,6 +453,7 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
       } catch (e) {
         console.error("Queued capture drain error:", e);
       }
+    }
     }
   }
 }
