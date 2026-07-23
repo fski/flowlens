@@ -5,7 +5,7 @@
  *    LOSE its callback when the page navigates mid-eval. captureStepOptionC
  *    awaited fetchInspectedTitleBestEffort inside its try — an unresolved
  *    promise meant finally never ran and sessionState.inFlight stayed true
- *    forever. Fix: hard eval timeout + a 90s capture watchdog.
+ *    forever. Fix: hard eval timeout + a 120s capture watchdog.
  * 2. "Copy JSON" silently copied "{}" during flow sessions (no Snap result),
  *    and session JSON had NO clipboard path at all (download only, while MD
  *    had copy). Fix: guard toast + Copy Session JSON menu item.
@@ -149,7 +149,8 @@ describe("snippet identifier hygiene", () => {
   });
 
   it("a totally-failed observe rejects instead of resolving as a clean result (Codex on #89)", () => {
-    assert.match(SNIPPET_SRC, /observe failed on every tick/, "zero successful ticks must reject, not resolve");
+    assert.match(SNIPPET_SRC, /observe failed on every completed tick/, "zero successful ticks must reject, not resolve");
+    assert.match(SNIPPET_SRC, /watch failed on every completed tick/, "watch got the same zero-tick reject (review 23.07)");
   });
 
   it("all-frames EXEC_FAILED promotes to top-level AUDIT_FAILED", async () => {
@@ -183,20 +184,62 @@ describe("capture watchdog + clipboard wiring", () => {
     assert.match(CAPTURE_SRC, /inFlightSince = Date\.now\(\)/);
   });
 
-  it("watchdog resets a stuck capture and fails loud", () => {
-    assert.match(WIREUP_SRC, /CAPTURE_WATCHDOG_MS/);
-    const wd = WIREUP_SRC.slice(WIREUP_SRC.indexOf("CAPTURE_WATCHDOG_MS"));
-    assert.match(wd, /capture-watchdog-reset/, "reset must be visible in the nav log");
-    assert.match(wd, /sessionState\.inFlight = false/);
+  // Behavioral (review 23.07: the previous source-grep versions could not
+  // fail when the behavior broke): captureWatchdogTick now lives in the
+  // harness-loaded zone and is executed directly.
+  it("watchdog tick resets a stuck capture: epoch bump, queued drop, inFlight cleared", () => {
+    const ctx = createContext();
+    ctx.toast = () => {};
+    ctx.updateSessionButtons = () => {};
+    ctx.logNavDecision = () => {}; // lives in the wireup zone, not harness-loaded
+    ctx.sessionState.inFlight = true;
+    ctx.sessionState.inFlightSince = 1_000_000;
+    ctx.sessionState.captureEpoch = 5;
+    ctx.sessionState.queuedCapture = { isAutoCapture: true };
+    ctx.sessionState.captureBudgetMs = 120000;
+    const fired = ctx.captureWatchdogTick(1_000_000 + 120001);
+    assert.equal(fired, true);
+    assert.equal(ctx.sessionState.inFlight, false);
+    assert.equal(ctx.sessionState.captureEpoch, 6, "zombie must be invalidated");
+    assert.equal(ctx.sessionState.queuedCapture, null, "stale queued capture must be dropped");
   });
 
-  it("watchdog invalidates the stuck capture (epoch) and drops a queued one (Codex P1+P2)", () => {
-    const wd = WIREUP_SRC.slice(WIREUP_SRC.indexOf("CAPTURE_WATCHDOG_MS"));
-    assert.match(wd, /captureEpoch/, "zombie captures must be invalidated, not just unlocked");
-    assert.match(wd, /capture-watchdog-dropped-queued/, "a stale queued capture must not fire as a duplicate");
-    // captureStepOptionC must check the epoch at both R1 checkpoints and in finally
+  it("watchdog tick does NOT fire inside the per-capture budget", () => {
+    const ctx = createContext();
+    ctx.toast = () => {};
+    ctx.logNavDecision = () => {};
+    ctx.sessionState.inFlight = true;
+    ctx.sessionState.inFlightSince = 1_000_000;
+    ctx.sessionState.captureEpoch = 5;
+    ctx.sessionState.captureBudgetMs = 210000; // 3-frame tabWalk budget
+    const fired = ctx.captureWatchdogTick(1_000_000 + 150000); // stuck-by-old-flat-limit, legal now
+    assert.equal(fired, false, "a legitimate long tabWalk capture must not be killed");
+    assert.equal(ctx.sessionState.inFlight, true);
+    assert.equal(ctx.sessionState.captureEpoch, 5);
+  });
+
+  it("computeCaptureBudgetMs widens only for sequential tabWalk and stays capped", () => {
+    const ctx = createContext();
+    assert.equal(ctx.computeCaptureBudgetMs("observe", 3), 120000);
+    assert.equal(ctx.computeCaptureBudgetMs("watch", 3), 120000);
+    assert.equal(ctx.computeCaptureBudgetMs("tabWalk", 1), 120000);
+    assert.equal(ctx.computeCaptureBudgetMs("tabWalk", 3), 210000, "3 frames × 45s SW cap + baseline must fit");
+    assert.equal(ctx.computeCaptureBudgetMs("tabWalk", 50), 60000 + 50000 * 8, "frame count capped at 8");
+  });
+
+  it("epoch checks cover the error branches and the post-persist window (review 23.07)", () => {
     const epochChecks = (CAPTURE_SRC.match(/_epochAlive\(\)/g) || []).length;
-    assert.ok(epochChecks >= 3, `expected >=3 epoch checks in capture path, found ${epochChecks}`);
+    assert.ok(epochChecks >= 6, `expected >=6 epoch checks in capture path, found ${epochChecks}`);
+    assert.match(CAPTURE_SRC, /zombie transport failure discarded/);
+    assert.match(CAPTURE_SRC, /invalidated after persist/);
+    const endSession = CAPTURE_SRC.slice(CAPTURE_SRC.indexOf("async function endSession"), CAPTURE_SRC.indexOf("async function captureStepOptionC"));
+    assert.match(endSession, /captureEpoch/, "endSession must invalidate in-flight captures");
+  });
+
+  it("sentinel busy flag has a stuck-watchdog with generation guard (review 23.07)", () => {
+    assert.match(WIREUP_SRC, /DOM_POLL_STUCK_MS/);
+    assert.match(WIREUP_SRC, /dom-poll-watchdog-reset/);
+    assert.match(WIREUP_SRC, /_pollGen === _domPollGen/, "an orphaned poll must not clear a newer generation's flag");
   });
 
   it("Copy JSON refuses to silently copy an empty Snap result", () => {

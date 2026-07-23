@@ -1210,47 +1210,31 @@ chrome.devtools.network.onNavigated.addListener(async () => {
   }).open();
 })();
 
-// Capture watchdog: ANY unresolved await inside captureStepOptionC's try
-// (a lost DevTools eval callback, a dead SW response channel) leaves
-// inFlight true forever — no further steps, recording looks frozen. The
-// longest legitimate capture is baseline (SW cap 20s) + a watch escalation
-// (SW cap 55s) + evals/persist, so 2 minutes means stuck, not slow. The SW
-// side has its own per-action exec caps releasing the audit lock; this is
-// the panel-side backstop. Fail loud and recover.
-var CAPTURE_WATCHDOG_MS = 120000;
-setInterval(() => {
-  if (!sessionState.inFlight) return;
-  const since = sessionState.inFlightSince || 0;
-  if (!since || Date.now() - since < CAPTURE_WATCHDOG_MS) return;
-  console.error("Capture watchdog: capture stuck for", Date.now() - since, "ms — resetting inFlight");
-  logNavDecision("", "capture-watchdog-reset");
-  // Invalidate the stuck capture: if its await ever resolves, the zombie
-  // must not append a step or release state owned by a newer capture.
-  sessionState.captureEpoch = (sessionState.captureEpoch || 0) + 1;
-  // A capture queued during the hang would otherwise fire as a stale
-  // duplicate on the next drain (or strand forever) — drop it, fail loud.
-  if (sessionState.queuedCapture) {
-    sessionState.queuedCapture = null;
-    logNavDecision("", "capture-watchdog-dropped-queued");
-  }
-  sessionState.inFlight = false;
-  sessionState.captureSlow = false;
-  if (sessionState.captureSlowTimer) {
-    window.clearTimeout(sessionState.captureSlowTimer);
-    sessionState.captureSlowTimer = null;
-  }
-  updateSessionButtons();
-  toast("Step capture timed out and was reset — try Mark step again");
-}, 5000);
+// Capture watchdog — body lives in panel-45-capture.js (captureWatchdogTick,
+// behaviorally testable); this is just the schedule.
+setInterval(() => captureWatchdogTick(Date.now()), 5000);
 
 // DOM-step sentinel: poll the audited frames' screen fingerprint while a
 // session records with Auto ON. Catches widget MFEs (Intercom, Zendesk,
 // LiveChat) that navigate purely via DOM state — no URL event ever fires.
 // Decision logic is pure (decideDomStepAction); this is transport + label.
 var DOM_STEP_POLL_MS = 1200;
-var _domPollBusy = false; // async body on an interval — never overlap polls
+// Busy tracking with a stuck-watchdog: if the probe send() or the capture
+// await never settles (dead SW channel — the exact case the capture watchdog
+// exists for), a plain boolean would stay true FOREVER and silently kill
+// DOM-step detection for the rest of the panel's life. A generation counter
+// lets the recovery path orphan the stuck poll: its finally must not clear
+// the flag for a newer generation.
+var DOM_POLL_STUCK_MS = 180000;
+var _domPollBusySince = 0;
+var _domPollGen = 0;
 async function pollDomStep() {
-  if (_domPollBusy) return;
+  if (_domPollBusySince) {
+    if (Date.now() - _domPollBusySince < DOM_POLL_STUCK_MS) return;
+    logNavDecision("", "dom-poll-watchdog-reset");
+    _domPollGen++;
+    _domPollBusySince = 0;
+  }
   if (!sessionState.current || !els.autoCaptureNav?.checked) return;
   if (sessionState.inFlight || sessionState.autoCapturePending || state.running) return;
   const _pollSessionId = sessionState.current.id;
@@ -1258,7 +1242,8 @@ async function pollDomStep() {
   const last = steps.length ? steps[steps.length - 1] : null;
   const ids = last?.frameSelections?.usedFrameIds || [];
   if (!ids.length) return;
-  _domPollBusy = true;
+  _domPollBusySince = Date.now();
+  const _pollGen = _domPollGen;
   try {
     let r;
     try { r = await send({ type: "PROBE_DOM_FINGERPRINT", frameIds: ids.slice(0, 20) }); } catch (_) { return; }
@@ -1350,7 +1335,7 @@ async function pollDomStep() {
       }
     }
   } finally {
-    _domPollBusy = false;
+    if (_pollGen === _domPollGen) _domPollBusySince = 0;
   }
 }
 setInterval(pollDomStep, DOM_STEP_POLL_MS);

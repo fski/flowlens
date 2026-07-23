@@ -31,6 +31,8 @@ export function createSwContext(opts = {}) {
     // time every audit out instantly and mask real behavior.
     setTimeout: (fn, ms) => setTimeout(fn, ms),
     clearTimeout: (t) => clearTimeout(t),
+    setInterval: (fn, ms) => setInterval(fn, ms),
+    clearInterval: (t) => clearInterval(t),
     TextEncoder,
     URL,
     Uint8Array,
