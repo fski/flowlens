@@ -137,6 +137,23 @@ describe("SW exec timeout — a hung page promise must not hold the audit lock",
   });
 });
 
+describe("snippet identifier hygiene", () => {
+  const SNIPPET_SRC = readFileSync(join(__dirname, "..", "src", "snippet", "a11y-audit-snippet.js"), "utf8");
+
+  it("never references the undefined `win` alias (the window alias is `w`)", () => {
+    // `win.getComputedStyle` in CHAT_SCROLL_REGION_NOT_FOCUSABLE threw a
+    // ReferenceError on every page with a visible scrollable role=log/feed
+    // (help centers, chat widgets) and killed the whole run()/observe —
+    // unreachable by DOM-less unit tests because the rule needs layout.
+    assert.doesNotMatch(SNIPPET_SRC, /\bwin\./, "use `w` (the window alias) instead of `win`");
+  });
+
+  it("observe survives a throwing rule and reports it (tickError)", () => {
+    assert.match(SNIPPET_SRC, /tickBody\(\)/, "tick body must be wrapped");
+    assert.match(SNIPPET_SRC, /tickError/, "tick failures must surface in the result");
+  });
+});
+
 describe("capture watchdog + clipboard wiring", () => {
   it("captureStepOptionC anchors inFlightSince for the watchdog", () => {
     assert.match(CAPTURE_SRC, /inFlightSince = Date\.now\(\)/);

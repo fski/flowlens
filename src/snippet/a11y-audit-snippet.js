@@ -2240,7 +2240,7 @@
         for (let i = 0; i < cap; i++) {
           const el = scrollContainers[i];
           if (isHidden(el)) continue;
-          const style = win.getComputedStyle ? win.getComputedStyle(el) : null;
+          const style = w.getComputedStyle ? w.getComputedStyle(el) : null;
           const isScrollable = style && (style.overflowY === "auto" || style.overflowY === "scroll");
           if (!isScrollable) continue;
           const ti = el.getAttribute("tabindex");
@@ -3663,7 +3663,7 @@
         if (timeout) clearTimeout(timeout);
         if (settleObserver) { try { settleObserver.disconnect(); } catch {} }
         const unique = uniqBy(merged, findingKey);
-        const result = { timestamp: nowIso(), seconds, intervalMs, snapshots, findings: unique, href: w.location.href, transitionStateSummaries: transitionSummaries.length ? transitionSummaries : null, settledEarly: !!settledEarly, elapsedMs: Math.round(performance.now() - startedAt) };
+        const result = { timestamp: nowIso(), seconds, intervalMs, snapshots, findings: unique, href: w.location.href, transitionStateSummaries: transitionSummaries.length ? transitionSummaries : null, settledEarly: !!settledEarly, elapsedMs: Math.round(performance.now() - startedAt), tickError: firstTickError || null };
         api.lastObserved = result;
         observeInFlight = null;
 
@@ -3683,7 +3683,23 @@
       steResolveElement._fallbackCount = 0;
 
       const totalTicks = Math.max(1, Math.ceil((seconds * 1000) / intervalMs));
+      let tickErrors = 0;
+      let firstTickError = null;
       const tick = () => {
+        try {
+          tickBody();
+          tickErrors = 0;
+        } catch (err) {
+          // A single broken rule must not reject the whole observe — the
+          // ReferenceError in CHAT_SCROLL_REGION_NOT_FOCUSABLE killed every
+          // capture on pages with a chat feed (the extension's core case).
+          tickErrors++;
+          if (!firstTickError) firstTickError = String(err && err.message || err);
+          console.error("A11YFlowAudit.observe tick failed:", err);
+          if (tickErrors >= 3) finish(false);
+        }
+      };
+      const tickBody = () => {
         const tickIndex = snapshots.length;
         // Capture path passes transitionTicks: 0 — it fires well after the
         // navigation (debounce + nav settle), so the blanket transition window
