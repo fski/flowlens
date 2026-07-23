@@ -92,6 +92,20 @@ describe("applySectionView — rows and empty state applied atomically", () => {
     assert.equal(ctx.els.explorerEmpty.hidden, false);
   });
 
+  it("run CTA never shows while run records exist — even after onNavigated wiped hasRunMode", () => {
+    // Navigation clears hasRunMode/findingsByMode; the scope's records
+    // persist and restore. Rendering the explorer in that window used to
+    // produce "Run an Audit to see results" right after a finished audit.
+    ctx.state.hasRunMode = new Set();
+    ctx.state.findingsByMode = {};
+    ctx.state.records = [{ id: "r1", action: "run", best: {} }];
+    ctx.state.currentFindings = [];
+    ctx.renderExplorer([]);
+    assert.equal(ctx.els.explorerEmpty.hidden, false, "empty shows (no rows yet)");
+    assert.notEqual(ctx.els.explorerEmpty.textContent, "Run an Audit to see results",
+      "an audit DID run — the CTA would gaslight the user");
+  });
+
   it("contrast without data: empty visible with CTA text, zero rows", () => {
     ctx.state.contrastData = [];
     ctx.state.contrastSamples = [];

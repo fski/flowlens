@@ -1206,7 +1206,13 @@ function renderExplorer(findings) {
   if ((els.q?.value || "").trim()) filters.push("search");
 
   applySectionView("explorer", filtered, sectionEmptyText("explorer", {
-    ran: state.hasRunMode.has("run") || state.hasRunMode.has("observe"),
+    // "ran" must survive navigation: hasRunMode is wiped by onNavigated, but
+    // the run RECORDS for this scope persist and restore — showing the
+    // "Run an Audit to see results" CTA while a just-finished audit exists
+    // in records was the 23.07 report. Any durable evidence counts.
+    ran: state.hasRunMode.has("run") || state.hasRunMode.has("observe")
+      || (state.currentFindings || []).length > 0
+      || (state.records || []).some((r) => r.action === "run" || r.action === "observe"),
     total: rawTotal,
     shown: filtered.length,
     filters,
