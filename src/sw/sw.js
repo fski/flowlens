@@ -857,25 +857,33 @@ function computeDomFingerprint() {
   // aria-live='off' explicitly means NOT live — only polite/assertive (and
   // the implicitly-live roles) mark chat/announcement noise.
   const EXCLUDE = "[role='log'],[role='feed'],[role='status'],[role='alert'],[role='marquee'],[role='timer'],[aria-live='polite'],[aria-live='assertive']";
-  const SCAN_BUDGET = 400; // huge DOMs: bound closest()/checkVisibility() walks per poll
+  // Two-tier scan bound: excluded nodes (chat transcripts!) cost only a
+  // cheap closest() and must NOT exhaust the budget for the real screen
+  // controls below them; visibility checks force style/layout and get their
+  // own tighter budget. RAW caps total nodes touched on pathological DOMs.
+  const RAW_SCAN_CAP = 4000;
+  const VIS_BUDGET = 400;
   const vis = (el) => { try { return typeof el.checkVisibility === "function" ? el.checkVisibility() : true; } catch (_) { return true; } };
-  const keep = (el) => vis(el) && !el.closest(EXCLUDE);
   const label = (el) => ((el.getAttribute("aria-label") || el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 60));
+  let rawScanned = 0;
+  let visChecked = 0;
   const grab = (sel, n) => {
     const out = [];
-    let scanned = 0;
     for (const el of document.querySelectorAll(sel)) {
-      if (out.length >= n || ++scanned > SCAN_BUDGET) break;
-      if (!keep(el)) continue;
+      if (out.length >= n || ++rawScanned > RAW_SCAN_CAP) break;
+      if (el.closest(EXCLUDE)) continue; // cheap — doesn't burn the vis budget
+      if (++visChecked > VIS_BUDGET) break;
+      if (!vis(el)) continue;
       out.push(label(el));
     }
     return out;
   };
   const marks = [];
-  let scannedMarks = 0;
   for (const el of document.querySelectorAll("main,[role='main'],form,[role='dialog'],[role='tabpanel'],[role='region']")) {
-    if (marks.length >= 8 || ++scannedMarks > SCAN_BUDGET) break;
-    if (!keep(el)) continue;
+    if (marks.length >= 8 || ++rawScanned > RAW_SCAN_CAP) break;
+    if (el.closest(EXCLUDE)) continue;
+    if (++visChecked > VIS_BUDGET) break;
+    if (!vis(el)) continue;
     marks.push(el.tagName + ":" + (el.getAttribute("role") || ""));
   }
   return JSON.stringify({

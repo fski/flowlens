@@ -197,15 +197,23 @@ function decideNavAction(url, fromAuditedFrame, nav, session, autoOn, now) {
 // Is a URL fragment a client-side ROUTE rather than an in-page anchor?
 // Hash routers use #/path, #!/path or #?key=value (the DH help-center MFE
 // navigates exclusively via #?…); plain anchors are bare slugs (#section).
+// OAuth implicit-flow fragments: a token-bearing URL (plus screenshot) must
+// never land in a stored session. Checked on EVERY accept path of
+// classifyNavForCapture — a real implicit-flow return changes the PATH
+// (/callback#access_token=…), so a hash-only check alone never sees it.
+function hasSensitiveFragment(url) {
+  var h;
+  try { h = new URL(url).hash; } catch (_) { return false; }
+  if (!h) return false;
+  return /(?:[#?&])(access_token|id_token)=/.test(h);
+}
+
 function isRouteLikeHash(hash) {
   if (!hash || hash === "#") return false;
   var h = hash.charAt(0) === "#" ? hash.slice(1) : hash;
   if (!h) return false;
   // Chrome text fragments (#:~:text=…) are link targets, not routes.
   if (h.slice(0, 3) === ":~:") return false;
-  // OAuth implicit-flow fragments: a token-bearing URL (plus screenshot)
-  // must never land in a stored session — not a flow step.
-  if (/(?:^|[?&])(access_token|id_token)=/.test(h)) return false;
   var first = h.charAt(0);
   if (first === "/" || first === "!" || first === "?") return true;
   return h.indexOf("=") !== -1 || h.indexOf("&") !== -1 || h.indexOf("/") !== -1;
@@ -218,6 +226,7 @@ function isRouteLikeHash(hash) {
 // plain in-page anchors stay rejected as noise.
 function classifyNavForCapture(url, lastUrl) {
   if (!url || typeof url !== "string") return false;
+  if (hasSensitiveFragment(url)) return false;
   if (!lastUrl) return true;
   if (url === lastUrl) return false;
   try {

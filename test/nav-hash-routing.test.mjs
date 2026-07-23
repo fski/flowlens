@@ -61,6 +61,15 @@ describe("classifyNavForCapture hash routes", () => {
     assert.equal(f("https://x.com/cb#access_token=eyJ&state=abc", "https://x.com/cb"), false);
     assert.equal(f("https://x.com/cb#id_token=eyJ", "https://x.com/cb"), false);
   });
+
+  it("rejects token fragments on EVERY accept path, not just hash-only changes (Codex P1)", () => {
+    // Real implicit-flow return: path changes (/login → /callback#token)
+    assert.equal(f("https://x.com/callback#access_token=eyJ", "https://x.com/login"), false);
+    // First observed navigation for the session
+    assert.equal(f("https://x.com/callback#id_token=eyJ&state=s", null), false);
+    // Query variant inside the fragment (#?id_token=…)
+    assert.equal(f("https://x.com/cb#?id_token=eyJ", "https://x.com/cb"), false);
+  });
 });
 
 describe("decideNavAction settle window vs hash noise", () => {
