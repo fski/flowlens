@@ -150,6 +150,13 @@ async function storageSet(obj) {
   }
 }
 
+async function storageRemove(keys) {
+  const ks = Array.isArray(keys) ? keys : [keys];
+  if (!ks.length) return;
+  if (__storageLocal) return await __storageLocal.remove(ks);
+  for (const k of ks) localStorage.removeItem(__lsPrefix + k);
+}
+
 // Serialized read-modify-write for the shared uiPrefs key. Five settings
 // handlers used to each do storageGet→mutate→storageSet independently; two
 // firing close together read the same stale object and the later write

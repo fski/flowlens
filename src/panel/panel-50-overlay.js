@@ -1736,6 +1736,9 @@ async function runAction(action, opts = {}) {
   setPersistentStatus("RUNNING", action.toUpperCase(), "Execution in progress", "snap");
 
   const { url, envTag } = getCurrentScopeInfo();
+  // The result belongs to the page the run STARTED on. Deriving the key at
+  // completion filed it under whatever origin the panel had navigated to.
+  const scopeKey = `records::${originFrom(url)}::${detectEnv(url)}`;
 
   const target = getTargetSpec();
   const match = buildMatch();
@@ -1806,8 +1809,6 @@ async function runAction(action, opts = {}) {
   updateTargetingSummary(state.lastSelectionReason);
 
   // store result record for quick switching
-  const url0 = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
-  const scopeKey = `records::${originFrom(url0)}::${detectEnv(url0)}`;
   const rec = {
     id: String(Date.now()) + "_" + Math.random().toString(16).slice(2),
     at: new Date().toISOString(),
@@ -1820,6 +1821,18 @@ async function runAction(action, opts = {}) {
       usedFrameIds: r?.usedFrameIds || [],
     },
   };
+  // Navigated to another origin/env mid-run: the panel now shows that scope's
+  // history, so file the result under the start scope without rendering it.
+  const nowInfo = getCurrentScopeInfo();
+  if (`records::${originFrom(nowInfo.url)}::${detectEnv(nowInfo.url)}` !== scopeKey) {
+    const stored = await storageGet([scopeKey]);
+    const prevRecs = Array.isArray(stored?.[scopeKey]) ? stored[scopeKey] : [];
+    await persistRecords(scopeKey, [rec, ...prevRecs].slice(0, 20));
+    setPersistentStatus("OK", action.toUpperCase(), "Saved to the previous page's history", "snap");
+    toast(`${modeLabel(action)} finished after navigation — saved to ${originFrom(url) || "previous page"} history`);
+    return true;
+  }
+
   // newest first
   state.records = [rec, ...state.records.filter(x => String(x.id) !== String(rec.id))];
   state.byId[String(rec.id)] = rec;

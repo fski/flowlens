@@ -418,7 +418,30 @@ function renderContrastSevTabs() {
   ].join("");
 }
 
-async function persistRecords(scopeKey) {
+// Records keys (records::<origin>::<env>) accumulate for every site ever
+// audited. An index of last-use times keeps the newest MAX_RECORD_SCOPES and
+// deletes the rest, so stale origins can't exhaust the storage quota.
+const RECORDS_INDEX_KEY = "records::index";
+const MAX_RECORD_SCOPES = 25;
+let _recordsIndexChain = Promise.resolve();
+function touchRecordsScope(scopeKey) {
+  const run = _recordsIndexChain.then(async () => {
+    const r = await storageGet([RECORDS_INDEX_KEY]);
+    const idx = (r && r[RECORDS_INDEX_KEY] && typeof r[RECORDS_INDEX_KEY] === "object") ? { ...r[RECORDS_INDEX_KEY] } : {};
+    idx[scopeKey] = new Date().toISOString();
+    const keys = Object.keys(idx).sort((a, b) => String(idx[b]).localeCompare(String(idx[a])));
+    const evicted = keys.slice(MAX_RECORD_SCOPES);
+    for (const k of evicted) delete idx[k];
+    await storageSet({ [RECORDS_INDEX_KEY]: idx });
+    if (evicted.length) await storageRemove(evicted);
+    return evicted;
+  });
+  _recordsIndexChain = run.catch(() => {});
+  return run;
+}
+
+// Persist `records` (default: the panel's current list) under scopeKey.
+async function persistRecords(scopeKey, records = null) {
   const PERSIST_LIMIT_STEPS = [
     { records: 20, findings: 200, failures: 200, events: 200, samples: 30, snapshots: 120, verdicts: 60, maxString: 300 },
     { records: 15, findings: 150, failures: 150, events: 150, samples: 20, snapshots: 90, verdicts: 45, maxString: 220 },
@@ -516,17 +539,18 @@ async function persistRecords(scopeKey) {
   };
 
   // keep latest records in-memory; persistence uses progressively more compact payloads
-  if (state.records.length > 20) {
+  if (!records && state.records.length > 20) {
     state.records = state.records.slice(0, 20);
     state.byId = {};
     for (const rec of state.records) state.byId[String(rec.id)] = rec;
   }
+  const source = records || state.records;
 
   renderSaveStatus("saving");
   let lastErr = null;
   for (let i = 0; i < PERSIST_LIMIT_STEPS.length; i++) {
     const limits = PERSIST_LIMIT_STEPS[i];
-    const compacted = state.records
+    const compacted = source
       .slice(0, limits.records)
       .map(rec => compactRecord(rec, limits));
     try {
@@ -535,6 +559,7 @@ async function persistRecords(scopeKey) {
         console.warn(`persistRecords recovered with compact level ${i + 1}/${PERSIST_LIMIT_STEPS.length}`, { bytes: estimateJsonBytes(compacted) });
       }
       renderSaveStatus("saved");
+      try { await touchRecordsScope(scopeKey); } catch (err) { console.warn("records index update failed", err); }
       return true;
     } catch (err) {
       lastErr = err;
