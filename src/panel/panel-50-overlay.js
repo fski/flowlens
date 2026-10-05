@@ -296,35 +296,8 @@ function actionIsWatch(resultObj) {
   return !!(resultObj && ("silentMs" in resultObj || "bursts" in resultObj) && ("focusLossCount" in resultObj));
 }
 
-/**
- * Render shadow coverage receipt into a container element.
- * @param {HTMLElement|null} containerEl
- * @param {object|null|undefined} shadowCoverage
- */
-function renderShadowCoverage(containerEl, shadowCoverage) {
-  if (!containerEl) return;
-  const fmt = formatShadowCoverage(shadowCoverage);
-  if (!fmt.text) {
-    containerEl.hidden = true;
-    containerEl.innerHTML = "";
-    return;
-  }
-  const badgeHtml = fmt.badges.map(b =>
-    `<span class="shadowCoverageBadge shadowCoverageBadge--${escapeHtml(b.kind)}">${escapeHtml(b.label)}</span>`
-  ).join("");
-  containerEl.innerHTML = `<span>${escapeHtml(fmt.text)}</span>${badgeHtml}`;
-  containerEl.hidden = false;
-}
-
 function renderRunSummary(r, rec = null) {
-  if (!r) {
-    renderSevTabs();
-    renderShadowCoverage(els.shadowCoverageRow, null);
-    return;
-  }
-  const findings = Array.isArray(r?.findings) ? r.findings : [];
-  renderSevTabs(findings);
-  renderShadowCoverage(els.shadowCoverageRow, r?.shadowCoverage || null);
+  renderSevTabs(r && Array.isArray(r.findings) ? r.findings : undefined);
 }
 
 

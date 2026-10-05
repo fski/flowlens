@@ -257,7 +257,6 @@ function renderRawJson(el, bodyEl, text) {
 //   toast(msg, action?)        — transient, non-blocking notice (2.5s / 4s
 //                                with an action). User confirmations, soft
 //                                failures the user can ignore. Auto-dedups.
-//   renderSaveStatus(status)   — persistence HUD (saving/saved/not saved).
 //                                Reflects storage state, not user actions.
 //   renderResultsShell(error)  — BLOCKING: replaces the Snap results body
 //                                with a retryable error (panel-20). Use only
@@ -287,14 +286,6 @@ function toast(message, action) {
   state._toastTimer = setTimeout(() => els.toast.classList.remove("show"), action ? 4000 : 2500);
 }
 
-function renderSaveStatus(status, detail) {
-  if (!els.saveStatusHud) return;
-  els.saveStatusHud.hidden = false;
-  els.saveStatusHud.dataset.status = status;
-  const labels = { saved: "Saved", saving: "Saving\u2026", error: "Not saved" };
-  const text = labels[status] || "Saved";
-  els.saveStatusText.textContent = detail ? `${text} \u2014 ${detail}` : text;
-}
 
 
 function setProgressA11y(bar, percent, valueText) {

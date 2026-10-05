@@ -549,7 +549,6 @@ async function persistRecords(scopeKey, records = null) {
   }
   const source = records || state.records;
 
-  renderSaveStatus("saving");
   let lastErr = null;
   for (let i = 0; i < PERSIST_LIMIT_STEPS.length; i++) {
     const limits = PERSIST_LIMIT_STEPS[i];
@@ -561,7 +560,6 @@ async function persistRecords(scopeKey, records = null) {
       if (i > 0) {
         console.warn(`persistRecords recovered with compact level ${i + 1}/${PERSIST_LIMIT_STEPS.length}`, { bytes: estimateJsonBytes(compacted) });
       }
-      renderSaveStatus("saved");
       try { await touchRecordsScope(scopeKey); } catch (err) { console.warn("records index update failed", err); }
       return true;
     } catch (err) {
@@ -571,7 +569,9 @@ async function persistRecords(scopeKey, records = null) {
   }
 
   console.error("persistRecords failed", lastErr);
-  renderSaveStatus("error", "quota");
+  // Was a write into a save-status HUD that no longer exists in panel.html,
+  // so a failed Snap save was silent. Flow saves already toast on failure.
+  toast("Audit result not saved — browser storage is full");
   return false;
 }
 
@@ -625,7 +625,6 @@ function renderRecord(rec) {
   els.allTableBody.innerHTML = "";
   if (mode !== "contrast") renderSevTabs();
   if (els.integrityOverview) els.integrityOverview.hidden = true;
-  if (els.shadowCoverageRow) els.shadowCoverageRow.hidden = true;
   showMode(mode);
 
   if (mode === "run") {

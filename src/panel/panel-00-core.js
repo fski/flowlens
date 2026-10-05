@@ -70,7 +70,6 @@ const els = {
   sevTabs: document.getElementById("sevTabs"),
   emptyState: document.getElementById("emptyState"),
   resultsZone: document.getElementById("resultsZone"),
-  shadowCoverageRow: document.getElementById("shadowCoverageRow"),
 
   // explorer
   q: document.getElementById("q"),
@@ -146,9 +145,6 @@ const els = {
   coverageMissingList: document.getElementById("coverageMissingList"),
 
   // save status HUD
-  saveStatusHud: document.getElementById("saveStatusHud"),
-  saveStatusDot: document.getElementById("saveStatusDot"),
-  saveStatusText: document.getElementById("saveStatusText"),
 
   // new tab shell elements
   snapContent: document.getElementById("snapContent"),
@@ -157,8 +153,6 @@ const els = {
   snapHelper: document.getElementById("snapHelper"),
   flowRecordingBanner: document.getElementById("flowRecordingBanner"),
   flowRecordActions: document.getElementById("flowRecordActions"),
-  flowSessionInfoBody: document.getElementById("flowSessionInfoBody"),
-  flowTimelineBody: document.getElementById("flowTimelineBody"),
   watchSection: document.getElementById("watchSection"),
   watchSummary: document.getElementById("watchSummary"),
   watchVerdicts: document.getElementById("watchVerdicts"),
@@ -167,7 +161,6 @@ const els = {
   flowLabelField: document.getElementById("flowLabelField"),
   flowLabelSave: document.getElementById("flowLabelSave"),
   flowLabelSkip: document.getElementById("flowLabelSkip"),
-  flowVerdict: document.getElementById("flowVerdict"),
   autoCaptureNav: document.getElementById("autoCaptureNav"),
   autoCaptureDelay: document.getElementById("autoCaptureDelay"),
   explorerEmpty: document.getElementById("explorerEmpty"),

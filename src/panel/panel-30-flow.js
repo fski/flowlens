@@ -162,12 +162,10 @@ async function persistActiveSessionBestEffort(session) {
   if (!session) return false;
   const keys = sessionScopeKeys(session);
   const estimatedBytes = estimateJsonBytes(session);
-  renderSaveStatus("saving");
   try {
     await storageSet({ [keys.active]: session });
     sessionState.lastPersistReasonCode = "-";
     debugSession("persist_active_ok", { estimatedBytes });
-    renderSaveStatus("saved");
     return true;
   } catch (err) {
     const reason = classifyPersistReason(err);
@@ -177,21 +175,18 @@ async function persistActiveSessionBestEffort(session) {
       try {
         await storageSet({ [keys.active]: session });
         sessionState.lastPersistReasonCode = "-";
-        renderSaveStatus("saved");
         return true;
       } catch (retryErr) {
         const retryReason = classifyPersistReason(retryErr);
         toast("Session save failed \u2014 data may be lost if DevTools closes");
         sessionState.lastPersistReasonCode = retryReason;
         debugSession("persist_active_fail", { estimatedBytes, error: String(retryErr?.message || retryErr) });
-        renderSaveStatus("error", retryReason === "QUOTA_EXCEEDED" ? "quota" : "error");
         return false;
       }
     }
     toast("Session save failed \u2014 storage quota exceeded");
     sessionState.lastPersistReasonCode = reason;
     debugSession("persist_active_fail", { estimatedBytes, error: String(err?.message || err) });
-    renderSaveStatus("error", "quota");
     return false;
   }
 }
@@ -210,7 +205,6 @@ async function archiveSessionBestEffort(session) {
   try {
     const keys = sessionScopeKeys(session, session.id);
     const estimatedBytes = estimateJsonBytes(session);
-    renderSaveStatus("saving");
     try {
       await storageSet({
         [keys.archive]: session,
@@ -219,14 +213,12 @@ async function archiveSessionBestEffort(session) {
       sessionState.lastArchiveId = session.id;
       debugSession("archive_ok", { estimatedBytes });
       try { await registerArchivedSession(keys.archive, session); } catch (err) { console.warn("archive index update failed", err); }
-      renderSaveStatus("saved");
       return true;
     } catch (err) {
       const reason = classifyPersistReason(err);
       console.warn("archive session failed", { reason, err });
       toast(`Session archive failed \u2014 ${reason === "QUOTA_EXCEEDED" ? "quota exceeded" : "storage error"}`);
       debugSession("archive_fail", { estimatedBytes, error: String(err?.message || err) });
-      renderSaveStatus("error", reason === "QUOTA_EXCEEDED" ? "quota" : "error");
       return false;
     }
   } finally {
