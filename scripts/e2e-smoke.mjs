@@ -13,6 +13,8 @@ import { launchChromium, newAuditPage } from "./lib/launch-browser.mjs";
 const ROOT = join(import.meta.dirname, "..");
 const SNIPPET_PATH = join(ROOT, "dist", "a11y-audit-snippet.js");
 const FIXTURE_URL = `file://${join(ROOT, "fixtures", "a11y-rule-fixtures.html")}`;
+const ACCNAME_URL = `file://${join(ROOT, "fixtures", "accname-fixtures.html")}`;
+const NAME_RULES = ["NO_ACCESSIBLE_NAME", "LINK_NO_ACCESSIBLE_NAME", "FORM_CONTROL_NO_LABEL", "BROKEN_ARIA_REFERENCE", "DIALOG_NO_ACCESSIBLE_NAME", "DUPLICATE_NAV_NO_LABEL"];
 
 // Expected counts — keep in sync with docs/A11Y_RULE_FP_AUDIT.md §4 step 5.
 // Any fixture or rule change that shifts these must update BOTH places.
@@ -56,9 +58,29 @@ await page.evaluate(async () => {
   await window.A11YFlowAudit.run({ strict: true });
   await window.A11YFlowAudit.contrastScan({ limit: 50 });
 });
+
+// Accessible-name fixtures: ok-* elements must not trigger a name rule,
+// bad-* elements must trigger the rule in their data-expect attribute.
+const accPage = await newAuditPage(browser);
+await accPage.goto(ACCNAME_URL, { waitUntil: "load" });
+await accPage.addScriptTag({ content: readFileSync(SNIPPET_PATH, "utf8") });
+const acc = await accPage.evaluate(async (NAME_RULES) => {
+  window.__A11YFLOW_CONSOLE__ = false;
+  const r = await window.A11YFlowAudit.run({ strict: true });
+  const hits = (r.findings || []).filter(f => NAME_RULES.includes(f.type)).map(f => ({ type: f.type, path: f.path || "" }));
+  const ids = [...document.querySelectorAll("[id^='ok-'],[id^='bad-']")].map(e => ({ id: e.id, expect: e.dataset.expect || null }));
+  ids.push({ id: "ok-shadow-btn", expect: null });
+  return { hits, ids };
+}, NAME_RULES);
 await browser.close();
 
 let failed = 0;
+for (const { id, expect } of acc.ids) {
+  const mine = acc.hits.filter(h => h.path.endsWith(`#${id}`) || h.path === `button#${id}`);
+  const ok = expect ? mine.some(h => h.type === expect) : mine.length === 0;
+  if (!ok) failed++;
+  console.log(`${ok ? "✓" : "✗"} accname ${id}: ${expect ? `expects ${expect}` : "no name finding"}${ok ? "" : ` — got ${JSON.stringify(mine)}`}`);
+}
 if (consoleLines.length) {
   failed++;
   console.log(`✗ console gate: ${consoleLines.length} page-console line(s) with the gate off, e.g. ${JSON.stringify(consoleLines[0]).slice(0, 120)}`);

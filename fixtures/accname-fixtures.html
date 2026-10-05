@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>FlowLens accessible-name fixtures</title></head>
+<body>
+<!--
+  Accessible-name regression fixtures, asserted by scripts/e2e-smoke.mjs.
+  id="ok-*"  must produce NO name-related finding.
+  id="bad-*" must produce the finding named in its data-expect attribute.
+-->
+<main>
+  <h1>Accessible name fixtures</h1>
+  <a href="/home" id="ok-img-link"><img src="data:," alt="Home"></a>
+  <button id="ok-svg-title"><svg width="10" height="10"><title>Close</title></svg></button>
+  <input type="submit" id="ok-submit">
+  <span id="search-lbl">Search</span><input id="ok-labelledby" aria-labelledby="search-lbl" aria-label="ignored">
+  <button id="bad-hidden-only" data-expect="NO_ACCESSIBLE_NAME"><span aria-hidden="true">×</span></button>
+  <div role="dialog" id="bad-dialog" data-expect="DIALOG_NO_ACCESSIBLE_NAME"><p>Body text is not a dialog name</p><button>OK</button></div>
+  <nav id="bad-nav" data-expect="DUPLICATE_NAV_NO_LABEL"><a href="/a">A</a></nav>
+  <nav><a href="/b">B</a></nav>
+  <div id="ok-shadow-host"></div>
+</main>
+<script>
+  // Shadow root with an internal aria-labelledby reference (tree-scoped IDREF).
+  const sr = document.getElementById("ok-shadow-host").attachShadow({ mode: "open" });
+  sr.innerHTML = '<span id="sl">Shadow label</span><button id="ok-shadow-btn" aria-labelledby="sl"></button>';
+</script>
+</body>
+</html>

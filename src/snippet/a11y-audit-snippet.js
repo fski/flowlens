@@ -79,8 +79,49 @@
     el?.closest?.("[data-testid]")?.getAttribute("data-testid") ||
     null;
 
+  // Per-run memo caches (reset by resetPathCaches at the start and end of
+  // run()). Findings computed paths with `[...parent.children].filter` per
+  // segment, per call — quadratic in sibling count; a 3,000-item list took
+  // ~40s. One pass per parent now yields every child's :nth-of-type index.
+  let _nthCache = new WeakMap();
+  let _pathCache = new WeakMap();
+  let _pathDeepCache = new WeakMap();
+  const resetPathCaches = () => {
+    _nthCache = new WeakMap();
+    _pathCache = new WeakMap();
+    _pathDeepCache = new WeakMap();
+  };
+
+  // 1-based :nth-of-type index of node, or 0 when it is the only child of its
+  // tag (no :nth-of-type needed).
+  const nthOfType = (node) => {
+    const p = node.parentElement;
+    if (!p) return 0;
+    let entry = _nthCache.get(p);
+    if (!entry || !entry.index.has(node)) {
+      const index = new Map();
+      const totals = new Map();
+      for (const c of p.children) {
+        const n = (totals.get(c.tagName) || 0) + 1;
+        totals.set(c.tagName, n);
+        index.set(c, n);
+      }
+      entry = { index, totals };
+      _nthCache.set(p, entry);
+    }
+    return entry.totals.get(node.tagName) > 1 ? entry.index.get(node) : 0;
+  };
+
   const cssPath = (el) => {
     if (!isEl(el)) return "";
+    const hit = _pathCache.get(el);
+    if (hit !== undefined) return hit;
+    const out = cssPathUncached(el);
+    _pathCache.set(el, out);
+    return out;
+  };
+
+  const cssPathUncached = (el) => {
     const parts = [];
     let node = el;
     while (node && node.nodeType === 1 && parts.length < 9) {
@@ -91,11 +132,8 @@
           : "";
       let nth = "";
       if (!id) {
-        const p = node.parentElement;
-        if (p) {
-          const sib = [...p.children].filter(c => c.tagName === node.tagName);
-          if (sib.length > 1) nth = `:nth-of-type(${sib.indexOf(node) + 1})`;
-        }
+        const k = nthOfType(node);
+        if (k) nth = `:nth-of-type(${k})`;
       }
       parts.unshift(`${node.tagName.toLowerCase()}${id}${cls}${nth}`);
       if (id) break;
@@ -112,6 +150,14 @@
    */
   const cssPathDeep = (el) => {
     if (!isEl(el)) return "";
+    const hit = _pathDeepCache.get(el);
+    if (hit !== undefined) return hit;
+    const out = cssPathDeepUncached(el);
+    _pathDeepCache.set(el, out);
+    return out;
+  };
+
+  const cssPathDeepUncached = (el) => {
     const segments = [];
     let node = el;
     let depth = 0;
@@ -160,11 +206,8 @@
 
   const buildSegment = (node) => {
     const tag = node.tagName.toLowerCase();
-    const p = node.parentElement;
-    if (!p) return tag;
-    const sib = [...p.children].filter(c => c.tagName === node.tagName);
-    if (sib.length > 1) return `${tag}:nth-of-type(${sib.indexOf(node) + 1})`;
-    return tag;
+    const k = nthOfType(node);
+    return k ? `${tag}:nth-of-type(${k})` : tag;
   };
 
   /**
@@ -701,39 +744,134 @@
     },
   };
 
-  const getAccName = (el) => {
+  // ---------------- accessible name (simplified accname 1.2) ----------------
+  // Order: aria-labelledby → aria-label → native label / alt / value →
+  // content (only for roles that take their name from content) → title →
+  // placeholder. ID references resolve in the element's own tree (shadow
+  // roots included). Simplifications: no CSS-hidden detection inside the
+  // content walk and no recursion into embedded controls' values.
+  const NAME_FROM_CONTENT_ROLES = new Set([
+    "button", "link", "menuitem", "menuitemcheckbox", "menuitemradio", "tab", "option",
+    "treeitem", "heading", "cell", "gridcell", "columnheader", "rowheader", "checkbox",
+    "radio", "switch", "tooltip", "row", "comment",
+  ]);
+  const NAME_FROM_CONTENT_TAGS = new Set([
+    "A", "BUTTON", "SUMMARY", "LABEL", "LEGEND", "CAPTION", "TD", "TH", "OPTION",
+    "H1", "H2", "H3", "H4", "H5", "H6", "OBJECT",
+  ]);
+  const nameFromContentAllowed = (el) => {
+    const role = (el.getAttribute("role") || "").trim().split(/\s+/)[0].toLowerCase();
+    if (role) return NAME_FROM_CONTENT_ROLES.has(role);
+    return NAME_FROM_CONTENT_TAGS.has(el.tagName);
+  };
+
+  // IDREFs are tree-scoped: a reference inside a shadow root resolves only
+  // within that root (and light-DOM refs only in the document), which is
+  // also what AT sees. Detached nodes fall back to the document.
+  const byIdInTree = (el, id) => {
+    const root = el.getRootNode?.();
+    if (root && typeof root.getElementById === "function") return root.getElementById(id);
+    return doc.getElementById(id);
+  };
+
+  // Text of a subtree as AT would read it: img alt, nested aria-label and
+  // <svg><title> count; aria-hidden subtrees, script/style don't. Bounded.
+  const SKIP_CONTENT_TAGS = new Set(["SCRIPT", "STYLE", "TEMPLATE", "NOSCRIPT"]);
+  const contentText = (root) => {
+    const out = [];
+    let budget = 2000;
+    const walk = (node) => {
+      for (let c = node.firstChild; c && budget > 0; c = c.nextSibling) {
+        budget--;
+        if (c.nodeType === 3) { out.push(c.data); continue; }
+        if (c.nodeType !== 1) continue;
+        if (SKIP_CONTENT_TAGS.has(c.tagName) || c.hidden || c.getAttribute("aria-hidden") === "true") continue;
+        const al = c.getAttribute("aria-label");
+        if (al && al.trim()) { out.push(" " + al + " "); continue; }
+        if (c.tagName === "IMG" || (c.tagName === "INPUT" && c.type === "image")) { out.push(" " + (c.getAttribute("alt") || "") + " "); continue; }
+        if (c.tagName.toLowerCase() === "svg") {
+          const t = c.querySelector("title");
+          if (t) out.push(" " + t.textContent + " ");
+          continue;
+        }
+        walk(c);
+        if (c.shadowRoot) walk(c.shadowRoot);
+      }
+    };
+    walk(root);
+    if (root.shadowRoot) walk(root.shadowRoot);
+    return out.join("").replace(/\s+/g, " ").trim();
+  };
+
+  // el.labels makes Chrome scan the whole tree for <label>s on every call
+  // (~2s on an 18k-node page). Only ask when a label can actually exist.
+  const mayHaveLabel = (el) =>
+    !!el.closest("label") ||
+    (!!el.id && !!el.getRootNode?.().querySelector?.(`label[for="${CSS.escape(el.id)}"]`));
+
+  const accNameCore = (el, allowContent) => {
     if (!isEl(el)) return "";
-    const aria = el.getAttribute("aria-label");
-    if (aria?.trim()) return aria.trim();
     const labelledby = el.getAttribute("aria-labelledby");
     if (labelledby) {
       const t = labelledby
         .split(/\s+/)
-        .map(id => doc.getElementById(id))
         .filter(Boolean)
-        .map(n => n.textContent)
-        .join(" ");
-      if (t.trim()) return t.trim();
+        .map(id => byIdInTree(el, id))
+        .filter(Boolean)
+        .map(n => n.getAttribute("aria-label") || contentText(n))
+        .join(" ")
+        .trim();
+      if (t) return t;
     }
-    if ("labels" in el && el.labels && el.labels.length) {
-      const lbl = [...el.labels].map(l => l.textContent).join(" ");
-      if (lbl.trim()) return lbl.trim();
+    const aria = el.getAttribute("aria-label");
+    if (aria?.trim()) return aria.trim();
+    if ("labels" in el && mayHaveLabel(el) && el.labels && el.labels.length) {
+      const lbl = [...el.labels].map(l => contentText(l)).join(" ").trim();
+      if (lbl) return lbl;
     }
-    if (el.tagName === "IMG") {
+    if (el.tagName === "IMG" || el.tagName === "AREA" || (el.tagName === "INPUT" && el.type === "image")) {
       const alt = el.getAttribute("alt");
       if (alt?.trim()) return alt.trim();
+    }
+    if (el.tagName === "INPUT" && /^(button|submit|reset)$/i.test(el.type)) {
+      const v = el.getAttribute("value");
+      if (v?.trim()) return v.trim();
+      if (/^submit$/i.test(el.type)) return "Submit";
+      if (/^reset$/i.test(el.type)) return "Reset";
+    }
+    if (el.tagName.toLowerCase() === "svg") {
+      const t = el.querySelector(":scope > title");
+      if (t?.textContent.trim()) return t.textContent.trim();
+    }
+    if (allowContent && nameFromContentAllowed(el)) {
+      const c = contentText(el);
+      if (c) return c.slice(0, 160);
     }
     const title = el.getAttribute("title");
     if (title?.trim()) return title.trim();
     const ph = el.getAttribute("placeholder");
     if (ph?.trim()) return `[placeholder] ${ph.trim()}`;
-    return txt(el.textContent, 160) || "";
+    return "";
+  };
+
+  // Accessible name, or "" when the element has none.
+  const getAccName = (el) => accNameCore(el, true);
+
+  // Display label for findings/overlays: the accessible name, falling back to
+  // the element's text so containers (dialogs, navs, divs) stay identifiable.
+  const getDisplayName = (el) => {
+    if (!isEl(el)) return "";
+    return getAccName(el) || txt(el.textContent, 160) || "";
   };
 
   const add = (findings, params) => {
     const { type, el, severity = "low", wcag = null, wcagVersion = null, level = null, confidence = null, product = null, note = null, extra = null, fix = null } = params;
     const ruleMeta = RULE_REGISTRY[type] || null;
-    const elName = el ? getAccName(el) : null;
+    const elName = el ? getDisplayName(el) : null;
+    const elPath = el ? cssPath(el) : null;
+    const elPathDeep = el ? cssPathDeep(el) : null;
+    const elTestId = el ? testId(el) : null;
+    const elRole = el?.getAttribute?.("role") || null;
     const entry = {
       type, severity,
       wcag: wcag ?? ruleMeta?.wcag ?? null,
@@ -743,18 +881,18 @@
       en301549Clauses: null,  // populated by panel.js post-processing
       product,
       name: elName,
-      role: el?.getAttribute?.("role") || null,
+      role: elRole,
       tag: el?.tagName || null,
-      testId: el ? testId(el) : null,
-      path: el ? cssPath(el) : null,
-      pathDeep: el ? cssPathDeep(el) : null,
+      testId: elTestId,
+      path: elPath,
+      pathDeep: elPathDeep,
       html: el ? html(el) : null,
       targetRef: el ? {
-        cssSelector: el ? cssPath(el) : null,
-        pathDeep: el ? cssPathDeep(el) : null,
-        testId: el ? testId(el) : null,
-        tag: el?.tagName?.toLowerCase() || null,
-        role: el?.getAttribute?.("role") || null,
+        cssSelector: elPath,
+        pathDeep: elPathDeep,
+        testId: elTestId,
+        tag: el.tagName?.toLowerCase() || null,
+        role: elRole,
         name: elName,
         inShadow: !!(el?.getRootNode?.() instanceof w.ShadowRoot),
       } : null,
@@ -1689,7 +1827,7 @@
         if (candidates.length > MAX_TAG_CANDIDATES) return null;
         for (const el of candidates) {
           if (targetRef.role && el.getAttribute("role") !== targetRef.role) continue;
-          if (targetRef.name && getAccName(el) !== targetRef.name) continue;
+          if (targetRef.name && getDisplayName(el) !== targetRef.name) continue;
           return el;
         }
       } catch {}
@@ -1816,7 +1954,7 @@
       const badge = doc.createElement("div");
       badge.className = ANNOTATION_CLASS;
       badge.textContent = String(i + 1);
-      badge.title = getAccName(el) || cssPath(el);
+      badge.title = getDisplayName(el) || cssPath(el);
       badge.style.cssText = `position:absolute;top:${rect.top + sy - 9}px;left:${rect.left + sx - 9}px;min-width:18px;height:18px;background:#7BB85E;color:#141414;font:bold 10px/18px system-ui;text-align:center;border-radius:50%;padding:0 2px;box-sizing:border-box;z-index:2147483647;pointer-events:none;`;
       frag.appendChild(badge);
       pts.push([rect.left + sx + rect.width / 2, rect.top + sy + rect.height / 2]);
@@ -1858,6 +1996,7 @@
     // Initialize per-run caches
     resetScopeCache();
     resetSelectorCache();
+    resetPathCaches();
 
     // Subtree scope: resolve root element
     const rootEl = cfg.rootSelector
@@ -1964,6 +2103,12 @@
     // 1.3.1 / 3.3.2 / 4.1.2: form controls without label/name
     _qa("input:not([type='hidden']), textarea, select, [role='textbox']").forEach(el => {
       if (isHidden(el)) return;
+      // Button-like inputs take their name from value/alt (or the UA default
+      // "Submit"/"Reset") — a missing <label> is not a defect there.
+      if (el.tagName === "INPUT" && /^(submit|reset|button|image)$/i.test(el.type)) {
+        if (!getAccName(el)) add(findings, { type: "FORM_CONTROL_NO_LABEL", el, severity: "medium", wcag: "1.3.1 / 3.3.2 / 4.1.2" });
+        return;
+      }
       const isNative = ["INPUT","TEXTAREA","SELECT"].includes(el.tagName);
       const hasNativeLabel = isNative && ("labels" in el) && el.labels && el.labels.length > 0;
       const hasAria = !!(el.getAttribute("aria-label") || el.getAttribute("aria-labelledby"));
@@ -2008,7 +2153,7 @@
         const val = el.getAttribute(attr);
         if (!val) return;
         val.split(/\s+/).filter(Boolean).forEach(id => {
-          if (!doc.getElementById(id)) {
+          if (!byIdInTree(el, id)) {
             add(findings, { type: "BROKEN_ARIA_REFERENCE", el, severity: "medium", wcag: "4.1.2", note: `${attr} -> missing "${id}"`, extra: { attr, id } });
           }
         });
@@ -2019,7 +2164,7 @@
     _qa("[aria-labelledby]").forEach(el => {
       if (isHidden(el)) return;
       (el.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean).forEach(id => {
-        const lbl = doc.getElementById(id);
+        const lbl = byIdInTree(el, id);
         if (lbl && lbl.getAttribute("aria-hidden") === "true") {
           add(findings, { type: "ARIA_LABELLEDBY_POINTS_TO_ARIA_HIDDEN", el, severity: "medium", wcag: "4.1.2", extra: { labelId: id } });
         }
@@ -2401,7 +2546,7 @@
       const owns = el.getAttribute("aria-owns") || el.getAttribute("aria-controls") || "";
       const ownedIds = owns.split(/\s+/).filter(Boolean);
       const hasPopup = ownedIds.some(id => {
-        const target = doc.getElementById(id);
+        const target = byIdInTree(el, id);
         if (!target) return false;
         const r = target.getAttribute("role");
         return r === "listbox" || r === "tree" || r === "grid";
@@ -3084,7 +3229,7 @@
     _qa("td[headers]").forEach(el => {
       const headerIds = (el.getAttribute("headers") || "").trim().split(/\s+/);
       for (const id of headerIds) {
-        if (id && !doc.getElementById(id)) {
+        if (id && !byIdInTree(el, id)) {
           add(findings, { type: "TD_HEADERS_INVALID", severity: "medium", wcag: "1.3.1", el,
             note: `headers attribute references id="${id}" which does not exist in the document.`,
             extra: { id } });
@@ -3341,10 +3486,10 @@
       const describedby = (el.getAttribute("aria-describedby") || "").trim();
       const errormsg = (el.getAttribute("aria-errormessage") || "").trim();
       const hasDescription = (describedby && describedby.split(/\s+/).some(id => {
-        const ref = doc.getElementById(id);
+        const ref = byIdInTree(el, id);
         return ref && (ref.textContent || "").trim().length > 0;
       })) || (errormsg && (() => {
-        const ref = doc.getElementById(errormsg);
+        const ref = byIdInTree(el, errormsg);
         return ref && (ref.textContent || "").trim().length > 0;
       })());
       if (!hasDescription) {
@@ -3425,7 +3570,7 @@
       if (isHidden(el)) return;
       const forAttr = (el.getAttribute("for") || "").trim();
       if (!forAttr) return;
-      if (!doc.getElementById(forAttr)) {
+      if (!byIdInTree(el, forAttr)) {
         add(findings, { type: "LABEL_FOR_MISSING_TARGET", el, severity: "medium", wcag: "1.3.1 / 3.3.2",
           confidence: "strict",
           note: `<label for="${txt(forAttr, 40)}"> references an id that does not exist in the document.`,
@@ -3582,6 +3727,12 @@
     };
 
     api.last = res;
+
+    // Drop per-run caches: they hold arrays of every scanned element, which
+    // would otherwise pin detached SPA trees in memory via window.A11YFlowAudit.
+    resetScopeCache();
+    resetSelectorCache();
+    resetPathCaches();
 
     con.groupCollapsed(`🧩 A11YFlowAudit.run — findings=${dedup.length} — mode=${mode} — ${s.href}`);
     con.table(top.map(x => ({
@@ -4206,14 +4357,14 @@
         i,
         tag: (el.tagName || "").toLowerCase(),
         tabIndex: getTabIndex(el),
-        name: getAccName(el),
+        name: getDisplayName(el),
         path: cssPath(el),
         ok
       });
 
       const key = cssPath(el);
       if (seen.has(key)) {
-        events.push({ i, type: "duplicate_in_order", path: key, name: getAccName(el), tabIndex: getTabIndex(el), note: "Element appears multiple times in computed order (heuristic)." });
+        events.push({ i, type: "duplicate_in_order", path: key, name: getDisplayName(el), tabIndex: getTabIndex(el), note: "Element appears multiple times in computed order (heuristic)." });
       } else {
         seen.add(key);
       }
@@ -4223,7 +4374,7 @@
           i,
           type: "focus_failed",
           path: cssPath(el),
-          name: getAccName(el),
+          name: getDisplayName(el),
           tabIndex: getTabIndex(el),
           note: "Tried to focus but activeElement did not change."
         });
@@ -4248,7 +4399,7 @@
       if (cycleCheck.has(p)) {
         const firstIdx = cycleCheck.get(p);
         if (i - firstIdx < 5) {
-          events.push({ i, type: "possible_focus_trap", path: p, name: getAccName(filtered[i]), tabIndex: getTabIndex(filtered[i]), note: `Element appeared at indices ${firstIdx} and ${i} — possible focus trap (cycle length ${i - firstIdx}).` });
+          events.push({ i, type: "possible_focus_trap", path: p, name: getDisplayName(filtered[i]), tabIndex: getTabIndex(filtered[i]), note: `Element appeared at indices ${firstIdx} and ${i} — possible focus trap (cycle length ${i - firstIdx}).` });
         }
       }
       cycleCheck.set(p, i);
@@ -4259,13 +4410,13 @@
       if (isHidden(dialog)) return;
       const dialogFocusables = [...dialog.querySelectorAll(focusableSelector)].filter(isFocusable);
       if (dialogFocusables.length === 0) {
-        events.push({ i: -1, type: "dialog_no_focusables", path: cssPath(dialog), name: getAccName(dialog), tabIndex: 0, note: "Open dialog has no focusable elements inside it." });
+        events.push({ i: -1, type: "dialog_no_focusables", path: cssPath(dialog), name: getDisplayName(dialog), tabIndex: 0, note: "Open dialog has no focusable elements inside it." });
       }
       const isModal = dialog.getAttribute("aria-modal") === "true" || dialog.tagName === "DIALOG";
       if (isModal && dialogFocusables.length > 0) {
         const siblingsInert = [...(dialog.parentElement?.children || [])].every(sib => sib === dialog || sib.inert || sib.getAttribute("aria-hidden") === "true");
         if (!siblingsInert) {
-          events.push({ i: -1, type: "dialog_focus_not_trapped", path: cssPath(dialog), name: getAccName(dialog), tabIndex: 0, note: "Modal dialog is open but sibling content is not inert/aria-hidden — focus may escape." });
+          events.push({ i: -1, type: "dialog_focus_not_trapped", path: cssPath(dialog), name: getDisplayName(dialog), tabIndex: 0, note: "Modal dialog is open but sibling content is not inert/aria-hidden — focus may escape." });
         }
       }
     });
@@ -4283,7 +4434,7 @@
       if (count >= max * 0.7 && max >= 5) {
         const role = el.getAttribute("role");
         if (role !== "dialog" && role !== "alertdialog" && el.tagName !== "DIALOG") {
-          events.push({ i: -1, type: "roach_motel", path: pp, name: getAccName(el), tabIndex: 0,
+          events.push({ i: -1, type: "roach_motel", path: pp, name: getDisplayName(el), tabIndex: 0,
             note: `${count}/${max} tab stops are inside a non-dialog container (${el.tagName.toLowerCase()}). Focus may be trapped.` });
         }
       }
@@ -4311,7 +4462,7 @@
           if (indices[j] - indices[j - 1] !== 1) { consecutive = false; break; }
         }
         if (consecutive && indices[indices.length - 1] - indices[0] < 5) {
-          events.push({ i: indices[0], type: "non_dialog_focus_trap", path: cp, name: getAccName(el), tabIndex: 0,
+          events.push({ i: indices[0], type: "non_dialog_focus_trap", path: cp, name: getDisplayName(el), tabIndex: 0,
             note: `Non-dialog container trapping ${indices.length} consecutive tab stops. Consider if focus containment is intentional.` });
         }
       }
