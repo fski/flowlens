@@ -662,6 +662,8 @@ async function execAuditActionInFrame({ tabId, frameId, action, alsoConsole, wca
       target: { tabId, frameIds: [frameId] },
       world: "MAIN",
       func: async (action, alsoConsole, wcagLevel, modeHints, appMarkers, rootSelector, fastSettle) => {
+        // Snippet console gate: page-console output only when the user opted in.
+        window.__A11YFLOW_CONSOLE__ = !!alsoConsole;
         const api = window.A11YFlowAudit;
         if (!api) return { ok: false, reason: "NO_API" };
 
@@ -1068,6 +1070,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       let dataUrl = null, reason = null;
       try {
         const tab = await chrome.tabs.get(tabId);
+        // captureVisibleTab grabs whatever tab is frontmost in that window. With
+        // DevTools undocked (or the inspected tab backgrounded during auto-
+        // capture) that is NOT the audited page — it could be mail or a bank.
+        if (!tab.active) throw new Error("inspected-tab-not-visible");
         dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
       } catch (e) {
         reason = (e && e.message) || "capture-failed";

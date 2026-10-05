@@ -45,9 +45,26 @@ const byType = await page.evaluate(async () => {
   for (const f of (r?.findings || [])) m[f.type] = (m[f.type] || 0) + 1;
   return m;
 });
+
+// Console gate: with __A11YFLOW_CONSOLE__ = false (the extension's default)
+// the snippet must not write audit data to the page console, where page-side
+// RUM/error tooling would pick it up.
+const consoleLines = [];
+page.on("console", (m) => consoleLines.push(m.text()));
+await page.evaluate(async () => {
+  window.__A11YFLOW_CONSOLE__ = false;
+  await window.A11YFlowAudit.run({ strict: true });
+  await window.A11YFlowAudit.contrastScan({ limit: 50 });
+});
 await browser.close();
 
 let failed = 0;
+if (consoleLines.length) {
+  failed++;
+  console.log(`✗ console gate: ${consoleLines.length} page-console line(s) with the gate off, e.g. ${JSON.stringify(consoleLines[0]).slice(0, 120)}`);
+} else {
+  console.log("✓ console gate: silent with __A11YFLOW_CONSOLE__ = false");
+}
 for (const [type, expected] of Object.entries(EXPECTED)) {
   const actual = byType[type] || 0;
   const ok = actual === expected;
@@ -55,7 +72,7 @@ for (const [type, expected] of Object.entries(EXPECTED)) {
   console.log(`${ok ? "✓" : "✗"} ${type}: expected ${expected}, got ${actual}`);
 }
 if (failed) {
-  console.error(`\nE2E SMOKE FAILED — ${failed} rule count(s) drifted from docs/A11Y_RULE_FP_AUDIT.md`);
+  console.error(`\nE2E SMOKE FAILED — ${failed} check(s) failed (rule counts: docs/A11Y_RULE_FP_AUDIT.md)`);
   console.error("All counts:", JSON.stringify(byType, null, 2));
   process.exit(1);
 }

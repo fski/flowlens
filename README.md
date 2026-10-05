@@ -64,10 +64,12 @@ FlowLens outputs are deterministic and reproducible:
 
 All processing happens entirely in the browser:
 
-- No message text is stored or exported
+- No message text appears in the CI JSON export. Saved panel results do keep short, truncated evidence (accessible names, an outerHTML excerpt, heading text) so findings can be inspected later — all in `chrome.storage.local`
 - No DOM paths appear in CI JSON output
 - Cross-frame integrity checks operate on hashed structural summaries only
 - The audit engine makes no network requests; the only outbound traffic is opening a W3C WCAG documentation link if you explicitly click one
+- The audit snippet writes nothing to the page's console unless you enable "Also log to console" (page-side error/RUM tools capture console output)
+- Screenshots are only taken while the inspected tab is the visible tab of its window, so an undocked DevTools never captures some other tab
 - Per-step screenshots and optional flow video are stored locally in the browser's IndexedDB and never uploaded; pruned to the most recent sessions
 - No data leaves the browser
 

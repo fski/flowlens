@@ -48,6 +48,15 @@
   const w = window;
   const doc = document;
 
+  // Page-console output. Pasted manually the snippet logs as before; the
+  // extension sets __A11YFLOW_CONSOLE__ = false unless "Also log to console"
+  // is on, because page-side tooling (Sentry/RUM breadcrumbs) captures
+  // console.* and would carry audit data off the machine.
+  const con = {};
+  for (const k of ["log", "info", "warn", "error", "debug", "table", "groupCollapsed", "groupEnd"]) {
+    con[k] = (...a) => { if (w.__A11YFLOW_CONSOLE__ !== false) console[k](...a); };
+  }
+
   // ---------------- constants ----------------
   const MAX_SHADOW_SCOPES = 50;
   const MAX_SHADOW_DEPTH = 5;
@@ -3568,8 +3577,8 @@
 
     api.last = res;
 
-    console.groupCollapsed(`🧩 A11YFlowAudit.run — findings=${dedup.length} — mode=${mode} — ${s.href}`);
-    console.table(top.map(x => ({
+    con.groupCollapsed(`🧩 A11YFlowAudit.run — findings=${dedup.length} — mode=${mode} — ${s.href}`);
+    con.table(top.map(x => ({
       severity: x.severity,
       product: x.product,
       type: x.type,
@@ -3579,11 +3588,11 @@
       testId: x.testId,
       note: x.note
     })));
-    console.log("Sanity:", s);
-    console.log("Lists:", res.lists);
-    console.log("Headings:", res.headings);
-    console.log("Raw findings:", dedup);
-    console.groupEnd();
+    con.log("Sanity:", s);
+    con.log("Lists:", res.lists);
+    con.log("Headings:", res.headings);
+    con.log("Raw findings:", dedup);
+    con.groupEnd();
 
     return res;
   };
@@ -3607,7 +3616,7 @@
     // interval and a stale observeInFlight. Two quiet ticks minimum.
     minTicks = Math.max(2, Number(minTicks) || 0);
     if (observeInFlight?.promise) {
-      console.info("🧠 A11YFlowAudit.observe already running; returning active session.");
+      con.info("🧠 A11YFlowAudit.observe already running; returning active session.");
       return observeInFlight.promise;
     }
 
@@ -3682,10 +3691,10 @@
         api.lastObserved = result;
         observeInFlight = null;
 
-        console.groupCollapsed(`🧠 A11YFlowAudit.observe — ${seconds}s — totalUniqueFindings=${unique.length}`);
-        console.table(snapshots);
-        console.log("Unique findings:", unique);
-        console.groupEnd();
+        con.groupCollapsed(`🧠 A11YFlowAudit.observe — ${seconds}s — totalUniqueFindings=${unique.length}`);
+        con.table(snapshots);
+        con.log("Unique findings:", unique);
+        con.groupEnd();
 
         resolve(result);
       };
@@ -3710,7 +3719,7 @@
           // capture on pages with a chat feed (the extension's core case).
           tickErrors++;
           if (!firstTickError) firstTickError = String(err && err.message || err);
-          console.error("A11YFlowAudit.observe tick failed:", err);
+          con.error("A11YFlowAudit.observe tick failed:", err);
           if (tickErrors >= 3) finish(false);
         }
       };
@@ -3788,7 +3797,7 @@
       timeout = setTimeout(() => finish(), seconds * 1000);
       tick();
 
-      console.info(`🧠 A11YFlowAudit.observe started (${seconds}s). Trigger loader/remount flow now.`);
+      con.info(`🧠 A11YFlowAudit.observe started (${seconds}s). Trigger loader/remount flow now.`);
     });
     observeInFlight = { promise };
     return promise;
@@ -3797,7 +3806,7 @@
   // ---------------- watch (loader chain + focus loss + silent loading) ----------------
   const watch = ({ seconds = 20, tickMs = 200, budget = {}, settleMs = 0, minMs = 8000 } = {}) => {
     if (watchInFlight?.promise) {
-      console.info("👀 A11YFlowAudit.watch already running; returning active session.");
+      con.info("👀 A11YFlowAudit.watch already running; returning active session.");
       return watchInFlight.promise;
     }
 
@@ -4040,12 +4049,12 @@
         }
         api.lastWatch = result;
 
-        console.groupCollapsed(`⏱️ A11YFlowAudit.watch — ${seconds}s — bursts=${bursts} loading=${totalLoadingMs}ms silent=${silentMs}ms focusLoss=${focusLoss}`);
-        if (verdicts.length) console.warn("OVER budget:", verdicts);
-        else console.info("Budgets OK ✅");
-        console.table(events.slice(0, 120));
-        console.log("Raw:", api.lastWatch);
-        console.groupEnd();
+        con.groupCollapsed(`⏱️ A11YFlowAudit.watch — ${seconds}s — bursts=${bursts} loading=${totalLoadingMs}ms silent=${silentMs}ms focusLoss=${focusLoss}`);
+        if (verdicts.length) con.warn("OVER budget:", verdicts);
+        else con.info("Budgets OK ✅");
+        con.table(events.slice(0, 120));
+        con.log("Raw:", api.lastWatch);
+        con.groupEnd();
 
         resolve(result);
       };
@@ -4156,12 +4165,12 @@
         } catch (err) {
           watchTickErrors++;
           if (!firstWatchTickError) firstWatchTickError = String(err && err.message || err);
-          console.error("A11YFlowAudit.watch tick failed:", err);
+          con.error("A11YFlowAudit.watch tick failed:", err);
           if (watchTickErrors >= 3 || t >= seconds * 1000) finalize(false);
         }
       }, tickMs);
 
-      console.info(`👀 A11YFlowAudit.watch started (${seconds}s). Trigger the loader-heavy flow now.`);
+      con.info(`👀 A11YFlowAudit.watch started (${seconds}s). Trigger the loader-heavy flow now.`);
     });
     watchInFlight = { promise };
     return promise;
@@ -4329,10 +4338,10 @@
     };
     api.lastTabWalk = summary;
 
-    console.groupCollapsed(`⌨️ A11YFlowAudit.tabWalk — walked=${max}/${order.length} — events=${events.length}`);
-    console.table(events.slice(0, 140));
-    console.log("Raw:", summary);
-    console.groupEnd();
+    con.groupCollapsed(`⌨️ A11YFlowAudit.tabWalk — walked=${max}/${order.length} — events=${events.length}`);
+    con.table(events.slice(0, 140));
+    con.log("Raw:", summary);
+    con.groupEnd();
 
     return summary;
   };
@@ -4408,11 +4417,11 @@
     };
     api.lastContrast = res;
 
-    console.groupCollapsed(`🎚️ A11YFlowAudit.contrastScan — failures=${failures.length}/${nodes.length}`);
-    console.table(failures.slice(0, 120));
-    console.log("Samples:", res.samples);
-    console.log("Raw:", res);
-    console.groupEnd();
+    con.groupCollapsed(`🎚️ A11YFlowAudit.contrastScan — failures=${failures.length}/${nodes.length}`);
+    con.table(failures.slice(0, 120));
+    con.log("Samples:", res.samples);
+    con.log("Raw:", res);
+    con.groupEnd();
 
     return res;
   };
@@ -4451,5 +4460,7 @@
   // Stop the previous injection's timed modes before taking over the slot.
   try { w[KEY]?.__abortTimed?.(); } catch {}
   w[KEY] = api;
-  console.log(`✅ ${KEY} installed`, w.location.href, "inIframe=", w.self !== w.top, "mode=", detectMode());
+  // Carries no audit data (href is the page's own), so it may print on the
+  // extension's first injection before the gate is set.
+  con.log(`✅ ${KEY} installed`, w.location.href, "inIframe=", w.self !== w.top, "mode=", detectMode());
 })();

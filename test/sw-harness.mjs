@@ -43,12 +43,13 @@ export function createSwContext(opts = {}) {
     chrome: {
       runtime: {
         id: 'test-extension-id',
-        onMessage: { addListener: () => {} },
+        onMessage: { addListener: (fn) => { if (opts.captureListener) opts.captureListener(fn); } },
         ...(opts.onConnect ? { onConnect: opts.onConnect } : {}),
       },
       scripting: {
         executeScript: opts.executeScript || (() => Promise.resolve([])),
       },
+      ...(opts.tabs ? { tabs: opts.tabs } : {}),
       webNavigation: {
         getAllFrames: opts.getAllFrames || (() => Promise.resolve([])),
         ...(opts.webNavEvents || {}),
