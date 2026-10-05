@@ -90,6 +90,7 @@ function compactSessionForExport(session) {
     profileConfidence: lastStep?.profileConfidence || null,
     profileMatchSignals: lastStep?.profileMatchSignals || [],
     frameScope: clone.settings?.scopeAtCapture || clone.settings?.targetModeAtCapture || "primary",
+    rulePack: null, // rule packs were removed; field kept (additive-schema rule)
     // Same predicate as the verdict header — suspect counts only when a
     // profile/root selector was actually in play; a looser copy here made the
     // panel and the CI export disagree about the same session.

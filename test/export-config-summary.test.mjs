@@ -74,6 +74,10 @@ describe("buildDiagnosticsMarkdown — config summary lines", () => {
     assert.ok(md.includes("Recipe: chat_widget"), "should contain 'Recipe: chat_widget'");
   });
 
+  it("rulePack stays in the payload as null (additive schema)", () => {
+    assert.equal(buildDiagnosticsPayload({}).rulePack, null);
+  });
+
   it("markdown has no rule pack line (rule packs were removed)", () => {
     const payload = buildDiagnosticsPayload({});
     const md = buildDiagnosticsMarkdown(payload);

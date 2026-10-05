@@ -65,8 +65,11 @@ Profiles add product-specific frame heuristics and audit rules. Toggle them in S
 
 | Profile | Targets | Adds |
 |---------|---------|------|
-| **Help Center** | Iframes matching `helpcenter-webclient`, `usehurrier.com`, `helpcenter`; DOM selectors `#help-center-root`, `[data-testid='help-center-wrapper']`, etc. | Tree/article/bot-specific WCAG checks |
-| **Chat** | DOM selectors `[data-testid^='GST_CHAT__']`, `#GST_CHAT__FEED`, `[role='log']` | `role=log`, message boundary, input label checks |
+| **Help Center** | Frames with `main article`, `[role='main']`, labelled navigation | Tree/article/bot-specific WCAG checks |
+| **Chat** | Frames with `[role='log']`, `[role='feed']`, `[aria-label*='chat']`, a text composer | `role=log`, message boundary, input label checks |
+| **Wizard / Multi-step Form** | Form-heavy flows (checkouts, onboarding) | Step-to-step diff focus |
+
+The full list (including the v2 and hybrid variants) lives in `src/shared/flow-profiles.js`.
 
 Custom profiles can be defined via `customProfiles` in extension storage.
 

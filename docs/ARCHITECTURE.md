@@ -159,12 +159,17 @@ Profiles add product-specific frame heuristics and audit rules.
 
 ### Built-in profiles
 
-Defined in `BUILTIN_PROFILES` (`panel.js:208-256`):
+Defined in `GENERIC_PROFILES` (`src/shared/flow-profiles.js`). All are
+vendor-agnostic: frame targeting uses ARIA roles and semantic elements only
+(`urlIncludes` is always empty). Vendor-specific selectors belong in a
+private HostConfig build, never here.
 
-| Profile | URL includes | DOM selectors | Sub-hints |
-|---------|-------------|---------------|-----------|
-| `helpcenter` | `helpcenter-webclient`, `usehurrier.com`, `helpcenter` | `#help-center-root`, `[data-testid='help-center-wrapper']`, etc. | `helpcenter-bot`, `helpcenter-tree` |
-| `chat` | — | `[data-testid^='GST_CHAT__']`, `#GST_CHAT__FEED`, `[role='log']` | `chat` |
+| Profile id | Label |
+|---|---|
+| `generic-helpcenter-spa` | Generic Help Center |
+| `generic-chat-widget` | Generic Chat |
+| `generic-ai-bot-tree` | Generic AI Bot Tree |
+| (hybrid / v2 / wizard entries) | Hybrid Help+Chat, Chat Widget (v2), Help Center + Bot (v2), Wizard / Multi-step Form, Help Center Static (v2) |
 
 ### Profile state
 

@@ -585,6 +585,7 @@ function buildDiagnosticsPayload(opts) {
     reducedDiffConfidence: !!o.reducedDiffConfidence,
     depthMax: (o.depthMax === 1 || o.depthMax === 2 || o.depthMax === 3) ? o.depthMax : 3,
     recipeId: o.recipeId ? String(o.recipeId) : "auto",
+    rulePack: null, // rule packs were removed; field kept (additive-schema rule)
     dataVersionsLine: formatDataVersionsLine(dv),
     hostConfigId: o.hostConfigId ? String(o.hostConfigId) : "generic",
     frameGatingSelectorCount: Number(o.frameGatingSelectorCount) || 0,
