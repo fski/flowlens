@@ -369,12 +369,14 @@ function renderSevTabs(findings = null) {
 
   const allTab = renderTab("", "All", total, isAll);
 
+  // Empty severities are noise ("Crit. 0", "Info 0") — show only those with
+  // findings, plus any the user has selected (so a filter can be undone).
   const sevTabs = SEV_LIST.map(sev => ({
     sev,
     label: sev === "critical" ? "Crit." : sev === "medium" ? "Med." : sev.charAt(0).toUpperCase() + sev.slice(1),
     count: c ? c[sev] : null,
     active: sel.has(sev),
-  }));
+  })).filter(t => t.active || !c || t.count > 0);
 
   // Group consecutive active tabs into runs
   const groups = [];
@@ -1178,11 +1180,11 @@ function setPersistentStatus(status = "IDLE", reason = "-", detail = "", surface
   // was Snap state leaking into the wrong context.
   const line = surface === "snap" ? els.snapStatusLine : els.lastStatusLine;
   if (!line) return;
-  const isIdle = normalized === "IDLE";
-  if (!isIdle) state.hasPersistentStatus = true;
-  const shouldShow = !isIdle || state.hasPersistentStatus;
-  line.hidden = !shouldShow;
-  if (!shouldShow) return;
+  if (normalized !== "IDLE") state.hasPersistentStatus = true;
+  // Only problems get a visible line. Success already shows as results (and
+  // the live findings count); "Last status: OK • RUN • 28 issues" under a
+  // table of 28 findings was a third copy of the same news.
+  line.hidden = !(normalized === "FAILED" || normalized === "PARTIAL");
   line.classList.remove("ok", "partial", "failed");
   if (normalized === "OK") line.classList.add("ok");
   else if (normalized === "PARTIAL") line.classList.add("partial");
@@ -1526,15 +1528,10 @@ function flowVerdictHeaderHtml(sess) {
   var steps = (sess && Array.isArray(sess.steps)) ? sess.steps : [];
   if (!steps.length) return "";
   var views = flowStepViews(sess);
-  var totalBlockingAdded = 0, newTotal = 0, worst = null;
-  for (var i = 0; i < views.length; i++) {
-    totalBlockingAdded += views[i].blockingAdded;
-    newTotal += views[i].appeared;
-    if (!worst || views[i].appeared > worst.appeared) worst = views[i];
-  }
+  var totalBlockingAdded = 0;
+  for (var i = 0; i < views.length; i++) totalBlockingAdded += views[i].blockingAdded;
   var last = views[views.length - 1];
   var issuesNow = last ? (last.appeared + last.persisting) : 0;
-  void newTotal; void worst; // retained for future detail; not shown in the slim header
   var pass = totalBlockingAdded === 0;
   var badge = pass ? "PASS" : "FAIL";
   var badgeCls = pass ? "flowVerdictBadge--pass" : "flowVerdictBadge--fail";
@@ -1571,12 +1568,13 @@ function flowVerdictHeaderHtml(sess) {
   var hasSuspect = steps.some(function (s) { return s.profileSuspect === true && (s.profileLabel || s.rootSelector); });
   var hasDegraded = steps.some(function (s) { return s.stableSignatures && s.stableSignatures.run && s.stableSignatures.run.stepQuality && s.stableSignatures.run.stepQuality.degraded === true; });
   var hasRootMissing = steps.some(function (s) { return s.rootSelectorNotFound === true; });
-  if (hasSuspect || hasDegraded || hasRootMissing) {
+  // Only meaningful once there is something to compare (2+ steps).
+  if (steps.length > 1 && (hasSuspect || hasDegraded || hasRootMissing)) {
     var reasons = [];
-    if (hasDegraded) reasons.push("degraded signatures");
-    if (hasRootMissing) reasons.push("root selector not found");
-    if (hasSuspect) reasons.push("low profile confidence");
-    diffConfNote = ' <span class="diffConfidenceReduced" title="' + escapeHtml(reasons.join("; ")) + '">Diff confidence: reduced</span>';
+    if (hasDegraded) reasons.push("some elements lack stable identifiers");
+    if (hasRootMissing) reasons.push("the profile's root element was not found");
+    if (hasSuspect) reasons.push("the page type match is uncertain");
+    diffConfNote = ' <span class="diffConfidenceReduced" title="' + escapeHtml("Step-to-step comparison may be less reliable: " + reasons.join("; ")) + '">⚠ Comparison less reliable</span>';
   }
   // Slim header (progressive disclosure): verdict badge + step count + the two
   // decision-relevant numbers (Issues now, Blocking). New-total / worst-step
@@ -1585,7 +1583,7 @@ function flowVerdictHeaderHtml(sess) {
     + '<span class="flowVerdictBadge ' + badgeCls + '">' + badge + '</span>'
     + '<span class="flowVerdictText">' + steps.length + ' step' + (steps.length !== 1 ? "s" : "") + '</span>'
     + '<span class="flowStat"><span class="flowStatV">' + issuesNow + '</span><span class="flowStatL">Issues now</span></span>'
-    + '<span class="flowStat' + (totalBlockingAdded > 0 ? ' flowStat--bad' : '') + '"><span class="flowStatV">' + totalBlockingAdded + '</span><span class="flowStatL">Blocking</span></span>'
+    + '<span class="flowStat' + (totalBlockingAdded > 0 ? ' flowStat--bad' : '') + '"><span class="flowStatV">' + totalBlockingAdded + '</span><span class="flowStatL" title="Blocking issues introduced after the first step (the first step is the baseline)">New blocking</span></span>'
     + videoNote
     + diffConfNote
     + '</div>' + systemicNote;

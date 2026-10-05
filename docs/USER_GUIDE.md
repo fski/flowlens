@@ -68,7 +68,7 @@ On an empty Snap tab, two presets run several modes in sequence: **Quick scan** 
 
 - **Past runs** lists saved results for this origin + environment; pick one to view it, delete one, or **Delete all**.
 - **Raw JSON** shows the result object.
-- **Export** (in the Raw JSON sheet): Download JSON, Download MD, Copy JSON, Download JUnit XML (with CI options: fail on blocking, treat needs-review as failures, max failures). After a Flow session ends, the menu adds Session JUnit XML, Session JSON, Copy Session JSON, Session Markdown, Diff Report JSON and Screenshots (.zip).
+- **Export** (bottom of Snap): Download Markdown and Download JSON; after a Flow session ends, Session JSON, Session Markdown and Screenshots (.zip). With **Settings → Developer mode** on, the menu adds Copy JSON, Copy Raw, Download JUnit XML (with CI options), Session JUnit XML, Copy Session JSON and Diff Report JSON, and the Raw JSON sheet, the frame-selection reason and the diagnostics section appear.
 
 ### Determinism
 
@@ -168,7 +168,7 @@ Known false-positive hotspots and the precision fixes are in [A11Y_RULE_FP_AUDIT
 
 **Quick regression check.** Snap → **Quick scan**. Filter to high severity and compare with an earlier result from **Past runs**. Typical signals: new `NO_ACCESSIBLE_NAME` on an added button, new `FORM_CONTROL_NO_LABEL`.
 
-**Pre-release check.** Snap → **Deep audit** (~60 s). Review blocking findings; activate rows to highlight elements; Export → Download MD for the PR. Watch `focus_loss` indicates a loader chain that drops focus.
+**Pre-release check.** Snap → **Deep audit** (~60 s). Review blocking findings; activate rows to highlight elements; Export → Download Markdown for the PR. Watch `focus_loss` indicates a loader chain that drops focus.
 
 **Contrast pass.** Settings → Target scope **All frames**; Snap → Contrast → Check Contrast. Filter Fail, highlight the lowest ratios. Text over gradients or images is reported as a sample with a "verify manually" note, not a failure. Check light and dark themes separately.
 

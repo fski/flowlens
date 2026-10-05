@@ -266,12 +266,29 @@ function cellHtml(value, maxLen = 60) {
   return `<span class="cellWrap"><span class="cellText" title="${escapeHtml(full)}">${escapeHtml(truncateMiddle(full, maxLen))}</span><button class="cellCopy" type="button" data-copy="${escapeHtml(full)}" aria-label="Copy"></button></span>`;
 }
 
+// Rule ids (CLICK_WITHOUT_KEYBOARD) → readable issue names ("Click without
+// keyboard") for the findings table; the id stays in the tooltip, the detail
+// row and every export. Acronyms keep their case.
+const RULE_ACRONYMS = { ARIA: "ARIA", ID: "ID", H1: "H1", HTML: "HTML", SVG: "SVG", UI: "UI", DOM: "DOM",
+  IMG: "Image", HC: "Help center:", NAV: "Nav", TD: "TD", TH: "TH", DL: "DL", AAA: "AAA", P: "<p>" };
+function ruleTitle(type) {
+  const t = String(type || "");
+  if (!/^[A-Z0-9_]+$/.test(t)) return t;
+  const words = t.split("_").filter(Boolean).map((w, i) => {
+    if (RULE_ACRONYMS[w]) return RULE_ACRONYMS[w];
+    const lw = w.toLowerCase();
+    return i === 0 ? lw.charAt(0).toUpperCase() + lw.slice(1) : lw;
+  });
+  if (words[0] === "Chat") words[0] = "Chat:";
+  return words.join(" ");
+}
+
 /** Shared row renderers — used by both VirtualTable and fallback paths. */
 function explorerRowHtml(f, idx) {
   const sev = f.severity || 'info';
   const isCrossFrame = isCrossFrameFinding(f);
   const crossBadge = isCrossFrame ? ' <span class="badge crossFrame">Cross-frame</span>' : '';
-  return `<tr class="trow" tabindex="0" data-i="${idx}" data-sev="${escapeHtml(sev)}"${isCrossFrame ? ' data-crossframe="1"' : ''}><td><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span></td><td>${escapeHtml(f.wcag ?? "")}</td><td>${cellHtml(f.name, 50)}${crossBadge}</td><td>${cellHtml(f.type ?? "", 30)}</td></tr>`;
+  return `<tr class="trow" tabindex="0" data-i="${idx}" data-sev="${escapeHtml(sev)}"${isCrossFrame ? ' data-crossframe="1"' : ''}><td><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span></td><td>${escapeHtml(f.wcag ?? "")}</td><td>${cellHtml(f.name, 50)}${crossBadge}</td><td title="${escapeHtml(f.type ?? "")}">${escapeHtml(ruleTitle(f.type))}</td></tr>`;
 }
 function contrastRowHtml(f, idx) {
   const pass = f.ratio >= f.required;
@@ -1760,9 +1777,9 @@ async function runAction(action, opts = {}) {
   const _fc = findings.length;
   const _cc = bestResult?.failuresCount ?? bestResult?.failures?.length;
   const _ec = bestResult?.events?.length;
-  const detail = _fc ? ` — ${_fc} findings` : _cc != null ? ` — ${_cc} failures` : _ec != null ? ` — ${_ec} events` : "";
+  // No success toast: the rendered results and the live findings count
+  // (aria-live) already report completion; toasts are for problems.
   setPersistentStatus("OK", action.toUpperCase(), `${_fc || _cc || _ec || 0} issues`, "snap");
-  toast(`${modeLabel(action)} done${detail}`);
   return true;
 }
 

@@ -143,7 +143,7 @@
                 <caption class="sr-only">All findings</caption>
                 <thead>
                   <tr>
-                    <th scope="col" title="Severity">sev</th><th scope="col" title="WCAG criterion">wcag</th><th scope="col" title="Element name">name</th><th scope="col" title="Issue type">type</th>
+                    <th scope="col" title="Severity">sev</th><th scope="col" title="WCAG criterion">wcag</th><th scope="col" title="Element name">name</th><th scope="col" title="Issue (rule id in the tooltip)">issue</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -246,7 +246,7 @@
           </section>
           <section class="bottomSheet bottomSheet--json">
             <div class="sheetHeaderWrap">
-              <button class="sheetHeader sheetHeader--flex" id="rawJsonToggle" type="button" aria-expanded="false" aria-controls="rawJsonBody">
+              <button class="sheetHeader sheetHeader--flex devOnly" id="rawJsonToggle" type="button" aria-expanded="false" aria-controls="rawJsonBody">
                 <img class="sheetIcon" src="icons/JSON Icon.svg" alt="" width="12" height="12" aria-hidden="true" />
                 <span class="sheetLabel">Raw JSON</span>
                 <span class="sheetChevron" aria-hidden="true">&#x25B6;</span>
@@ -257,28 +257,28 @@
                   EXPORT &#x25BE;
                 </button>
                 <div class="exportMenu" id="exportMenu" role="menu" aria-labelledby="exportToggle" hidden>
+                  <button class="emItem" id="downloadMd" type="button" role="menuitem"><span class="l">Download Markdown</span></button>
                   <button class="emItem" id="downloadJson" type="button" role="menuitem"><span class="l">Download JSON</span></button>
-                  <button class="emItem" id="downloadMd" type="button" role="menuitem"><span class="l">Download MD</span></button>
-                  <button class="emItem" id="copyJson" type="button" role="menuitem"><span class="l">Copy JSON</span></button>
+                  <button class="emItem devOnly" id="copyJson" type="button" role="menuitem"><span class="l">Copy JSON</span></button>
                   <button class="emItem" id="copyMd" type="button" role="menuitem" hidden><span class="l">Copy Markdown</span></button>
-                  <button class="emItem" id="sheetCopyRaw" type="button" role="menuitem" hidden><span class="l">Copy Raw</span></button>
-                  <button class="emItem" id="downloadJunitXml" type="button" role="menuitem"><span class="l">Download JUnit XML</span></button>
-                  <div class="emLabel">JUnit CI Options</div>
-                  <label class="emCiOption"><input type="checkbox" id="ciFailOnBlocking" checked /><span>Fail CI on blocking issues</span></label>
-                  <label class="emCiOption"><input type="checkbox" id="ciTreatNeedsReview" /><span>Treat needs_review as failures</span></label>
-                  <label class="emCiOption emCiOption--number"><span>Max failures allowed</span><input type="number" id="ciMaxFailures" min="0" step="1" value="0" class="ciNumInput" /></label>
+                  <button class="emItem devOnly" id="sheetCopyRaw" type="button" role="menuitem" hidden><span class="l">Copy Raw</span></button>
+                  <button class="emItem devOnly" id="downloadJunitXml" type="button" role="menuitem"><span class="l">Download JUnit XML</span></button>
+                  <div class="emLabel devOnly">JUnit CI Options</div>
+                  <label class="emCiOption devOnly"><input type="checkbox" id="ciFailOnBlocking" checked /><span>Fail CI on blocking issues</span></label>
+                  <label class="emCiOption devOnly"><input type="checkbox" id="ciTreatNeedsReview" /><span>Treat needs_review as failures</span></label>
+                  <label class="emCiOption emCiOption--number devOnly"><span>Max failures allowed</span><input type="number" id="ciMaxFailures" min="0" step="1" value="0" class="ciNumInput" /></label>
                   <div class="emLabel" id="sessionExportMenuLabel" hidden>Session</div>
-                  <button class="emItem" id="exportSessionJunitMenu" type="button" role="menuitem" hidden><span class="l">Session JUnit XML</span><span class="dd">Last ended session</span></button>
+                  <button class="emItem devOnly" id="exportSessionJunitMenu" type="button" role="menuitem" hidden><span class="l">Session JUnit XML</span><span class="dd">Last ended session</span></button>
                   <button class="emItem" id="exportSessionJsonMenu" type="button" role="menuitem" hidden><span class="l">Session JSON</span><span class="dd">Last ended session</span></button>
-                  <button class="emItem" id="copySessionJsonMenu" type="button" role="menuitem" hidden><span class="l">Copy Session JSON</span><span class="dd">To clipboard</span></button>
+                  <button class="emItem devOnly" id="copySessionJsonMenu" type="button" role="menuitem" hidden><span class="l">Copy Session JSON</span><span class="dd">To clipboard</span></button>
                   <button class="emItem" id="exportSessionMdMenu" type="button" role="menuitem" hidden><span class="l">Session Markdown</span><span class="dd">Last ended session</span></button>
-                  <button class="emItem" id="exportDiffReportMenu" type="button" role="menuitem" hidden><span class="l">Diff Report JSON</span><span class="dd">Machine-readable CI diff</span></button>
+                  <button class="emItem devOnly" id="exportDiffReportMenu" type="button" role="menuitem" hidden><span class="l">Diff Report JSON</span><span class="dd">Machine-readable CI diff</span></button>
                   <button class="emItem" id="exportShotsMenu" type="button" role="menuitem" hidden><span class="l">Screenshots (.zip)</span><span class="dd">Per-step PNGs</span></button>
                   <span class="inlineHint sr-only" id="copyMdHint" aria-live="polite"></span>
                 </div>
               </div>
             </div>
-            <div class="sheetBody" id="rawJsonBody" hidden>
+            <div class="sheetBody devOnly" id="rawJsonBody" hidden>
               <pre id="json" role="region" aria-label="Raw JSON output">(no results yet)</pre>
             </div>
           </section>
@@ -467,7 +467,7 @@
                 </span>
                 <span class="settingsHint">Pick a specific frame to scan &mdash; Pin keeps it selected across reloads</span>
               </div>
-              <div class="targetingSummary mono" id="targetingSummary" role="status" aria-live="polite" aria-atomic="true">
+              <div class="targetingSummary mono devOnly" id="targetingSummary" role="status" aria-live="polite" aria-atomic="true">
                 Target: Primary frame
               </div>
           </div>
@@ -484,10 +484,15 @@
                 <label class="switch"><input id="singleKeyShortcuts" type="checkbox" checked /> <span class="slider" aria-hidden="true"></span><span class="switchText">Single-key shortcuts</span></label>
                 <span class="settingsHint">1/2/3 switch tabs; in Flow: r record, s mark step, e end (press twice). Turn off if they clash with speech input or your screen reader.</span>
               </div>
+              <div class="settingsGroup">
+                <span class="settingsLabel">Developer mode</span>
+                <label class="switch"><input id="devMode" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Show developer tools</span></label>
+                <span class="settingsHint">Raw JSON, CI/JUnit exports, frame-selection reason and diagnostics</span>
+              </div>
           </div>
         </section>
 
-        <section class="aboutSection">
+        <section class="aboutSection devOnly">
           <h2 class="aboutHeading">FlowLens Diagnostics</h2>
           <dl class="aboutDl">
             <dt>Version</dt>

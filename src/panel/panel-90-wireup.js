@@ -619,6 +619,13 @@ if (els.alsoConsole) {
   });
 }
 
+if (els.devMode) {
+  els.devMode.addEventListener("change", async () => {
+    applyDevMode(els.devMode.checked);
+    await updateUiPrefs({ devMode: !!els.devMode.checked });
+  });
+}
+
 if (els.singleKeyShortcuts) {
   els.singleKeyShortcuts.addEventListener("change", async () => {
     await updateUiPrefs({ singleKeyShortcuts: !!els.singleKeyShortcuts.checked });

@@ -332,6 +332,18 @@ async function saveCustomProfiles() {
   await storageSet({ customProfiles: custom });
 }
 
+// The registry carries three generations of overlapping profiles (built-in
+// chat/helpcenter, generic v1, v2) — recipes and auto-detection still use
+// them, but the picker only offers the current set. Custom profiles and any
+// profile that is currently active always show, so nothing becomes stuck.
+const PICKER_PROFILE_IDS = ["chat_widget_v2", "helpcenter_bot_hybrid_v2", "helpcenter_static_v2", "wizard_flow_v2"];
+function isPickerProfile(id) {
+  const generic = typeof GENERIC_PROFILES !== "undefined" && id in GENERIC_PROFILES;
+  if (PICKER_PROFILE_IDS.includes(id)) return true;
+  if (profileState.active.includes(id)) return true;
+  return !(id in BUILTIN_PROFILES) && !generic; // user-defined custom profile
+}
+
 function renderProfileSelect() {
   if (!els.profileSelect) return;
   els.profileSelect.innerHTML = "";
@@ -344,6 +356,7 @@ function renderProfileSelect() {
     return String(pA.label || idA).localeCompare(String(pB.label || idB));
   });
   for (const [id, p] of entries) {
+    if (!isPickerProfile(id)) continue;
     const isActive = profileState.active.includes(id);
     const label = document.createElement("label");
     label.className = `profilePill${isActive ? " active" : ""}`;
@@ -362,10 +375,19 @@ function renderProfileSelect() {
       saveActiveProfiles();
     });
     const span = document.createElement("span");
-    span.textContent = p.label || id;
+    span.textContent = String(p.label || id).replace(/\s*\(v2\)$/, "");
     label.appendChild(cb);
     label.appendChild(span);
     els.profileSelect.appendChild(label);
+  }
+}
+
+// Developer mode reveals the technical surfaces (.devOnly): raw JSON, CI and
+// JUnit exports, the frame-selection reason and diagnostics.
+function applyDevMode(on) {
+  if (els.devMode) els.devMode.checked = !!on;
+  if (typeof document !== "undefined" && document.body && document.body.classList) {
+    document.body.classList.toggle("devMode", !!on);
   }
 }
 
@@ -373,6 +395,7 @@ async function loadUiPrefs() {
   const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
   if (els.alsoConsole) els.alsoConsole.checked = !!uiPrefs.alsoConsole;
   if (els.singleKeyShortcuts) els.singleKeyShortcuts.checked = uiPrefs.singleKeyShortcuts !== false;
+  applyDevMode(!!uiPrefs.devMode);
   if (els.wcagLevel && uiPrefs.wcagLevel) els.wcagLevel.value = uiPrefs.wcagLevel;
   // Recipe first, persisted per-field overrides after — otherwise a non-auto
   // recipe re-clobbers the user's saved depth/mode on every panel load.

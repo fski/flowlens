@@ -193,7 +193,7 @@ Session caps and raw-appendix compaction: [SESSION_MODEL.md §6](./SESSION_MODEL
 | Export | Source | Notes |
 |--------|--------|-------|
 | Download / Copy JSON | `enrichRunJsonExport(state.lastResult)` | `a11yflowaudit-<ts>.json` |
-| Download MD | `buildMarkdown()` | `a11yflowaudit-<ts>.md` |
+| Download Markdown | `buildMarkdown()` | `a11yflowaudit-<ts>.md` |
 | Download JUnit XML | `buildJunitXmlForRun()` | CI options: fail on blocking, treat needs-review as failures, max failures |
 | Session JSON / Markdown / JUnit | `compactSessionForExport()`, `buildSessionMarkdown()`, `buildJunitXmlForSession()` | `flowlens-session_<origin>_<env>_<YYYYMMDD-HHMM>.json` |
 | Diff Report JSON | `buildMachineReadableDiffReport()` | `flowlens-<version>-<env>-diff-report.json` |

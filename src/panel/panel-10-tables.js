@@ -446,7 +446,9 @@ async function _lockedPreset(actions) {
 
 function exportMenuItems() {
   if (!els.exportMenu) return [];
-  return [...els.exportMenu.querySelectorAll(".emItem")].filter(item => !item.hidden);
+  // Skip items hidden by attribute or by CSS (dev-only items outside dev mode).
+  return [...els.exportMenu.querySelectorAll(".emItem")].filter(item =>
+    !item.hidden && !(item.classList && item.classList.contains("devOnly") && !(document.body && document.body.classList.contains("devMode"))));
 }
 
 function setExportMenuOpen(open, { restoreFocus = false } = {}) {
