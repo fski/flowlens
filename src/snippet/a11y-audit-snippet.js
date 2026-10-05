@@ -43,6 +43,13 @@
  *
  * Questions? If you must, reach me on Slack @fski.
  */
+import {
+  STE_MAX_LIVE_REGIONS, STE_MAX_CANDIDATES,
+  fnv1aHash8, hashLocator, buildLocator, classifyPoliteness,
+  buildTransitionState, buildStateDelta, buildTransitionStateSummary,
+  evaluateC1, evaluateC2, evaluateC3_1, evaluateC3_2,
+} from "../engine/stateTransitionEngine.js";
+
 (() => {
   const KEY = "A11YFlowAudit";
   const w = window;
@@ -289,8 +296,9 @@
   // FIX_SUGGESTIONS moved to panel.js to reduce injected snippet size
 
   // ──────── State Transition Engine (Depth 3) ────────────────────────────────
-  // Inline copy of src/engine/stateTransitionEngine.js pure functions.
-  // Parity enforced by test/snippet-engine-parity.test.mjs.
+  // The pure state/delta/evaluator functions are imported from
+  // src/engine/stateTransitionEngine.js (bundled in by esbuild) — one
+  // implementation shared with the SW. Only the DOM capture side lives here.
   //
   // Deterministic definitions:
   //   liveRegionPresent — within root scope, exists ≥1 element with
@@ -300,8 +308,6 @@
   //   announceEventCount — number of observed mutation events affecting live
   //     region candidate elements. Counters only (no timestamps, no samples).
 
-  const STE_MAX_LIVE_REGIONS = 5;
-  const STE_MAX_CANDIDATES = 3;
   const STE_MAX_FALLBACK_QS = 3;
 
   const CHAT_CONTAINER_SELECTOR =
@@ -310,12 +316,6 @@
   const LIVE_REGION_SELECTOR =
     "[aria-live]:not([aria-live='off']),[role='status'],[role='alert']";
 
-  function steFnv1aHash8(input) {
-    const s = String(input ?? "");
-    let h = 0x811c9dc5;
-    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
-    return (h >>> 0).toString(16).padStart(8, "0").slice(0, 8);
-  }
 
   function steBuildLocator(el) {
     if (!isEl(el)) return null;
@@ -327,243 +327,17 @@
     };
   }
 
-  function steHashLocator(loc) {
-    if (!loc) return "00000000";
-    return steFnv1aHash8([loc.tag, loc.role, loc.testId, loc.cssPath].join("|"));
-  }
 
   // Normalize a plain artifact object to a locator (matches engine buildLocator).
   // Distinct from steBuildLocator which operates on DOM elements.
-  function steNormalizeLocator(artifact) {
-    if (!artifact) return null;
-    return {
-      tag: artifact.tag ? String(artifact.tag).toLowerCase() : null,
-      role: artifact.role ? String(artifact.role) : null,
-      testId: artifact.testId ? String(artifact.testId) : null,
-      cssPath: artifact.cssPath ? String(artifact.cssPath) : "",
-    };
-  }
 
-  function steClassifyPoliteness(region) {
-    const al = region.ariaLive ? String(region.ariaLive).toLowerCase() : "";
-    if (al === "polite") return "polite";
-    if (al === "assertive") return "assertive";
-    if (al === "off") return "off";
-    const role = region.role ? String(region.role).toLowerCase() : "";
-    if (role === "status") return "polite";
-    if (role === "alert") return "assertive";
-    return "unknown";
-  }
 
-  function steBuildTransitionState({ frameId, frameKeyStable, rootSelector, captureArtifacts }) {
-    const ca = captureArtifacts || {};
-    const candidates = Array.isArray(ca.chatCandidates) ? ca.chatCandidates.slice(0, STE_MAX_CANDIDATES) : [];
-    const liveRegions = Array.isArray(ca.liveRegions) ? ca.liveRegions.slice(0, STE_MAX_LIVE_REGIONS) : [];
-    const capped =
-      (Array.isArray(ca.chatCandidates) && ca.chatCandidates.length > STE_MAX_CANDIDATES) ||
-      (Array.isArray(ca.liveRegions) && ca.liveRegions.length > STE_MAX_LIVE_REGIONS);
 
-    let feedCandidate = null;
-    for (const c of candidates) {
-      const r = c.role ? String(c.role).toLowerCase() : "";
-      if (r === "log" || r === "feed") { feedCandidate = c; break; }
-    }
-    if (!feedCandidate && candidates.length > 0) feedCandidate = candidates[0];
 
-    const feedLocator = feedCandidate ? steNormalizeLocator(feedCandidate.locator || feedCandidate) : null;
-    const feedRole = feedCandidate
-      ? (function () { const r = (feedCandidate.role || "").toLowerCase(); return r === "log" ? "log" : r === "feed" ? "feed" : "none"; })()
-      : "unknown";
-    const messageCount = feedCandidate ? (typeof feedCandidate.childCount === "number" ? feedCandidate.childCount : 0) : 0;
-    const lastChild = feedCandidate && feedCandidate.lastChildLocator ? steNormalizeLocator(feedCandidate.lastChildLocator) : null;
-    const activeLocator = ca.activeLocator ? steNormalizeLocator(ca.activeLocator) : null;
 
-    const rawItem = (feedCandidate && feedCandidate.itemization) || {};
-    const itemization = {
-      sampleCount: typeof rawItem.sampleCount === "number" ? rawItem.sampleCount : 0,
-      hasItemRoles: !!rawItem.hasItemRoles, looksListLike: !!rawItem.looksListLike,
-      distinctItemLocators: typeof rawItem.distinctItemLocators === "number" ? rawItem.distinctItemLocators : 0,
-      score01: typeof rawItem.score01 === "number" ? rawItem.score01 : 0,
-    };
-    const rawLink = (feedCandidate && feedCandidate.linkage) || {};
-    const linkage = {
-      ariaControlsLink: !!rawLink.ariaControlsLink, ariaDescribedByLink: !!rawLink.ariaDescribedByLink,
-      ariaOwnsLink: !!rawLink.ariaOwnsLink, sharedRootMarker: !!rawLink.sharedRootMarker,
-    };
 
-    return {
-      frameId: frameId ?? 0, frameKeyStable: frameKeyStable || "", rootSelector: rootSelector || null,
-      focus: { activeLocator, isInComposer: !!ca.isInComposer },
-      chat: { feedLocator, feedRole, messageCount, lastMessageItemLocator: lastChild, itemization, linkage },
-      live: {
-        regions: liveRegions.map(r => ({ locator: steNormalizeLocator(r.locator || r), politeness: steClassifyPoliteness(r), atomic: "unknown" })),
-        observedAnnounceEvents: typeof ca.announceEventCount === "number" ? ca.announceEventCount : 0,
-        observedLiveMutations: typeof ca.liveMutationCount === "number" ? ca.liveMutationCount : 0,
-      },
-      quality: { captureMode: ca.captureMode || "observe", capped },
-    };
-  }
 
-  function steBuildStateDelta(prevState, nextState) {
-    const prev = prevState || {}; const next = nextState || {};
-    const pf = prev.focus || {}; const nf = next.focus || {};
-    const pc = prev.chat || {}; const nc = next.chat || {};
-    const pl = prev.live || {}; const nl = next.live || {};
 
-    const focusChanged = steHashLocator(pf.activeLocator) !== steHashLocator(nf.activeLocator);
-    const composerLostFocus = !!pf.isInComposer && !nf.isInComposer && focusChanged;
-    const messageCountDelta = typeof nc.messageCount === "number" && typeof pc.messageCount === "number"
-      ? nc.messageCount - pc.messageCount : 0;
-    const announceEventCountDelta = (nl.observedAnnounceEvents || 0) - (pl.observedAnnounceEvents || 0);
-    const liveMutationCountDelta = (nl.observedLiveMutations || 0) - (pl.observedLiveMutations || 0);
-    const liveRegionPresent = (nl.regions || []).some(r => { const p = r.politeness || "unknown"; return p === "polite" || p === "assertive"; });
-    const announcementsLikelyMissing = messageCountDelta >= 1 && announceEventCountDelta === 0 && !liveRegionPresent;
-
-    const feedLocator = nc.feedLocator || pc.feedLocator || null;
-    const composerLocator = composerLostFocus ? (pf.activeLocator || null) : null;
-    const liveRegionLocator = (nl.regions || []).length > 0 ? (nl.regions[0].locator || null) : null;
-
-    const feedRoleChanged = (pc.feedRole || "unknown") !== (nc.feedRole || "unknown");
-    const prevItem = (pc.itemization || {}); const nextItem = (nc.itemization || {});
-    const itemizationScoreDelta = typeof nextItem.score01 === "number" && typeof prevItem.score01 === "number"
-      ? nextItem.score01 - prevItem.score01 : null;
-
-    return {
-      focusChanged, composerLostFocus, messageCountDelta,
-      feedRole: nc.feedRole || null,
-      announcementsLikelyMissing, liveRegionPresent, liveMutationCountDelta, announceEventCountDelta,
-      feedRoleChanged, itemizationScoreDelta, frameSplitChanged: false,
-      evidence: { feedLocator, composerLocator, liveRegionLocator },
-    };
-  }
-
-  function steEvaluateC1(delta, prevState, nextState, opts) {
-    const o = opts || {}; const emittedSet = o.emittedSet || null;
-    const quality = (nextState || {}).quality || {};
-    if (delta.messageCountDelta < 1) return null;
-    // role=log is an implicit polite live region (WAI-ARIA 1.2).
-    if (delta.feedRole === "log") return null;
-    // observe doesn't count announcements (always 0) — a present live region
-    // can't be judged silent there.
-    if (delta.liveRegionPresent &&
-        (delta.announceEventCountDelta > 0 || quality.captureMode === "observe")) return null;
-    const hasFeedContext = delta.feedRole === "log" || delta.feedRole === "feed" || delta.evidence.feedLocator != null;
-    if (!hasFeedContext) return null;
-
-    const evidenceHash = delta.evidence.feedLocator ? steHashLocator(delta.evidence.feedLocator) : "global";
-    const dedupKey = "C1:" + ((nextState || {}).frameKeyStable || "") + ":" + evidenceHash;
-    if (emittedSet) {
-      if (emittedSet.has(dedupKey)) return null;
-      let c1Count = 0; for (const k of emittedSet) { if (k.startsWith("C1:")) c1Count++; }
-      if (c1Count >= 3) return null;
-      emittedSet.add(dedupKey);
-    }
-
-    let severity = "medium"; let noteSuffix = "";
-    if (quality.capped && !delta.evidence.feedLocator) { severity = "low"; noteSuffix = " (reduced confidence: capture capped, evidence locator missing)"; }
-
-    return { type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED", severity, wcag: "4.1.3", confidence: "heuristic",
-      note: "Chat container received new messages but lacks announcement semantics (role=log or an aria-live region)." + noteSuffix,
-      evidenceLocatorHash: evidenceHash,
-      evidenceCssPath: delta.evidence.feedLocator ? delta.evidence.feedLocator.cssPath : null };
-  }
-
-  function steEvaluateC2(delta, prevState, nextState, opts) {
-    const o = opts || {}; const emittedSet = o.emittedSet || null;
-    const quality = (nextState || {}).quality || {};
-    if (!delta.composerLostFocus) return null;
-    const hasFeedContext = delta.feedRole === "log" || delta.feedRole === "feed" || delta.evidence.feedLocator != null;
-    const hasUpdateSignal = delta.messageCountDelta >= 1 || delta.announceEventCountDelta >= 1 ||
-      (delta.liveMutationCountDelta >= 1 && hasFeedContext);
-    if (!hasUpdateSignal) return null;
-
-    const evidenceHash = delta.evidence.composerLocator ? steHashLocator(delta.evidence.composerLocator) : "global";
-    const dedupKey = "C2:" + ((nextState || {}).frameKeyStable || "") + ":" + evidenceHash;
-    if (emittedSet) {
-      if (emittedSet.has(dedupKey)) return null;
-      let c2Count = 0; for (const k of emittedSet) { if (k.startsWith("C2:")) c2Count++; }
-      if (c2Count >= 3) return null;
-      emittedSet.add(dedupKey);
-    }
-
-    let severity = "medium"; let noteSuffix = "";
-    if (quality.capped && !delta.evidence.composerLocator) { severity = "low"; noteSuffix = " (reduced confidence: capture capped, evidence locator missing)"; }
-
-    return { type: "CHAT_INPUT_LOSES_FOCUS_ON_UPDATE", severity, wcag: "2.4.3", confidence: "heuristic",
-      note: "Chat input lost focus after a content update; may disrupt typing." + noteSuffix,
-      evidenceLocatorHash: evidenceHash,
-      evidenceCssPath: delta.evidence.composerLocator ? delta.evidence.composerLocator.cssPath : null };
-  }
-
-  function steEvaluateC3_1(delta, prevState, nextState, opts) {
-    const o = opts || {}; const emittedSet = o.emittedSet || null;
-    const next = nextState || {}; const quality = next.quality || {};
-    const chat = next.chat || {};
-    if (!chat.feedLocator) return null;
-    if (chat.feedRole !== "none" && chat.feedRole !== "unknown") return null;
-
-    const evidenceHash = steHashLocator(chat.feedLocator);
-    const dedupKey = "C3.1:" + (next.frameKeyStable || "") + ":" + evidenceHash;
-    if (emittedSet) {
-      if (emittedSet.has(dedupKey)) return null;
-      let count = 0; for (const k of emittedSet) { if (k.startsWith("C3.1:")) count++; }
-      if (count >= 3) return null;
-      emittedSet.add(dedupKey);
-    }
-
-    let severity = "medium"; let noteSuffix = "";
-    if (quality.capped && !chat.feedLocator) { severity = "low"; noteSuffix = " (reduced confidence: capture capped, evidence locator missing)"; }
-
-    return { type: "CHAT_FEED_MISSING_ROLE", severity, wcag: "1.3.1", confidence: "heuristic",
-      note: "Chat feed container detected but lacks role=\"log\" or role=\"feed\" for assistive technology." + noteSuffix,
-      evidenceLocatorHash: evidenceHash,
-      evidenceCssPath: chat.feedLocator ? chat.feedLocator.cssPath : null };
-  }
-
-  function steEvaluateC3_2(delta, prevState, nextState, opts) {
-    const o = opts || {}; const emittedSet = o.emittedSet || null;
-    const next = nextState || {}; const quality = next.quality || {};
-    const chat = next.chat || {}; const item = chat.itemization || {};
-    if (!chat.feedLocator) return null;
-    if (chat.messageCount < 2) return null;
-    if (typeof item.score01 === "number" && item.score01 >= 0.5) return null;
-
-    const evidenceHash = steHashLocator(chat.feedLocator);
-    const dedupKey = "C3.2:" + (next.frameKeyStable || "") + ":" + evidenceHash;
-    if (emittedSet) {
-      if (emittedSet.has(dedupKey)) return null;
-      let count = 0; for (const k of emittedSet) { if (k.startsWith("C3.2:")) count++; }
-      if (count >= 3) return null;
-      emittedSet.add(dedupKey);
-    }
-
-    let severity = "low"; let noteSuffix = "";
-    if (quality.capped && !chat.feedLocator) { severity = "low"; noteSuffix = " (reduced confidence: capture capped, evidence locator missing)"; }
-
-    return { type: "CHAT_MESSAGE_NOT_ITEMIZED", severity, wcag: "1.3.1", confidence: "heuristic",
-      note: "Chat messages are not represented with semantic item roles (article, listitem)." + noteSuffix,
-      evidenceLocatorHash: evidenceHash,
-      evidenceCssPath: chat.feedLocator ? chat.feedLocator.cssPath : null };
-  }
-
-  function steBuildTransitionStateSummary(state) {
-    if (!state) return null;
-    const chatLink = (state.chat && state.chat.linkage) || {};
-    const chatItem = (state.chat && state.chat.itemization) || {};
-    return {
-      frameId: state.frameId, frameKeyStable: state.frameKeyStable,
-      feedLocatorHash: state.chat.feedLocator ? steHashLocator(state.chat.feedLocator) : null,
-      feedRole: state.chat.feedRole || null, messageCount: state.chat.messageCount || 0,
-      composerLocatorHash: state.focus.isInComposer && state.focus.activeLocator ? steHashLocator(state.focus.activeLocator) : null,
-      liveRegionCount: (state.live.regions || []).length,
-      observedAnnounceEvents: state.live.observedAnnounceEvents || 0,
-      observedLiveMutations: state.live.observedLiveMutations || 0,
-      captureMode: state.quality.captureMode, capped: state.quality.capped,
-      itemizationScore01: typeof chatItem.score01 === "number" ? chatItem.score01 : 0,
-      hasLinkage: !!(chatLink.ariaControlsLink || chatLink.ariaDescribedByLink || chatLink.ariaOwnsLink),
-      sharedRootMarker: !!chatLink.sharedRootMarker,
-    };
-  }
 
   function steIsComposerElement(el) {
     if (!isEl(el)) return false;
@@ -590,7 +364,7 @@
         const kid = kids[si];
         const kr = (kid.getAttribute("role") || "").toLowerCase();
         if (kr === "article" || kr === "listitem") hasItemRoles = true;
-        locHashes.add(steHashLocator(steBuildLocator(kid)));
+        locHashes.add(hashLocator(steBuildLocator(kid)));
       }
       const feedTag = (c.tagName || "").toLowerCase();
       const looksListLike = feedTag === "ul" || feedTag === "ol" || cRole === "log" || cRole === "feed" || cRole === "list";
@@ -649,13 +423,13 @@
     // Build elementMapByHash from artifacts
     const map = new Map();
     for (const c of (artifacts.chatCandidates || [])) {
-      if (c._el && c.locator) map.set(steHashLocator(c.locator), c._el);
+      if (c._el && c.locator) map.set(hashLocator(c.locator), c._el);
     }
     for (const r of (artifacts.liveRegions || [])) {
-      if (r._el && r.locator) map.set(steHashLocator(r.locator), r._el);
+      if (r._el && r.locator) map.set(hashLocator(r.locator), r._el);
     }
     if (artifacts._activeEl && artifacts.activeLocator) {
-      map.set(steHashLocator(artifacts.activeLocator), artifacts._activeEl);
+      map.set(hashLocator(artifacts.activeLocator), artifacts._activeEl);
     }
 
     let el = map.get(hash) || null;
@@ -3881,23 +3655,23 @@
         // State Transition Engine — observe mode C1/C3 evaluation
         try {
           const artifacts = steBuildCaptureArtifacts("observe", 0, 0);
-          const nextState = steBuildTransitionState({ frameId: 0, frameKeyStable: "", rootSelector: null, captureArtifacts: artifacts });
-          transitionSummaries.push(steBuildTransitionStateSummary(nextState));
+          const nextState = buildTransitionState({ frameId: 0, frameKeyStable: "", rootSelector: null, captureArtifacts: artifacts });
+          transitionSummaries.push(buildTransitionStateSummary(nextState));
           if (prevTransitionState) {
-            const delta = steBuildStateDelta(prevTransitionState, nextState);
-            const c1 = steEvaluateC1(delta, prevTransitionState, nextState, { emittedSet: observeEmittedSet });
+            const delta = buildStateDelta(prevTransitionState, nextState);
+            const c1 = evaluateC1(delta, prevTransitionState, nextState, { emittedSet: observeEmittedSet });
             if (c1) {
               const el = steResolveElement(c1, artifacts);
               add(merged, { type: c1.type, el, severity: c1.severity, wcag: c1.wcag, confidence: c1.confidence, note: c1.note });
             }
           }
           // C3 rules: structural checks on nextState (no delta guard needed)
-          const c3_1 = steEvaluateC3_1(null, prevTransitionState, nextState, { emittedSet: observeEmittedSet });
+          const c3_1 = evaluateC3_1(null, prevTransitionState, nextState, { emittedSet: observeEmittedSet });
           if (c3_1) {
             const el = steResolveElement(c3_1, artifacts);
             add(merged, { type: c3_1.type, el, severity: c3_1.severity, wcag: c3_1.wcag, confidence: c3_1.confidence, note: c3_1.note });
           }
-          const c3_2 = steEvaluateC3_2(null, prevTransitionState, nextState, { emittedSet: observeEmittedSet });
+          const c3_2 = evaluateC3_2(null, prevTransitionState, nextState, { emittedSet: observeEmittedSet });
           if (c3_2) {
             const el = steResolveElement(c3_2, artifacts);
             add(merged, { type: c3_2.type, el, severity: c3_2.severity, wcag: c3_2.wcag, confidence: c3_2.confidence, note: c3_2.note });
@@ -4238,28 +4012,28 @@
         try {
           steResolveElement._fallbackCount = 0;
           const watchArtifacts = steBuildCaptureArtifacts("watch", announcementCount, announcementCount + emptyAnnouncementCount);
-          const nextWState = steBuildTransitionState({ frameId: 0, frameKeyStable: "", rootSelector: null, captureArtifacts: watchArtifacts });
-          watchTransitionSummaries.push(steBuildTransitionStateSummary(nextWState));
+          const nextWState = buildTransitionState({ frameId: 0, frameKeyStable: "", rootSelector: null, captureArtifacts: watchArtifacts });
+          watchTransitionSummaries.push(buildTransitionStateSummary(nextWState));
           if (prevWatchTransitionState) {
-            const wDelta = steBuildStateDelta(prevWatchTransitionState, nextWState);
-            const c1 = steEvaluateC1(wDelta, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
+            const wDelta = buildStateDelta(prevWatchTransitionState, nextWState);
+            const c1 = evaluateC1(wDelta, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
             if (c1) {
               const el = steResolveElement(c1, watchArtifacts);
               add(findings, { type: c1.type, el, severity: c1.severity, wcag: c1.wcag, confidence: c1.confidence, note: c1.note });
             }
-            const c2 = steEvaluateC2(wDelta, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
+            const c2 = evaluateC2(wDelta, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
             if (c2) {
               const el = steResolveElement(c2, watchArtifacts);
               add(findings, { type: c2.type, el, severity: c2.severity, wcag: c2.wcag, confidence: c2.confidence, note: c2.note });
             }
           }
           // C3 rules: structural checks on nextWState (no delta guard needed)
-          const wc3_1 = steEvaluateC3_1(null, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
+          const wc3_1 = evaluateC3_1(null, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
           if (wc3_1) {
             const el = steResolveElement(wc3_1, watchArtifacts);
             add(findings, { type: wc3_1.type, el, severity: wc3_1.severity, wcag: wc3_1.wcag, confidence: wc3_1.confidence, note: wc3_1.note });
           }
-          const wc3_2 = steEvaluateC3_2(null, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
+          const wc3_2 = evaluateC3_2(null, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
           if (wc3_2) {
             const el = steResolveElement(wc3_2, watchArtifacts);
             add(findings, { type: wc3_2.type, el, severity: wc3_2.severity, wcag: wc3_2.wcag, confidence: wc3_2.confidence, note: wc3_2.note });

@@ -4,10 +4,11 @@
  *
  * Unlike panel.js, sw.js has function definitions both before AND after the
  * imperative onMessage listener. Since JS hoists function declarations, we
- * load the FULL source but mock out the Chrome APIs that trigger side effects.
+ * load the FULL (bundled) source but mock out the Chrome APIs that trigger
+ * side effects.
  */
 
-import { readFileSync } from 'node:fs';
+import { buildSync } from 'esbuild';
 import { createContext as vmCreateContext, Script } from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -15,8 +16,19 @@ import { dirname, join } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SW_JS = join(__dirname, '..', 'src', 'sw', 'sw.js');
 
+// sw.js imports the shared engine; bundle it (as the build does) into one
+// flat script. ESM output of an entry with no exports is plain top-level
+// code, so its function declarations stay reachable from the expose script.
+let _bundled = null;
+function bundledSwSource() {
+  if (_bundled) return _bundled;
+  const out = buildSync({ entryPoints: [SW_JS], bundle: true, format: 'esm', treeShaking: false, write: false, logLevel: 'silent' });
+  _bundled = out.outputFiles[0].text;
+  return _bundled;
+}
+
 export function createSwContext(opts = {}) {
-  const source = readFileSync(SW_JS, 'utf8');
+  const source = bundledSwSource();
 
   const ctx = vmCreateContext({
     // JS builtins

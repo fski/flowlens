@@ -1,3 +1,5 @@
+import { fnv1aHash8, mergeFrameIntegrity, evaluateC4_1, evaluateC4_2 } from "../engine/stateTransitionEngine.js";
+
 const SNIPPET_FILE = "a11y-audit-snippet.js";
 const SESSION_SCHEMA_VERSION = 4;
 const SESSION_SIGNATURE_VERSION = 2;
@@ -119,161 +121,11 @@ function stablePathHint(url) {
   }
 }
 
-function fnv1aHash8(input) {
-  const s = String(input ?? "");
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0).toString(16).padStart(8, "0").slice(0, 8);
-}
 
-// ── Cross-frame integrity merge + C4 evaluators (inlined from engine) ────────
+// Cross-frame integrity merge + C4 evaluators: imported from the engine.
 
-function mergeFrameIntegrity(frameSummaries) {
-  const frames = Array.isArray(frameSummaries) ? frameSummaries : [];
 
-  let feedFrameId = null;
-  let feedLocatorHash = null;
-  let bestMessageCount = -1;
-  let composerFrameId = null;
-  let composerLocatorHash = null;
-  const liveFrameIds = [];
-  let hasLinkage = false;
-  let sharedRootMarker = false;
-  let totalMessageCount = 0;
-  let totalAnnounceEvents = 0;
-  let totalMessageCountDelta = 0;
-  let totalAnnounceEventsDelta = 0;
 
-  for (const f of frames) {
-    const sums = Array.isArray(f.summaries) ? f.summaries : [];
-    if (sums.length === 0) continue;
-
-    const last = sums[sums.length - 1];
-    const secondLast = sums.length >= 2 ? sums[sums.length - 2] : null;
-
-    // Per-frame deltas
-    const msgDelta = secondLast != null
-      ? (last.messageCount || 0) - (secondLast.messageCount || 0)
-      : 0;
-    const annDelta = secondLast != null
-      ? (last.observedAnnounceEvents || 0) - (secondLast.observedAnnounceEvents || 0)
-      : 0;
-
-    totalMessageCountDelta += msgDelta;
-    totalAnnounceEventsDelta += annDelta;
-
-    // Feed frame: highest messageCount with feedLocatorHash
-    if (last.feedLocatorHash && (last.messageCount || 0) > bestMessageCount) {
-      bestMessageCount = last.messageCount || 0;
-      feedFrameId = f.frameId;
-      feedLocatorHash = last.feedLocatorHash;
-    }
-
-    totalMessageCount += last.messageCount || 0;
-    totalAnnounceEvents += last.observedAnnounceEvents || 0;
-
-    // Composer frame
-    if (last.composerLocatorHash && composerFrameId == null) {
-      composerFrameId = f.frameId;
-      composerLocatorHash = last.composerLocatorHash;
-    }
-
-    // Live region frames
-    if ((last.liveRegionCount || 0) > 0) {
-      liveFrameIds.push(f.frameId);
-    }
-
-    // Linkage (OR across frames)
-    if (last.hasLinkage) hasLinkage = true;
-    if (last.sharedRootMarker) sharedRootMarker = true;
-  }
-
-  return {
-    feedFrameId,
-    composerFrameId,
-    liveFrameIds,
-    feedLocatorHash,
-    composerLocatorHash,
-    hasLinkage,
-    sharedRootMarker,
-    messageCount: totalMessageCount,
-    observedAnnounceEvents: totalAnnounceEvents,
-    messageCountDelta: totalMessageCountDelta,
-    announceEventsDelta: totalAnnounceEventsDelta,
-  };
-}
-
-function evaluateC4_1(integrity, opts) {
-  const o = opts || {};
-  const emittedSet = o.emittedSet || null;
-  const i = integrity || {};
-
-  // Transition gating
-  if ((i.messageCountDelta || 0) < 1 && (i.announceEventsDelta || 0) < 1) return null;
-
-  if (i.feedFrameId == null) return null;
-  if (!Array.isArray(i.liveFrameIds) || i.liveFrameIds.length === 0) return null;
-  if ((i.messageCount || 0) < 1) return null;
-
-  // Check split: no overlap between liveFrameIds and feedFrameId
-  const hasOverlap = i.liveFrameIds.some(id => id === i.feedFrameId);
-  if (hasOverlap) return null;
-
-  // Dedup
-  const sortedLive = [...i.liveFrameIds].sort();
-  const dedupKey = "C4.1:" + i.feedFrameId + ":" + sortedLive.join(",");
-
-  if (emittedSet) {
-    if (emittedSet.has(dedupKey)) return null;
-    let count = 0;
-    for (const k of emittedSet) { if (k.startsWith("C4.1:")) count++; }
-    if (count >= 3) return null;
-    emittedSet.add(dedupKey);
-  }
-
-  return {
-    type: "ANNOUNCEMENT_IN_DIFFERENT_FRAME",
-    severity: "medium",
-    wcag: "4.1.3",
-    confidence: "heuristic",
-    note: "Live region announcements detected in a different frame than the chat feed.",
-    el: null,
-  };
-}
-
-function evaluateC4_2(integrity, opts) {
-  const o = opts || {};
-  const emittedSet = o.emittedSet || null;
-  const i = integrity || {};
-
-  if (i.composerFrameId == null) return null;
-  if (i.feedFrameId == null) return null;
-  if (i.composerFrameId === i.feedFrameId) return null;
-  if (i.hasLinkage) return null;
-
-  // Dedup
-  const dedupKey = "C4.2:" + i.feedFrameId + ":" + i.composerFrameId;
-
-  if (emittedSet) {
-    if (emittedSet.has(dedupKey)) return null;
-    let count = 0;
-    for (const k of emittedSet) { if (k.startsWith("C4.2:")) count++; }
-    if (count >= 3) return null;
-    emittedSet.add(dedupKey);
-  }
-
-  return {
-    type: "COMPOSER_AND_FEED_SPLIT_WITHOUT_LINKAGE",
-    severity: "medium",
-    wcag: "1.3.1",
-    confidence: "heuristic",
-    note: "Composer and chat feed are in different frames without ARIA linkage (aria-controls, aria-describedby, aria-owns).",
-    el: null,
-  };
-}
 
 function debugSession(...args) {
   if (!DEBUG_SESSION) return;

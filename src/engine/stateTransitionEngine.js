@@ -14,11 +14,11 @@
  */
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const STE_MAX_LIVE_REGIONS = 5;
-const STE_MAX_CANDIDATES = 3;
+export const STE_MAX_LIVE_REGIONS = 5;
+export const STE_MAX_CANDIDATES = 3;
 
 // ── FNV-1a hash (same algorithm as sw.js / panel.js) ─────────────────────────
-function fnv1aHash8(input) {
+export function fnv1aHash8(input) {
   const s = String(input ?? "");
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
@@ -32,7 +32,7 @@ function fnv1aHash8(input) {
 // { tag: string|null, role: string|null, testId: string|null, cssPath: string }
 // Deliberately excludes: name, aria-label, textContent (privacy + determinism).
 
-function buildLocator(artifact) {
+export function buildLocator(artifact) {
   if (!artifact) return null;
   return {
     tag: artifact.tag ? String(artifact.tag).toLowerCase() : null,
@@ -42,7 +42,7 @@ function buildLocator(artifact) {
   };
 }
 
-function hashLocator(locator) {
+export function hashLocator(locator) {
   if (!locator) return "00000000";
   return fnv1aHash8(
     [locator.tag, locator.role, locator.testId, locator.cssPath].join("|")
@@ -51,7 +51,7 @@ function hashLocator(locator) {
 
 // ── buildTransitionState ─────────────────────────────────────────────────────
 
-function buildTransitionState({ frameId, frameKeyStable, rootSelector, captureArtifacts, probeData }) {
+export function buildTransitionState({ frameId, frameKeyStable, rootSelector, captureArtifacts, probeData }) {
   const ca = captureArtifacts || {};
   const candidates = Array.isArray(ca.chatCandidates)
     ? ca.chatCandidates.slice(0, STE_MAX_CANDIDATES)
@@ -147,7 +147,7 @@ function buildTransitionState({ frameId, frameKeyStable, rootSelector, captureAr
   };
 }
 
-function classifyPoliteness(region) {
+export function classifyPoliteness(region) {
   const al = region.ariaLive ? String(region.ariaLive).toLowerCase() : "";
   if (al === "polite") return "polite";
   if (al === "assertive") return "assertive";
@@ -160,7 +160,7 @@ function classifyPoliteness(region) {
 
 // ── buildStateDelta ──────────────────────────────────────────────────────────
 
-function buildStateDelta(prevState, nextState) {
+export function buildStateDelta(prevState, nextState) {
   const prev = prevState || {};
   const next = nextState || {};
 
@@ -237,7 +237,7 @@ function buildStateDelta(prevState, nextState) {
 
 // ── Rule: C1 — CHAT_NEW_MESSAGE_NOT_ANNOUNCED ───────────────────────────────
 
-function evaluateC1(delta, prevState, nextState, opts) {
+export function evaluateC1(delta, prevState, nextState, opts) {
   const o = opts || {};
   const emittedSet = o.emittedSet || null;
   const quality = (nextState || {}).quality || {};
@@ -294,7 +294,7 @@ function evaluateC1(delta, prevState, nextState, opts) {
 
 // ── Rule: C2 — CHAT_INPUT_LOSES_FOCUS_ON_UPDATE ─────────────────────────────
 
-function evaluateC2(delta, prevState, nextState, opts) {
+export function evaluateC2(delta, prevState, nextState, opts) {
   const o = opts || {};
   const emittedSet = o.emittedSet || null;
   const quality = (nextState || {}).quality || {};
@@ -349,7 +349,7 @@ function evaluateC2(delta, prevState, nextState, opts) {
 
 // ── buildTransitionStateSummary ──────────────────────────────────────────────
 
-function buildTransitionStateSummary(state) {
+export function buildTransitionStateSummary(state) {
   if (!state) return null;
   const chatLink = (state.chat && state.chat.linkage) || {};
   const chatItem = (state.chat && state.chat.itemization) || {};
@@ -374,7 +374,7 @@ function buildTransitionStateSummary(state) {
 
 // ── Rule: C3.1 — CHAT_FEED_MISSING_ROLE ─────────────────────────────────────
 
-function evaluateC3_1(delta, prevState, nextState, opts) {
+export function evaluateC3_1(delta, prevState, nextState, opts) {
   const o = opts || {};
   const emittedSet = o.emittedSet || null;
   const next = nextState || {};
@@ -418,7 +418,7 @@ function evaluateC3_1(delta, prevState, nextState, opts) {
 
 // ── Rule: C3.2 — CHAT_MESSAGE_NOT_ITEMIZED ───────────────────────────────────
 
-function evaluateC3_2(delta, prevState, nextState, opts) {
+export function evaluateC3_2(delta, prevState, nextState, opts) {
   const o = opts || {};
   const emittedSet = o.emittedSet || null;
   const next = nextState || {};
@@ -461,7 +461,7 @@ function evaluateC3_2(delta, prevState, nextState, opts) {
 
 // ── mergeFrameIntegrity — cross-frame merge ──────────────────────────────────
 
-function mergeFrameIntegrity(frameSummaries) {
+export function mergeFrameIntegrity(frameSummaries) {
   const frames = Array.isArray(frameSummaries) ? frameSummaries : [];
 
   let feedFrameId = null;
@@ -538,7 +538,7 @@ function mergeFrameIntegrity(frameSummaries) {
 
 // ── Rule: C4.1 — ANNOUNCEMENT_IN_DIFFERENT_FRAME ─────────────────────────────
 
-function evaluateC4_1(integrity, opts) {
+export function evaluateC4_1(integrity, opts) {
   const o = opts || {};
   const emittedSet = o.emittedSet || null;
   const i = integrity || {};
@@ -578,7 +578,7 @@ function evaluateC4_1(integrity, opts) {
 
 // ── Rule: C4.2 — COMPOSER_AND_FEED_SPLIT_WITHOUT_LINKAGE ─────────────────────
 
-function evaluateC4_2(integrity, opts) {
+export function evaluateC4_2(integrity, opts) {
   const o = opts || {};
   const emittedSet = o.emittedSet || null;
   const i = integrity || {};
