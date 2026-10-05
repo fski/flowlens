@@ -657,7 +657,30 @@ function buildFindingIndexForStep(snapshots, rawAppendix = null) {
     const act = buildStepFindingIndex(snapshots.active, rawAppendix);
     for (const k in act) if (!out[k]) out[k] = act[k];
   }
-  return out;
+  return dedupeFindingIndex(out);
+}
+
+// A capture runs the baseline Run and then the active window (usually
+// Observe) over the SAME page. Observe re-reports every static finding, and
+// the signature carries the mode ("observe|TYPE|…" vs "run|TYPE|…"), so each
+// issue was counted twice in Flow (Snap 28 findings → step "Appeared 56").
+// An Observe finding whose Run twin is present is the same issue.
+function observeTwinOf(sig) {
+  return typeof sig === "string" && sig.startsWith("observe|") ? "run|" + sig.slice(8) : null;
+}
+
+function dedupeFindingIndex(idx) {
+  if (!idx) return {};
+  let out = null;
+  for (const k in idx) {
+    if (!Object.prototype.hasOwnProperty.call(idx, k)) continue;
+    const twin = observeTwinOf(k);
+    if (twin && idx[twin]) {
+      if (!out) out = Object.assign({}, idx);
+      delete out[k];
+    }
+  }
+  return out || idx;
 }
 
 /**
@@ -666,8 +689,9 @@ function buildFindingIndexForStep(snapshots, rawAppendix = null) {
  *   finding-metadata objects. Resolved items come from prevStep's index.
  */
 function bucketStepDiff(step, prevStep) {
-  const cur = (step && step.findingIndex) || {};
-  const prev = (prevStep && prevStep.findingIndex) || {};
+  // dedupe also covers sessions captured before the twin fix
+  const cur = dedupeFindingIndex(step && step.findingIndex);
+  const prev = dedupeFindingIndex(prevStep && prevStep.findingIndex);
   const appeared = [], persisting = [], resolved = [];
   for (const sig in cur) {
     if (!Object.prototype.hasOwnProperty.call(cur, sig)) continue;
@@ -689,7 +713,7 @@ function buildIssueLifecycle(steps) {
   const list = Array.isArray(steps) ? steps : [];
   const byS = {};
   for (const step of list) {
-    const idx = step && step.findingIndex;
+    const idx = step && step.findingIndex ? dedupeFindingIndex(step.findingIndex) : null;
     if (!idx) continue;
     for (const sig in idx) {
       if (!Object.prototype.hasOwnProperty.call(idx, sig)) continue;

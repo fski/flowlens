@@ -900,14 +900,24 @@ function buildStepDiffs(step, prevStep, rawAppendix = null) {
   const prevRun = prevStep ? _stableFor(prevStep, "run", rawAppendix) : null;
   const prevActive = prevStep ? _stableFor(prevStep, "active", rawAppendix) : null;
 
-  const mergeStable = (run, active) => ({
-    stableFindingSignatureSet: [
-      ...(run?.stableFindingSignatureSet || []),
-      ...(active?.stableFindingSignatureSet || []),
-    ],
-    blockingSet: [...(run?.blockingSet || []), ...(active?.blockingSet || [])],
-    severityCounts: sumSeverityCounts(run?.severityCounts, active?.severityCounts),
-  });
+  // Observe re-reports the baseline's static findings under "observe|…"
+  // signatures; drop those twins so one issue counts once (see observeTwinOf).
+  const mergeStable = (run, active) => {
+    const runSigs = new Set(run?.stableFindingSignatureSet || []);
+    const isTwin = (sig) => { const t = observeTwinOf(sig); return !!t && runSigs.has(t); };
+    const activeSigs = (active?.stableFindingSignatureSet || []).filter((s) => !isTwin(s));
+    const activeCounts = Object.assign({}, active?.severityCounts || {});
+    for (const s of (active?.stableFindingSignatureSet || [])) {
+      if (!isTwin(s)) continue;
+      const sev = String(s).split("|")[3];
+      if (sev in activeCounts) activeCounts[sev] = Math.max(0, asNumber(activeCounts[sev], 0) - 1);
+    }
+    return {
+      stableFindingSignatureSet: [...runSigs, ...activeSigs],
+      blockingSet: [...(run?.blockingSet || []), ...(active?.blockingSet || []).filter((s) => !isTwin(s))],
+      severityCounts: sumSeverityCounts(run?.severityCounts, activeCounts),
+    };
+  };
 
   const result = {
     run: step?.snapshots?.run ? _stableModeDiff(prevRun, currRun) : undefined,

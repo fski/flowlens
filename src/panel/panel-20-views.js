@@ -1485,7 +1485,7 @@ function flowStepViews(sess) {
     var d = bucketStepDiff(step, prev);
     var blockingAdded = (step.diffs && step.diffs.consolidated && Number(step.diffs.consolidated.blockingAdded)) || 0;
     var unresolvedBlockers = 0;
-    var idx = step.findingIndex || {};
+    var idx = dedupeFindingIndex(step.findingIndex);
     for (var k in idx) { if (Object.prototype.hasOwnProperty.call(idx, k) && isRunFindingBlocking(idx[k])) unresolvedBlockers++; }
     out.push({
       index: step.index,
