@@ -322,9 +322,9 @@ describe("stateTransitionEngine", () => {
     it("fires when messageCountDelta>=1, no live region, and feed exists", () => {
       const ctx = createEngineContext();
       const prev = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: "fk", rootSelector: null,
-        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ childCount: 3 })] }) });
+        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "region", childCount: 3 })] }) });
       const next = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: "fk", rootSelector: null,
-        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ childCount: 5 })] }) });
+        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "region", childCount: 5 })] }) });
       const delta = ctx.__buildStateDelta(prev, next);
       const result = ctx.__evaluateC1(delta, prev, next, { emittedSet: new Set() });
       assert.notEqual(result, null);
@@ -332,19 +332,21 @@ describe("stateTransitionEngine", () => {
       assert.equal(result.severity, "medium");
     });
 
-    it("fires when live region exists but announceEventCountDelta===0", () => {
+    it("fires when live region exists but announceEventCountDelta===0 (watch counts announcements)", () => {
       const ctx = createEngineContext();
       const prev = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: "fk", rootSelector: null,
         captureArtifacts: makeCaptureArtifacts({
-          chatCandidates: [makeChatCandidate({ childCount: 3 })],
+          chatCandidates: [makeChatCandidate({ role: "region", childCount: 3 })],
           liveRegions: [makeLiveRegion()],
           announceEventCount: 0,
+          captureMode: "watch",
         }) });
       const next = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: "fk", rootSelector: null,
         captureArtifacts: makeCaptureArtifacts({
-          chatCandidates: [makeChatCandidate({ childCount: 5 })],
+          chatCandidates: [makeChatCandidate({ role: "region", childCount: 5 })],
           liveRegions: [makeLiveRegion()],
           announceEventCount: 0,
+          captureMode: "watch",
         }) });
       const delta = ctx.__buildStateDelta(prev, next);
       const result = ctx.__evaluateC1(delta, prev, next, { emittedSet: new Set() });
@@ -353,7 +355,7 @@ describe("stateTransitionEngine", () => {
 
     it("does NOT fire when messageCountDelta===0", () => {
       const ctx = createEngineContext();
-      const ca = makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ childCount: 5 })] });
+      const ca = makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "region", childCount: 5 })] });
       const prev = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: "fk", rootSelector: null, captureArtifacts: ca });
       const next = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: "fk", rootSelector: null, captureArtifacts: ca });
       const delta = ctx.__buildStateDelta(prev, next);
@@ -365,13 +367,13 @@ describe("stateTransitionEngine", () => {
       const ctx = createEngineContext();
       const prev = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: "fk", rootSelector: null,
         captureArtifacts: makeCaptureArtifacts({
-          chatCandidates: [makeChatCandidate({ childCount: 3 })],
+          chatCandidates: [makeChatCandidate({ role: "region", childCount: 3 })],
           liveRegions: [makeLiveRegion()],
           announceEventCount: 0,
         }) });
       const next = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: "fk", rootSelector: null,
         captureArtifacts: makeCaptureArtifacts({
-          chatCandidates: [makeChatCandidate({ childCount: 5 })],
+          chatCandidates: [makeChatCandidate({ role: "region", childCount: 5 })],
           liveRegions: [makeLiveRegion()],
           announceEventCount: 2,
         }) });
@@ -383,9 +385,9 @@ describe("stateTransitionEngine", () => {
     it("does NOT fire when already in emittedSet", () => {
       const ctx = createEngineContext();
       const prev = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: "fk", rootSelector: null,
-        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ childCount: 3 })] }) });
+        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "region", childCount: 3 })] }) });
       const next = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: "fk", rootSelector: null,
-        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ childCount: 5 })] }) });
+        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "region", childCount: 5 })] }) });
       const delta = ctx.__buildStateDelta(prev, next);
       const emittedSet = new Set();
       // Fire once
@@ -401,9 +403,9 @@ describe("stateTransitionEngine", () => {
       let emitted = 0;
       for (let i = 0; i < 5; i++) {
         const prev = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: `fk${i}`, rootSelector: null,
-          captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ childCount: 3, locator: makeLocatorArtifact("div", "log", null, `div.c${i}`) })] }) });
+          captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "region", childCount: 3, locator: makeLocatorArtifact("div", "log", null, `div.c${i}`) })] }) });
         const next = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: `fk${i}`, rootSelector: null,
-          captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ childCount: 5, locator: makeLocatorArtifact("div", "log", null, `div.c${i}`) })] }) });
+          captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "region", childCount: 5, locator: makeLocatorArtifact("div", "log", null, `div.c${i}`) })] }) });
         const delta = ctx.__buildStateDelta(prev, next);
         const r = ctx.__evaluateC1(delta, prev, next, { emittedSet });
         if (r) emitted++;
@@ -419,23 +421,46 @@ describe("stateTransitionEngine", () => {
       const prev = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: "fk", rootSelector: null,
         captureArtifacts: makeCaptureArtifacts({
           chatCandidates: Array.from({ length: 4 }, (_, i) =>
-            makeChatCandidate({ childCount: 3, locator: makeLocatorArtifact("div", "log", null, `div.c${i}`) })
+            makeChatCandidate({ role: "feed", childCount: 3, locator: makeLocatorArtifact("div", "log", null, `div.c${i}`) })
           ),
         }) });
       const next = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: "fk", rootSelector: null,
         captureArtifacts: makeCaptureArtifacts({
           chatCandidates: Array.from({ length: 4 }, (_, i) =>
-            makeChatCandidate({ childCount: 5, locator: makeLocatorArtifact("div", "log", null, `div.c${i}`) })
+            makeChatCandidate({ role: "feed", childCount: 5, locator: makeLocatorArtifact("div", "log", null, `div.c${i}`) })
           ),
         }) });
       const delta = ctx.__buildStateDelta(prev, next);
       // Remove feedLocator from evidence to simulate missing
       delta.evidence.feedLocator = null;
       const result = ctx.__evaluateC1(delta, prev, next, { emittedSet: new Set() });
-      // Should still fire because feedRole is "log"
+      // Should still fire: role=feed is feed context but not a live region
       assert.notEqual(result, null);
       assert.equal(result.severity, "low");
       assert.ok(result.note.includes("reduced confidence"));
+    });
+
+    it("does NOT fire on a role=log feed (implicit polite live region)", () => {
+      const ctx = createEngineContext();
+      const prev = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: "fk", rootSelector: null,
+        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "log", childCount: 3 })] }) });
+      const next = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: "fk", rootSelector: null,
+        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "log", childCount: 5 })], captureMode: "watch" }) });
+      const delta = ctx.__buildStateDelta(prev, next);
+      assert.equal(ctx.__evaluateC1(delta, prev, next, { emittedSet: new Set() }), null);
+    });
+
+    it("does NOT fire in observe when a live region exists (observe can't count announcements)", () => {
+      const ctx = createEngineContext();
+      const mk = (n) => ctx.__buildTransitionState({ frameId: 0, frameKeyStable: "fk", rootSelector: null,
+        captureArtifacts: makeCaptureArtifacts({
+          chatCandidates: [makeChatCandidate({ role: "region", childCount: n })],
+          liveRegions: [makeLiveRegion()],
+          captureMode: "observe",
+        }) });
+      const prev = mk(3), next = mk(5);
+      const delta = ctx.__buildStateDelta(prev, next);
+      assert.equal(ctx.__evaluateC1(delta, prev, next, { emittedSet: new Set() }), null);
     });
 
     it("does NOT fire without feed context (no feedRole, no feedLocator)", () => {
@@ -617,8 +642,8 @@ describe("stateTransitionEngine", () => {
   describe("multi-frame isolation", () => {
     it("states with different frameIds produce independent deltas", () => {
       const ctx = createEngineContext();
-      const caA = makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ childCount: 3 })] });
-      const caB = makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ childCount: 10 })] });
+      const caA = makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "region", childCount: 3 })] });
+      const caB = makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "region", childCount: 10 })] });
       const stateA = ctx.__buildTransitionState({ frameId: 1, frameKeyStable: "fk1", rootSelector: null, captureArtifacts: caA });
       const stateB = ctx.__buildTransitionState({ frameId: 2, frameKeyStable: "fk2", rootSelector: null, captureArtifacts: caB });
       assert.equal(stateA.frameId, 1);
@@ -632,18 +657,18 @@ describe("stateTransitionEngine", () => {
       const emittedSet = new Set();
       // Frame 1 emits C1
       const prev1 = ctx.__buildTransitionState({ frameId: 1, frameKeyStable: "fk1", rootSelector: null,
-        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ childCount: 3 })] }) });
+        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "region", childCount: 3 })] }) });
       const next1 = ctx.__buildTransitionState({ frameId: 1, frameKeyStable: "fk1", rootSelector: null,
-        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ childCount: 5 })] }) });
+        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "region", childCount: 5 })] }) });
       const delta1 = ctx.__buildStateDelta(prev1, next1);
       const r1 = ctx.__evaluateC1(delta1, prev1, next1, { emittedSet });
       assert.notEqual(r1, null);
 
       // Frame 2 with same delta pattern should also emit (different frame key)
       const prev2 = ctx.__buildTransitionState({ frameId: 2, frameKeyStable: "fk2", rootSelector: null,
-        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ childCount: 3 })] }) });
+        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "region", childCount: 3 })] }) });
       const next2 = ctx.__buildTransitionState({ frameId: 2, frameKeyStable: "fk2", rootSelector: null,
-        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ childCount: 5 })] }) });
+        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "region", childCount: 5 })] }) });
       const delta2 = ctx.__buildStateDelta(prev2, next2);
       const r2 = ctx.__evaluateC1(delta2, prev2, next2, { emittedSet });
       assert.notEqual(r2, null);
@@ -1253,9 +1278,9 @@ describe("stateTransitionEngine", () => {
     it("evaluator returns evidenceLocatorHash that can be used for lookup", () => {
       const ctx = createEngineContext();
       const prev = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: "fk", rootSelector: null,
-        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ childCount: 3 })] }) });
+        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "region", childCount: 3 })] }) });
       const next = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: "fk", rootSelector: null,
-        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ childCount: 5 })] }) });
+        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "region", childCount: 5 })] }) });
       const delta = ctx.__buildStateDelta(prev, next);
       const result = ctx.__evaluateC1(delta, prev, next, { emittedSet: new Set() });
       assert.notEqual(result, null);
@@ -1265,9 +1290,9 @@ describe("stateTransitionEngine", () => {
     it("finding is emitted even when evidenceLocatorHash would miss in a map", () => {
       const ctx = createEngineContext();
       const prev = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: "fk", rootSelector: null,
-        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ childCount: 3 })] }) });
+        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "region", childCount: 3 })] }) });
       const next = ctx.__buildTransitionState({ frameId: 0, frameKeyStable: "fk", rootSelector: null,
-        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ childCount: 5 })] }) });
+        captureArtifacts: makeCaptureArtifacts({ chatCandidates: [makeChatCandidate({ role: "region", childCount: 5 })] }) });
       const delta = ctx.__buildStateDelta(prev, next);
       const result = ctx.__evaluateC1(delta, prev, next, { emittedSet: new Set() });
       // Simulate: map does not contain the hash -- but the finding object is still valid

@@ -110,7 +110,10 @@
         <a id="inlineTextLink" href="#inline-destination">documentation link</a>
         should not be flagged for target size in this fixture.
       </p>
-      <button id="tinyIconButton" class="small-icon-btn" aria-label="Close">×</button>
+      <!-- Two adjacent 16px targets: their 24px spacing circles overlap → both flag. -->
+      <span><button id="tinyIconButton" class="small-icon-btn" aria-label="Close">×</button><button id="tinyIconButton2" class="small-icon-btn" aria-label="Minimize">–</button></span>
+      <!-- A lone 16px target with ≥12px clearance meets the 2.5.8 spacing exception → no flag. -->
+      <p style="margin-top: 32px"><button id="spacedTinyButton" class="small-icon-btn" aria-label="Help" style="margin: 0 40px">?</button></p>
     </section>
 
     <section id="mfe-landmark-fixture">

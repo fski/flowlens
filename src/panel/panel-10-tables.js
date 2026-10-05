@@ -150,6 +150,13 @@ async function storageSet(obj) {
   }
 }
 
+async function storageRemove(keys) {
+  const ks = Array.isArray(keys) ? keys : [keys];
+  if (!ks.length) return;
+  if (__storageLocal) return await __storageLocal.remove(ks);
+  for (const k of ks) localStorage.removeItem(__lsPrefix + k);
+}
+
 // Serialized read-modify-write for the shared uiPrefs key. Five settings
 // handlers used to each do storageGet→mutate→storageSet independently; two
 // firing close together read the same stale object and the later write
@@ -250,7 +257,6 @@ function renderRawJson(el, bodyEl, text) {
 //   toast(msg, action?)        — transient, non-blocking notice (2.5s / 4s
 //                                with an action). User confirmations, soft
 //                                failures the user can ignore. Auto-dedups.
-//   renderSaveStatus(status)   — persistence HUD (saving/saved/not saved).
 //                                Reflects storage state, not user actions.
 //   renderResultsShell(error)  — BLOCKING: replaces the Snap results body
 //                                with a retryable error (panel-20). Use only
@@ -280,14 +286,6 @@ function toast(message, action) {
   state._toastTimer = setTimeout(() => els.toast.classList.remove("show"), action ? 4000 : 2500);
 }
 
-function renderSaveStatus(status, detail) {
-  if (!els.saveStatusHud) return;
-  els.saveStatusHud.hidden = false;
-  els.saveStatusHud.dataset.status = status;
-  const labels = { saved: "Saved", saving: "Saving\u2026", error: "Not saved" };
-  const text = labels[status] || "Saved";
-  els.saveStatusText.textContent = detail ? `${text} \u2014 ${detail}` : text;
-}
 
 
 function setProgressA11y(bar, percent, valueText) {
@@ -345,13 +343,15 @@ function showProgress(action, durationSec) {
     if (isObserve && els.runCurrentMode) {
       els.runCurrentMode.style.setProperty("--cta-progress", `${Math.min(pct, 100)}%`);
     }
+    // The status region is announced: update it at start and finish only —
+    // a per-second countdown meant ~40 screen-reader interruptions in Watch.
+    // The progressbar value tracks every tick for anyone who queries it.
     if (remaining <= 0) {
       clearInterval(state._progressInterval);
       if (!isObserve && label) label.textContent = `${prefix} \u2022 finishing\u2026`;
       if (status) status.textContent = `${prefix}, finishing`;
       setProgressA11y(bar, pct, "finishing");
     } else {
-      if (status) status.textContent = `${prefix}, ${remaining} seconds remaining`;
       setProgressA11y(bar, pct, `${remaining}s remaining`);
     }
   }, 1000);
@@ -446,7 +446,9 @@ async function _lockedPreset(actions) {
 
 function exportMenuItems() {
   if (!els.exportMenu) return [];
-  return [...els.exportMenu.querySelectorAll(".emItem")].filter(item => !item.hidden);
+  // Skip items hidden by attribute or by CSS (dev-only items outside dev mode).
+  return [...els.exportMenu.querySelectorAll(".emItem")].filter(item =>
+    !item.hidden && !(item.classList && item.classList.contains("devOnly") && !(document.body && document.body.classList.contains("devMode"))));
 }
 
 function setExportMenuOpen(open, { restoreFocus = false } = {}) {
@@ -462,6 +464,9 @@ function setExportMenuOpen(open, { restoreFocus = false } = {}) {
 async function copyText(text) {
   // DevTools panel can have Clipboard API blocked by Permissions Policy.
   // Fallback to execCommand-based copy which still works in most environments.
+  // The temporary textarea steals focus; hand it back to the control the
+  // user activated (a keyboard user was otherwise dropped on <body>).
+  const prevFocus = document.activeElement;
   try {
     const ta = document.createElement("textarea");
     ta.value = String(text ?? "");
@@ -475,6 +480,7 @@ async function copyText(text) {
     ta.setSelectionRange(0, ta.value.length);
     const ok = document.execCommand("copy");
     document.body.removeChild(ta);
+    if (prevFocus && prevFocus !== document.body && typeof prevFocus.focus === "function") prevFocus.focus();
     if (!ok) throw new Error("execCommand(copy) returned false");
     return true;
   } catch (e) {
@@ -565,13 +571,13 @@ function setPressed(action) {
 function applySnapCta(mode) {
   const cta = (MODES[mode] || MODES.run).cta;
   let label = cta.label;
-  if (state.hasRunMode.has(mode)) label = cta.rerun || label;
+  if (hasRunMode(mode)) label = cta.rerun || label;
   if (els.runLabel) els.runLabel.textContent = label;
   if (els.runCurrentMode) {
     els.runCurrentMode.className = "ctaBtn " + cta.cls;
   }
   if (els.snapHelper) els.snapHelper.textContent = cta.helper;
-  if (els.runIcon) els.runIcon.src = state.hasRunMode.has(mode) ? "icons/Rerun Icon.svg" : "icons/Run Icon.svg";
+  if (els.runIcon) els.runIcon.src = hasRunMode(mode) ? "icons/Rerun Icon.svg" : "icons/Run Icon.svg";
 }
 
 function updateSnapCta(mode) {
@@ -596,8 +602,7 @@ function showMode(mode) {
   // renderRecord, so without this the default-visible empty <div> (and a
   // stale virtual-table render from when the section was hidden) leak into
   // view.
-  if (runLike && state.findingsByMode[mode]) {
-    state.currentFindings = applyAllFindingFilters(state.findingsByMode[mode]);
+  if (runLike && rawFindingsForMode(mode)) {
     rerenderFindings("mode_switch");
   } else if (runLike) {
     renderSevTabs();

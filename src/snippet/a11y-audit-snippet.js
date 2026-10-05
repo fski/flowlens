@@ -43,10 +43,26 @@
  *
  * Questions? If you must, reach me on Slack @fski.
  */
+import {
+  STE_MAX_LIVE_REGIONS, STE_MAX_CANDIDATES,
+  fnv1aHash8, hashLocator, buildLocator, classifyPoliteness,
+  buildTransitionState, buildStateDelta, buildTransitionStateSummary,
+  evaluateC1, evaluateC2, evaluateC3_1, evaluateC3_2,
+} from "../engine/stateTransitionEngine.js";
+
 (() => {
   const KEY = "A11YFlowAudit";
   const w = window;
   const doc = document;
+
+  // Page-console output. Pasted manually the snippet logs as before; the
+  // extension sets __A11YFLOW_CONSOLE__ = false unless "Also log to console"
+  // is on, because page-side tooling (Sentry/RUM breadcrumbs) captures
+  // console.* and would carry audit data off the machine.
+  const con = {};
+  for (const k of ["log", "info", "warn", "error", "debug", "table", "groupCollapsed", "groupEnd"]) {
+    con[k] = (...a) => { if (w.__A11YFLOW_CONSOLE__ !== false) console[k](...a); };
+  }
 
   // ---------------- constants ----------------
   const MAX_SHADOW_SCOPES = 50;
@@ -70,8 +86,52 @@
     el?.closest?.("[data-testid]")?.getAttribute("data-testid") ||
     null;
 
+  // Per-run memo caches (reset by resetPathCaches at the start and end of
+  // run()). Findings computed paths with `[...parent.children].filter` per
+  // segment, per call — quadratic in sibling count; a 3,000-item list took
+  // ~40s. One pass per parent now yields every child's :nth-of-type index.
+  let _nthCache = new WeakMap();
+  let _pathCache = new WeakMap();
+  let _pathDeepCache = new WeakMap();
+  const resetPathCaches = () => {
+    _nthCache = new WeakMap();
+    _pathCache = new WeakMap();
+    _pathDeepCache = new WeakMap();
+  };
+
+  // 1-based :nth-of-type index of node, or 0 when it is the only child of its
+  // tag (no :nth-of-type needed).
+  const nthOfType = (node) => {
+    // Top-level children of a shadow root have no parentElement — their
+    // parent is the ShadowRoot. Without it, two sibling buttons there both
+    // got the bare segment "button" and every finding resolved to the first.
+    const p = node.parentElement || (node.parentNode && node.parentNode.nodeType === 11 ? node.parentNode : null);
+    if (!p) return 0;
+    let entry = _nthCache.get(p);
+    if (!entry || !entry.index.has(node)) {
+      const index = new Map();
+      const totals = new Map();
+      for (const c of p.children) {
+        const n = (totals.get(c.tagName) || 0) + 1;
+        totals.set(c.tagName, n);
+        index.set(c, n);
+      }
+      entry = { index, totals };
+      _nthCache.set(p, entry);
+    }
+    return entry.totals.get(node.tagName) > 1 ? entry.index.get(node) : 0;
+  };
+
   const cssPath = (el) => {
     if (!isEl(el)) return "";
+    const hit = _pathCache.get(el);
+    if (hit !== undefined) return hit;
+    const out = cssPathUncached(el);
+    _pathCache.set(el, out);
+    return out;
+  };
+
+  const cssPathUncached = (el) => {
     const parts = [];
     let node = el;
     while (node && node.nodeType === 1 && parts.length < 9) {
@@ -82,11 +142,8 @@
           : "";
       let nth = "";
       if (!id) {
-        const p = node.parentElement;
-        if (p) {
-          const sib = [...p.children].filter(c => c.tagName === node.tagName);
-          if (sib.length > 1) nth = `:nth-of-type(${sib.indexOf(node) + 1})`;
-        }
+        const k = nthOfType(node);
+        if (k) nth = `:nth-of-type(${k})`;
       }
       parts.unshift(`${node.tagName.toLowerCase()}${id}${cls}${nth}`);
       if (id) break;
@@ -103,6 +160,14 @@
    */
   const cssPathDeep = (el) => {
     if (!isEl(el)) return "";
+    const hit = _pathDeepCache.get(el);
+    if (hit !== undefined) return hit;
+    const out = cssPathDeepUncached(el);
+    _pathDeepCache.set(el, out);
+    return out;
+  };
+
+  const cssPathDeepUncached = (el) => {
     const segments = [];
     let node = el;
     let depth = 0;
@@ -151,27 +216,8 @@
 
   const buildSegment = (node) => {
     const tag = node.tagName.toLowerCase();
-    const p = node.parentElement;
-    if (!p) return tag;
-    const sib = [...p.children].filter(c => c.tagName === node.tagName);
-    if (sib.length > 1) return `${tag}:nth-of-type(${sib.indexOf(node) + 1})`;
-    return tag;
-  };
-
-  /**
-   * Build targeting reference for overlay annotations.
-   * Multiple targeting signals for resolveTarget() fallback chain.
-   */
-  const buildTargetRef = (el) => {
-    if (!isEl(el)) return null;
-    return {
-      cssSelector: cssPath(el),
-      testId: testId(el),
-      tag: el.tagName?.toLowerCase() || null,
-      role: el.getAttribute?.("role") || null,
-      name: getAccName ? null : null, // populated after getAccName is defined
-      inShadow: !!(el.getRootNode?.() instanceof w.ShadowRoot),
-    };
+    const k = nthOfType(node);
+    return k ? `${tag}:nth-of-type(${k})` : tag;
   };
 
   const commonAncestorDepth = (a, b) => {
@@ -250,18 +296,18 @@
   // FIX_SUGGESTIONS moved to panel.js to reduce injected snippet size
 
   // ──────── State Transition Engine (Depth 3) ────────────────────────────────
-  // Inline copy of src/engine/stateTransitionEngine.js pure functions.
-  // Parity enforced by test/snippet-engine-parity.test.mjs.
+  // The pure state/delta/evaluator functions are imported from
+  // src/engine/stateTransitionEngine.js (bundled in by esbuild) — one
+  // implementation shared with the SW. Only the DOM capture side lives here.
   //
   // Deterministic definitions:
   //   liveRegionPresent — within root scope, exists ≥1 element with
-  //     aria-live != "off" OR role="status"/"alert". Do NOT treat role="log"/
-  //     "feed" as live region automatically unless aria-live is present.
+  //     aria-live != "off" OR role="status"/"alert". role="log" is NOT counted
+  //     here, but C1 exempts a role=log feed directly (implicit polite live
+  //     region per WAI-ARIA 1.2). role="feed" is not a live region.
   //   announceEventCount — number of observed mutation events affecting live
   //     region candidate elements. Counters only (no timestamps, no samples).
 
-  const STE_MAX_LIVE_REGIONS = 5;
-  const STE_MAX_CANDIDATES = 3;
   const STE_MAX_FALLBACK_QS = 3;
 
   const CHAT_CONTAINER_SELECTOR =
@@ -270,12 +316,6 @@
   const LIVE_REGION_SELECTOR =
     "[aria-live]:not([aria-live='off']),[role='status'],[role='alert']";
 
-  function steFnv1aHash8(input) {
-    const s = String(input ?? "");
-    let h = 0x811c9dc5;
-    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
-    return (h >>> 0).toString(16).padStart(8, "0").slice(0, 8);
-  }
 
   function steBuildLocator(el) {
     if (!isEl(el)) return null;
@@ -287,238 +327,17 @@
     };
   }
 
-  function steHashLocator(loc) {
-    if (!loc) return "00000000";
-    return steFnv1aHash8([loc.tag, loc.role, loc.testId, loc.cssPath].join("|"));
-  }
 
   // Normalize a plain artifact object to a locator (matches engine buildLocator).
   // Distinct from steBuildLocator which operates on DOM elements.
-  function steNormalizeLocator(artifact) {
-    if (!artifact) return null;
-    return {
-      tag: artifact.tag ? String(artifact.tag).toLowerCase() : null,
-      role: artifact.role ? String(artifact.role) : null,
-      testId: artifact.testId ? String(artifact.testId) : null,
-      cssPath: artifact.cssPath ? String(artifact.cssPath) : "",
-    };
-  }
 
-  function steClassifyPoliteness(region) {
-    const al = region.ariaLive ? String(region.ariaLive).toLowerCase() : "";
-    if (al === "polite") return "polite";
-    if (al === "assertive") return "assertive";
-    if (al === "off") return "off";
-    const role = region.role ? String(region.role).toLowerCase() : "";
-    if (role === "status") return "polite";
-    if (role === "alert") return "assertive";
-    return "unknown";
-  }
 
-  function steBuildTransitionState({ frameId, frameKeyStable, rootSelector, captureArtifacts }) {
-    const ca = captureArtifacts || {};
-    const candidates = Array.isArray(ca.chatCandidates) ? ca.chatCandidates.slice(0, STE_MAX_CANDIDATES) : [];
-    const liveRegions = Array.isArray(ca.liveRegions) ? ca.liveRegions.slice(0, STE_MAX_LIVE_REGIONS) : [];
-    const capped =
-      (Array.isArray(ca.chatCandidates) && ca.chatCandidates.length > STE_MAX_CANDIDATES) ||
-      (Array.isArray(ca.liveRegions) && ca.liveRegions.length > STE_MAX_LIVE_REGIONS);
 
-    let feedCandidate = null;
-    for (const c of candidates) {
-      const r = c.role ? String(c.role).toLowerCase() : "";
-      if (r === "log" || r === "feed") { feedCandidate = c; break; }
-    }
-    if (!feedCandidate && candidates.length > 0) feedCandidate = candidates[0];
 
-    const feedLocator = feedCandidate ? steNormalizeLocator(feedCandidate.locator || feedCandidate) : null;
-    const feedRole = feedCandidate
-      ? (function () { const r = (feedCandidate.role || "").toLowerCase(); return r === "log" ? "log" : r === "feed" ? "feed" : "none"; })()
-      : "unknown";
-    const messageCount = feedCandidate ? (typeof feedCandidate.childCount === "number" ? feedCandidate.childCount : 0) : 0;
-    const lastChild = feedCandidate && feedCandidate.lastChildLocator ? steNormalizeLocator(feedCandidate.lastChildLocator) : null;
-    const activeLocator = ca.activeLocator ? steNormalizeLocator(ca.activeLocator) : null;
 
-    const rawItem = (feedCandidate && feedCandidate.itemization) || {};
-    const itemization = {
-      sampleCount: typeof rawItem.sampleCount === "number" ? rawItem.sampleCount : 0,
-      hasItemRoles: !!rawItem.hasItemRoles, looksListLike: !!rawItem.looksListLike,
-      distinctItemLocators: typeof rawItem.distinctItemLocators === "number" ? rawItem.distinctItemLocators : 0,
-      score01: typeof rawItem.score01 === "number" ? rawItem.score01 : 0,
-    };
-    const rawLink = (feedCandidate && feedCandidate.linkage) || {};
-    const linkage = {
-      ariaControlsLink: !!rawLink.ariaControlsLink, ariaDescribedByLink: !!rawLink.ariaDescribedByLink,
-      ariaOwnsLink: !!rawLink.ariaOwnsLink, sharedRootMarker: !!rawLink.sharedRootMarker,
-    };
 
-    return {
-      frameId: frameId ?? 0, frameKeyStable: frameKeyStable || "", rootSelector: rootSelector || null,
-      focus: { activeLocator, isInComposer: !!ca.isInComposer },
-      chat: { feedLocator, feedRole, messageCount, lastMessageItemLocator: lastChild, itemization, linkage },
-      live: {
-        regions: liveRegions.map(r => ({ locator: steNormalizeLocator(r.locator || r), politeness: steClassifyPoliteness(r), atomic: "unknown" })),
-        observedAnnounceEvents: typeof ca.announceEventCount === "number" ? ca.announceEventCount : 0,
-        observedLiveMutations: typeof ca.liveMutationCount === "number" ? ca.liveMutationCount : 0,
-      },
-      quality: { captureMode: ca.captureMode || "observe", capped },
-    };
-  }
 
-  function steBuildStateDelta(prevState, nextState) {
-    const prev = prevState || {}; const next = nextState || {};
-    const pf = prev.focus || {}; const nf = next.focus || {};
-    const pc = prev.chat || {}; const nc = next.chat || {};
-    const pl = prev.live || {}; const nl = next.live || {};
 
-    const focusChanged = steHashLocator(pf.activeLocator) !== steHashLocator(nf.activeLocator);
-    const composerLostFocus = !!pf.isInComposer && !nf.isInComposer && focusChanged;
-    const messageCountDelta = typeof nc.messageCount === "number" && typeof pc.messageCount === "number"
-      ? nc.messageCount - pc.messageCount : 0;
-    const announceEventCountDelta = (nl.observedAnnounceEvents || 0) - (pl.observedAnnounceEvents || 0);
-    const liveMutationCountDelta = (nl.observedLiveMutations || 0) - (pl.observedLiveMutations || 0);
-    const liveRegionPresent = (nl.regions || []).some(r => { const p = r.politeness || "unknown"; return p === "polite" || p === "assertive"; });
-    const announcementsLikelyMissing = messageCountDelta >= 1 && announceEventCountDelta === 0 && !liveRegionPresent;
-
-    const feedLocator = nc.feedLocator || pc.feedLocator || null;
-    const composerLocator = composerLostFocus ? (pf.activeLocator || null) : null;
-    const liveRegionLocator = (nl.regions || []).length > 0 ? (nl.regions[0].locator || null) : null;
-
-    const feedRoleChanged = (pc.feedRole || "unknown") !== (nc.feedRole || "unknown");
-    const prevItem = (pc.itemization || {}); const nextItem = (nc.itemization || {});
-    const itemizationScoreDelta = typeof nextItem.score01 === "number" && typeof prevItem.score01 === "number"
-      ? nextItem.score01 - prevItem.score01 : null;
-
-    return {
-      focusChanged, composerLostFocus, messageCountDelta,
-      feedRole: nc.feedRole || null,
-      announcementsLikelyMissing, liveRegionPresent, liveMutationCountDelta, announceEventCountDelta,
-      feedRoleChanged, itemizationScoreDelta, frameSplitChanged: false,
-      evidence: { feedLocator, composerLocator, liveRegionLocator },
-    };
-  }
-
-  function steEvaluateC1(delta, prevState, nextState, opts) {
-    const o = opts || {}; const emittedSet = o.emittedSet || null;
-    const quality = (nextState || {}).quality || {};
-    if (delta.messageCountDelta < 1) return null;
-    if (delta.liveRegionPresent && delta.announceEventCountDelta > 0) return null;
-    const hasFeedContext = delta.feedRole === "log" || delta.feedRole === "feed" || delta.evidence.feedLocator != null;
-    if (!hasFeedContext) return null;
-
-    const evidenceHash = delta.evidence.feedLocator ? steHashLocator(delta.evidence.feedLocator) : "global";
-    const dedupKey = "C1:" + ((nextState || {}).frameKeyStable || "") + ":" + evidenceHash;
-    if (emittedSet) {
-      if (emittedSet.has(dedupKey)) return null;
-      let c1Count = 0; for (const k of emittedSet) { if (k.startsWith("C1:")) c1Count++; }
-      if (c1Count >= 3) return null;
-      emittedSet.add(dedupKey);
-    }
-
-    let severity = "medium"; let noteSuffix = "";
-    if (quality.capped && !delta.evidence.feedLocator) { severity = "low"; noteSuffix = " (reduced confidence: capture capped, evidence locator missing)"; }
-
-    return { type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED", severity, wcag: "4.1.3", confidence: "heuristic",
-      note: "Chat container received new messages but lacks announcement semantics (role=log, role=feed, or aria-live)." + noteSuffix,
-      evidenceLocatorHash: evidenceHash,
-      evidenceCssPath: delta.evidence.feedLocator ? delta.evidence.feedLocator.cssPath : null };
-  }
-
-  function steEvaluateC2(delta, prevState, nextState, opts) {
-    const o = opts || {}; const emittedSet = o.emittedSet || null;
-    const quality = (nextState || {}).quality || {};
-    if (!delta.composerLostFocus) return null;
-    const hasFeedContext = delta.feedRole === "log" || delta.feedRole === "feed" || delta.evidence.feedLocator != null;
-    const hasUpdateSignal = delta.messageCountDelta >= 1 || delta.announceEventCountDelta >= 1 ||
-      (delta.liveMutationCountDelta >= 1 && hasFeedContext);
-    if (!hasUpdateSignal) return null;
-
-    const evidenceHash = delta.evidence.composerLocator ? steHashLocator(delta.evidence.composerLocator) : "global";
-    const dedupKey = "C2:" + ((nextState || {}).frameKeyStable || "") + ":" + evidenceHash;
-    if (emittedSet) {
-      if (emittedSet.has(dedupKey)) return null;
-      let c2Count = 0; for (const k of emittedSet) { if (k.startsWith("C2:")) c2Count++; }
-      if (c2Count >= 3) return null;
-      emittedSet.add(dedupKey);
-    }
-
-    let severity = "medium"; let noteSuffix = "";
-    if (quality.capped && !delta.evidence.composerLocator) { severity = "low"; noteSuffix = " (reduced confidence: capture capped, evidence locator missing)"; }
-
-    return { type: "CHAT_INPUT_LOSES_FOCUS_ON_UPDATE", severity, wcag: "2.4.3", confidence: "heuristic",
-      note: "Chat input lost focus after a content update; may disrupt typing." + noteSuffix,
-      evidenceLocatorHash: evidenceHash,
-      evidenceCssPath: delta.evidence.composerLocator ? delta.evidence.composerLocator.cssPath : null };
-  }
-
-  function steEvaluateC3_1(delta, prevState, nextState, opts) {
-    const o = opts || {}; const emittedSet = o.emittedSet || null;
-    const next = nextState || {}; const quality = next.quality || {};
-    const chat = next.chat || {};
-    if (!chat.feedLocator) return null;
-    if (chat.feedRole !== "none" && chat.feedRole !== "unknown") return null;
-
-    const evidenceHash = steHashLocator(chat.feedLocator);
-    const dedupKey = "C3.1:" + (next.frameKeyStable || "") + ":" + evidenceHash;
-    if (emittedSet) {
-      if (emittedSet.has(dedupKey)) return null;
-      let count = 0; for (const k of emittedSet) { if (k.startsWith("C3.1:")) count++; }
-      if (count >= 3) return null;
-      emittedSet.add(dedupKey);
-    }
-
-    let severity = "medium"; let noteSuffix = "";
-    if (quality.capped && !chat.feedLocator) { severity = "low"; noteSuffix = " (reduced confidence: capture capped, evidence locator missing)"; }
-
-    return { type: "CHAT_FEED_MISSING_ROLE", severity, wcag: "1.3.1", confidence: "heuristic",
-      note: "Chat feed container detected but lacks role=\"log\" or role=\"feed\" for assistive technology." + noteSuffix,
-      evidenceLocatorHash: evidenceHash,
-      evidenceCssPath: chat.feedLocator ? chat.feedLocator.cssPath : null };
-  }
-
-  function steEvaluateC3_2(delta, prevState, nextState, opts) {
-    const o = opts || {}; const emittedSet = o.emittedSet || null;
-    const next = nextState || {}; const quality = next.quality || {};
-    const chat = next.chat || {}; const item = chat.itemization || {};
-    if (!chat.feedLocator) return null;
-    if (chat.messageCount < 2) return null;
-    if (typeof item.score01 === "number" && item.score01 >= 0.5) return null;
-
-    const evidenceHash = steHashLocator(chat.feedLocator);
-    const dedupKey = "C3.2:" + (next.frameKeyStable || "") + ":" + evidenceHash;
-    if (emittedSet) {
-      if (emittedSet.has(dedupKey)) return null;
-      let count = 0; for (const k of emittedSet) { if (k.startsWith("C3.2:")) count++; }
-      if (count >= 3) return null;
-      emittedSet.add(dedupKey);
-    }
-
-    let severity = "low"; let noteSuffix = "";
-    if (quality.capped && !chat.feedLocator) { severity = "low"; noteSuffix = " (reduced confidence: capture capped, evidence locator missing)"; }
-
-    return { type: "CHAT_MESSAGE_NOT_ITEMIZED", severity, wcag: "1.3.1", confidence: "heuristic",
-      note: "Chat messages are not represented with semantic item roles (article, listitem)." + noteSuffix,
-      evidenceLocatorHash: evidenceHash,
-      evidenceCssPath: chat.feedLocator ? chat.feedLocator.cssPath : null };
-  }
-
-  function steBuildTransitionStateSummary(state) {
-    if (!state) return null;
-    const chatLink = (state.chat && state.chat.linkage) || {};
-    const chatItem = (state.chat && state.chat.itemization) || {};
-    return {
-      frameId: state.frameId, frameKeyStable: state.frameKeyStable,
-      feedLocatorHash: state.chat.feedLocator ? steHashLocator(state.chat.feedLocator) : null,
-      feedRole: state.chat.feedRole || null, messageCount: state.chat.messageCount || 0,
-      composerLocatorHash: state.focus.isInComposer && state.focus.activeLocator ? steHashLocator(state.focus.activeLocator) : null,
-      liveRegionCount: (state.live.regions || []).length,
-      observedAnnounceEvents: state.live.observedAnnounceEvents || 0,
-      observedLiveMutations: state.live.observedLiveMutations || 0,
-      captureMode: state.quality.captureMode, capped: state.quality.capped,
-      itemizationScore01: typeof chatItem.score01 === "number" ? chatItem.score01 : 0,
-      hasLinkage: !!(chatLink.ariaControlsLink || chatLink.ariaDescribedByLink || chatLink.ariaOwnsLink),
-      sharedRootMarker: !!chatLink.sharedRootMarker,
-    };
-  }
 
   function steIsComposerElement(el) {
     if (!isEl(el)) return false;
@@ -545,7 +364,7 @@
         const kid = kids[si];
         const kr = (kid.getAttribute("role") || "").toLowerCase();
         if (kr === "article" || kr === "listitem") hasItemRoles = true;
-        locHashes.add(steHashLocator(steBuildLocator(kid)));
+        locHashes.add(hashLocator(steBuildLocator(kid)));
       }
       const feedTag = (c.tagName || "").toLowerCase();
       const looksListLike = feedTag === "ul" || feedTag === "ol" || cRole === "log" || cRole === "feed" || cRole === "list";
@@ -604,13 +423,13 @@
     // Build elementMapByHash from artifacts
     const map = new Map();
     for (const c of (artifacts.chatCandidates || [])) {
-      if (c._el && c.locator) map.set(steHashLocator(c.locator), c._el);
+      if (c._el && c.locator) map.set(hashLocator(c.locator), c._el);
     }
     for (const r of (artifacts.liveRegions || [])) {
-      if (r._el && r.locator) map.set(steHashLocator(r.locator), r._el);
+      if (r._el && r.locator) map.set(hashLocator(r.locator), r._el);
     }
     if (artifacts._activeEl && artifacts.activeLocator) {
-      map.set(steHashLocator(artifacts.activeLocator), artifacts._activeEl);
+      map.set(hashLocator(artifacts.activeLocator), artifacts._activeEl);
     }
 
     let el = map.get(hash) || null;
@@ -686,39 +505,134 @@
     },
   };
 
-  const getAccName = (el) => {
+  // ---------------- accessible name (simplified accname 1.2) ----------------
+  // Order: aria-labelledby → aria-label → native label / alt / value →
+  // content (only for roles that take their name from content) → title →
+  // placeholder. ID references resolve in the element's own tree (shadow
+  // roots included). Simplifications: no CSS-hidden detection inside the
+  // content walk and no recursion into embedded controls' values.
+  const NAME_FROM_CONTENT_ROLES = new Set([
+    "button", "link", "menuitem", "menuitemcheckbox", "menuitemradio", "tab", "option",
+    "treeitem", "heading", "cell", "gridcell", "columnheader", "rowheader", "checkbox",
+    "radio", "switch", "tooltip", "row", "comment",
+  ]);
+  const NAME_FROM_CONTENT_TAGS = new Set([
+    "A", "BUTTON", "SUMMARY", "LABEL", "LEGEND", "CAPTION", "TD", "TH", "OPTION",
+    "H1", "H2", "H3", "H4", "H5", "H6", "OBJECT",
+  ]);
+  const nameFromContentAllowed = (el) => {
+    const role = (el.getAttribute("role") || "").trim().split(/\s+/)[0].toLowerCase();
+    if (role) return NAME_FROM_CONTENT_ROLES.has(role);
+    return NAME_FROM_CONTENT_TAGS.has(el.tagName);
+  };
+
+  // IDREFs are tree-scoped: a reference inside a shadow root resolves only
+  // within that root (and light-DOM refs only in the document), which is
+  // also what AT sees. Detached nodes fall back to the document.
+  const byIdInTree = (el, id) => {
+    const root = el.getRootNode?.();
+    if (root && typeof root.getElementById === "function") return root.getElementById(id);
+    return doc.getElementById(id);
+  };
+
+  // Text of a subtree as AT would read it: img alt, nested aria-label and
+  // <svg><title> count; aria-hidden subtrees, script/style don't. Bounded.
+  const SKIP_CONTENT_TAGS = new Set(["SCRIPT", "STYLE", "TEMPLATE", "NOSCRIPT"]);
+  const contentText = (root) => {
+    const out = [];
+    let budget = 2000;
+    const walk = (node) => {
+      for (let c = node.firstChild; c && budget > 0; c = c.nextSibling) {
+        budget--;
+        if (c.nodeType === 3) { out.push(c.data); continue; }
+        if (c.nodeType !== 1) continue;
+        if (SKIP_CONTENT_TAGS.has(c.tagName) || c.hidden || c.getAttribute("aria-hidden") === "true") continue;
+        const al = c.getAttribute("aria-label");
+        if (al && al.trim()) { out.push(" " + al + " "); continue; }
+        if (c.tagName === "IMG" || (c.tagName === "INPUT" && c.type === "image")) { out.push(" " + (c.getAttribute("alt") || "") + " "); continue; }
+        if (c.tagName.toLowerCase() === "svg") {
+          const t = c.querySelector("title");
+          if (t) out.push(" " + t.textContent + " ");
+          continue;
+        }
+        walk(c);
+        if (c.shadowRoot) walk(c.shadowRoot);
+      }
+    };
+    walk(root);
+    if (root.shadowRoot) walk(root.shadowRoot);
+    return out.join("").replace(/\s+/g, " ").trim();
+  };
+
+  // el.labels makes Chrome scan the whole tree for <label>s on every call
+  // (~2s on an 18k-node page). Only ask when a label can actually exist.
+  const mayHaveLabel = (el) =>
+    !!el.closest("label") ||
+    (!!el.id && !!el.getRootNode?.().querySelector?.(`label[for="${CSS.escape(el.id)}"]`));
+
+  const accNameCore = (el, allowContent) => {
     if (!isEl(el)) return "";
-    const aria = el.getAttribute("aria-label");
-    if (aria?.trim()) return aria.trim();
     const labelledby = el.getAttribute("aria-labelledby");
     if (labelledby) {
       const t = labelledby
         .split(/\s+/)
-        .map(id => doc.getElementById(id))
         .filter(Boolean)
-        .map(n => n.textContent)
-        .join(" ");
-      if (t.trim()) return t.trim();
+        .map(id => byIdInTree(el, id))
+        .filter(Boolean)
+        .map(n => n.getAttribute("aria-label") || contentText(n))
+        .join(" ")
+        .trim();
+      if (t) return t;
     }
-    if ("labels" in el && el.labels && el.labels.length) {
-      const lbl = [...el.labels].map(l => l.textContent).join(" ");
-      if (lbl.trim()) return lbl.trim();
+    const aria = el.getAttribute("aria-label");
+    if (aria?.trim()) return aria.trim();
+    if ("labels" in el && mayHaveLabel(el) && el.labels && el.labels.length) {
+      const lbl = [...el.labels].map(l => contentText(l)).join(" ").trim();
+      if (lbl) return lbl;
     }
-    if (el.tagName === "IMG") {
+    if (el.tagName === "IMG" || el.tagName === "AREA" || (el.tagName === "INPUT" && el.type === "image")) {
       const alt = el.getAttribute("alt");
       if (alt?.trim()) return alt.trim();
+    }
+    if (el.tagName === "INPUT" && /^(button|submit|reset)$/i.test(el.type)) {
+      const v = el.getAttribute("value");
+      if (v?.trim()) return v.trim();
+      if (/^submit$/i.test(el.type)) return "Submit";
+      if (/^reset$/i.test(el.type)) return "Reset";
+    }
+    if (el.tagName.toLowerCase() === "svg") {
+      const t = el.querySelector(":scope > title");
+      if (t?.textContent.trim()) return t.textContent.trim();
+    }
+    if (allowContent && nameFromContentAllowed(el)) {
+      const c = contentText(el);
+      if (c) return c.slice(0, 160);
     }
     const title = el.getAttribute("title");
     if (title?.trim()) return title.trim();
     const ph = el.getAttribute("placeholder");
     if (ph?.trim()) return `[placeholder] ${ph.trim()}`;
-    return txt(el.textContent, 160) || "";
+    return "";
+  };
+
+  // Accessible name, or "" when the element has none.
+  const getAccName = (el) => accNameCore(el, true);
+
+  // Display label for findings/overlays: the accessible name, falling back to
+  // the element's text so containers (dialogs, navs, divs) stay identifiable.
+  const getDisplayName = (el) => {
+    if (!isEl(el)) return "";
+    return getAccName(el) || txt(el.textContent, 160) || "";
   };
 
   const add = (findings, params) => {
     const { type, el, severity = "low", wcag = null, wcagVersion = null, level = null, confidence = null, product = null, note = null, extra = null, fix = null } = params;
     const ruleMeta = RULE_REGISTRY[type] || null;
-    const elName = el ? getAccName(el) : null;
+    const elName = el ? getDisplayName(el) : null;
+    const elPath = el ? cssPath(el) : null;
+    const elPathDeep = el ? cssPathDeep(el) : null;
+    const elTestId = el ? testId(el) : null;
+    const elRole = el?.getAttribute?.("role") || null;
     const entry = {
       type, severity,
       wcag: wcag ?? ruleMeta?.wcag ?? null,
@@ -728,18 +642,18 @@
       en301549Clauses: null,  // populated by panel.js post-processing
       product,
       name: elName,
-      role: el?.getAttribute?.("role") || null,
+      role: elRole,
       tag: el?.tagName || null,
-      testId: el ? testId(el) : null,
-      path: el ? cssPath(el) : null,
-      pathDeep: el ? cssPathDeep(el) : null,
+      testId: elTestId,
+      path: elPath,
+      pathDeep: elPathDeep,
       html: el ? html(el) : null,
       targetRef: el ? {
-        cssSelector: el ? cssPath(el) : null,
-        pathDeep: el ? cssPathDeep(el) : null,
-        testId: el ? testId(el) : null,
-        tag: el?.tagName?.toLowerCase() || null,
-        role: el?.getAttribute?.("role") || null,
+        cssSelector: elPath,
+        pathDeep: elPathDeep,
+        testId: elTestId,
+        tag: el.tagName?.toLowerCase() || null,
+        role: elRole,
         name: elName,
         inShadow: !!(el?.getRootNode?.() instanceof w.ShadowRoot),
       } : null,
@@ -748,37 +662,36 @@
     findings.push(entry);
   };
 
+  // 2.4.7: the browser draws a focus ring (:focus-visible) unless the author
+  // removes it. So a control is only suspect when an author rule (or inline
+  // style) that matches it sets outline to none/0 AND no :focus/:focus-visible
+  // rule matching it supplies a replacement indicator (outline, box-shadow,
+  // border, text-decoration). Controls the author never touched keep the
+  // UA ring and are not flagged — the previous version flagged every control
+  // without an outline *at rest*, i.e. nearly all of them.
   RULE_REGISTRY.FOCUS_VISIBLE_SUPPRESSED.run = ({ findings }) => {
-    const focusHints = (() => {
-      const hints = [];
+    const sheetInfo = (() => {
+      const removers = [];   // base selectors whose rule removes the outline
+      const indicators = []; // base selectors of :focus rules that draw one
       let scannedRules = 0;
       let inaccessibleSheets = 0;
 
-      const hasVisibleIndicator = (styleDecl) => {
-        const outlineStyle = (styleDecl?.outlineStyle || "").toLowerCase();
-        const outlineWidth = parseFloat(styleDecl?.outlineWidth) || 0;
-        if (outlineStyle && outlineStyle !== "none" && outlineWidth > 0) return true;
-        if ((styleDecl?.boxShadow || "").toLowerCase() !== "none" && !!styleDecl?.boxShadow) return true;
-        const borderStyle = (styleDecl?.borderStyle || "").toLowerCase();
-        const borderWidth = parseFloat(styleDecl?.borderWidth) || 0;
-        if (borderStyle && borderStyle !== "none" && borderWidth > 0) return true;
-        return /(underline|overline|line-through)/.test((styleDecl?.textDecorationLine || "").toLowerCase());
+      const removesOutline = (st) => {
+        const os = (st?.outlineStyle || "").toLowerCase();
+        const ow = (st?.outlineWidth || "").toLowerCase();
+        return os === "none" || os === "hidden" || ow === "0" || ow === "0px";
       };
-
-      const addSelectorHint = (selector, styleDecl) => {
-        if (!selector || /::/.test(selector)) return;
-        if (!/:(focus-visible|focus)(?![-\w])/i.test(selector)) return;
-        const baseSelector = selector
-          .replace(/:(focus-visible|focus)(?![-\w])/gi, "")
-          .replace(/\s+/g, " ")
-          .trim();
-        if (!baseSelector) return;
-        hints.push({
-          baseSelector,
-          rawSelector: selector.trim().slice(0, 200),
-          hasIndicator: hasVisibleIndicator(styleDecl),
-        });
+      const hasVisibleIndicator = (st) => {
+        const os = (st?.outlineStyle || "").toLowerCase();
+        if (os && os !== "none" && os !== "hidden" && parseFloat(st?.outlineWidth || "1") !== 0) return true;
+        const bs = (st?.boxShadow || "").toLowerCase();
+        if (bs && bs !== "none") return true;
+        const brs = (st?.borderStyle || "").toLowerCase();
+        if (brs && brs !== "none" && (parseFloat(st?.borderWidth) || 0) > 0) return true;
+        if (st?.backgroundColor || st?.background) return true;
+        return /(underline|overline|line-through)/.test((st?.textDecorationLine || st?.textDecoration || "").toLowerCase());
       };
+      const strip = (sel) => sel.replace(/:(focus-visible|focus-within|focus)(?![-\w])/gi, "").replace(/\s+/g, " ").trim() || "*";
 
       const walkRules = (rules) => {
         if (!rules) return;
@@ -786,8 +699,13 @@
           scannedRules++;
           if (scannedRules > 4000) break;
           if (rule?.type === CSSRule.STYLE_RULE) {
-            const selectors = String(rule.selectorText || "").split(",").map(s => s.trim()).filter(Boolean);
-            selectors.forEach(sel => addSelectorHint(sel, rule.style));
+            const selectors = String(rule.selectorText || "").split(",").map(x => x.trim()).filter(Boolean);
+            for (const sel of selectors) {
+              if (/::/.test(sel)) continue;
+              const isFocusRule = /:(focus-visible|focus)(?![-\w])/i.test(sel);
+              if (removesOutline(rule.style)) removers.push(strip(sel));
+              if (isFocusRule && hasVisibleIndicator(rule.style)) indicators.push(strip(sel));
+            }
             continue;
           }
           if (rule?.cssRules && (rule.type === CSSRule.MEDIA_RULE || rule.type === CSSRule.SUPPORTS_RULE || rule.type === CSSRule.LAYER_BLOCK_RULE)) {
@@ -795,17 +713,16 @@
           }
         }
       };
-
       for (const sheet of [...doc.styleSheets]) {
-        try {
-          if (sheet?.cssRules) walkRules(sheet.cssRules);
-        } catch {
-          inaccessibleSheets++;
-        }
+        try { if (sheet?.cssRules) walkRules(sheet.cssRules); } catch { inaccessibleSheets++; }
       }
-
-      return { hints, scannedRules, inaccessibleSheets };
+      return { removers, indicators, scannedRules, inaccessibleSheets };
     })();
+
+    const matchesAny = (el, sels) => {
+      for (const sel of sels) { try { if (el.matches(sel)) return true; } catch { /* unsupported selector */ } }
+      return false;
+    };
 
     const candidates = [...doc.querySelectorAll("a[href],button,[role='button'],[role='link'],[tabindex],input:not([type='hidden']),select,textarea")]
       .filter(isEl)
@@ -815,49 +732,25 @@
       if (isHidden(el) || hasInertAncestor(el)) return;
       if (!isKeyboardReachable(el)) return;
       try {
+        const inlineRemoves = /^(none|hidden)$/i.test(el.style?.outlineStyle || "") || /^0(px)?$/.test(el.style?.outlineWidth || "");
+        const suppressed = inlineRemoves || matchesAny(el, sheetInfo.removers);
+        if (!suppressed) return; // UA focus ring intact
+        if (matchesAny(el, sheetInfo.indicators)) return; // replaced by an author indicator
         const cs = w.getComputedStyle(el);
-        const outlineStyle = cs.outlineStyle;
-        const outlineWidth = parseFloat(cs.outlineWidth) || 0;
-        const hasOutlineAtRest = outlineStyle !== "none" && outlineWidth > 0;
-        const boxShadow = cs.boxShadow;
-        const hasBoxShadowAtRest = boxShadow && boxShadow !== "none";
-        const hasIndicatorAtRest = hasOutlineAtRest || hasBoxShadowAtRest;
-        if (hasIndicatorAtRest) return;
-
-        let matchedFocusRules = 0;
-        let matchedIndicatorRules = 0;
-        let matcherErrors = 0;
-        for (const hint of focusHints.hints) {
-          try {
-            if (el.matches(hint.baseSelector)) {
-              matchedFocusRules++;
-              if (hint.hasIndicator) matchedIndicatorRules++;
-            }
-          } catch {
-            matcherErrors++;
-          }
-        }
-
-        if (matchedIndicatorRules > 0) return;
+        if (cs.boxShadow && cs.boxShadow !== "none") return; // persistent indicator
 
         add(findings, {
           type: "FOCUS_VISIBLE_SUPPRESSED",
           el,
           severity: "low",
           confidence: "advisory",
-          note: "No visible focus indicator detected at rest and no matching :focus/:focus-visible indicator rule found. Verify manually.",
+          note: "Author CSS removes the focus outline and no :focus/:focus-visible rule for this control restores an indicator. Verify manually.",
           extra: {
-            outlineStyle: outlineStyle || null,
-            outlineWidth,
-            boxShadow: boxShadow === "none" ? "none" : "set",
-            keyboardReachable: true,
-            matchedFocusRules,
-            matchedIndicatorRules,
-            scannedFocusRules: focusHints.scannedRules,
-            inaccessibleStylesheets: focusHints.inaccessibleSheets,
-            matcherErrors,
+            inlineOutlineRemoved: inlineRemoves,
+            scannedFocusRules: sheetInfo.scannedRules,
+            inaccessibleStylesheets: sheetInfo.inaccessibleSheets,
           },
-          fix: "Verify a visible :focus-visible style exists for this control. If focus style is delegated or injected at runtime, this finding can be ignored."
+          fix: "Add a visible :focus-visible style (outline or box-shadow) for this control, or stop removing the outline."
         });
       } catch {}
     });
@@ -1203,9 +1096,7 @@
     return { hasHandler, activationKeys: [...activation] };
   };
 
-  const hasInlineKeyboardHandler = (el) => getInlineKeyboardMeta(el).hasHandler;
 
-  const hasAncestorKeyboardHandler = (el, maxDepth = 3) => getAncestorKeyboardMeta(el, maxDepth).hasHandler;
 
   const getAncestorClickMeta = (el, maxDepth = 3) => {
     let node = el?.parentElement || null;
@@ -1437,23 +1328,36 @@
     return Math.round(Lc * 10) / 10;
   };
 
-  const getEffectiveBg = (el) => {
+  // Composite background behind el: translucent layers up to the first
+  // opaque one, over the root (<html>) background, over white. Reports
+  // `uncertain` when a background-image (gradient/url) sits in that stack —
+  // its colour can't be read from computed style.
+  const getEffectiveBgInfo = (el) => {
     const layers = [];
+    let uncertain = false;
     let node = el;
+    let opaque = false;
     while (node && node !== doc.documentElement) {
-      const c = parseColorAny(w.getComputedStyle(node).backgroundColor);
+      const cs = w.getComputedStyle(node);
+      if (cs.backgroundImage && cs.backgroundImage !== "none") uncertain = true;
+      const c = parseColorAny(cs.backgroundColor);
       if (c && c.a > 0) {
         layers.push(c);
-        if (c.a >= 1) break;
+        if (c.a >= 1) { opaque = true; break; }
       }
       node = node.parentElement;
     }
     let bg = { r: 255, g: 255, b: 255, a: 1 };
-    const bodyBg = doc.body ? parseColorAny(w.getComputedStyle(doc.body).backgroundColor) : null;
-    if (bodyBg && bodyBg.a > 0) bg = bodyBg.a >= 1 ? bodyBg : blend(bodyBg, bg);
+    if (!opaque && doc.documentElement) {
+      const rootCs = w.getComputedStyle(doc.documentElement);
+      if (rootCs.backgroundImage && rootCs.backgroundImage !== "none") uncertain = true;
+      const rootBg = parseColorAny(rootCs.backgroundColor);
+      if (rootBg && rootBg.a > 0) bg = blend(rootBg, bg);
+    }
     for (let i = layers.length - 1; i >= 0; i--) bg = blend(layers[i], bg);
-    return bg;
+    return { bg, uncertain };
   };
+  const getEffectiveBg = (el) => getEffectiveBgInfo(el).bg;
 
   const isLargeText = (el) => {
     const s = w.getComputedStyle(el);
@@ -1566,41 +1470,6 @@
     return results;
   };
 
-  // ---------------- Rule gating: scope presence flags ----------------
-
-  /**
-   * Compute presence flags per scope. Called once per scope at start of rule execution.
-   * Allows rules to skip entire categories when no matching elements exist.
-   * Must not change rule semantics. Deterministic.
-   */
-  const computeScopeFlags = (scopeRoot) => ({
-    hasImages: !!scopeRoot.querySelector("img, [role='img'], svg[role='img']"),
-    hasInteractive: !!scopeRoot.querySelector(
-      "a[href], button, input, select, textarea, [tabindex], [role='button'], [role='link'], [role='checkbox'], [role='radio'], [role='slider'], [role='switch'], [role='textbox']"
-    ),
-    hasForms: !!scopeRoot.querySelector("input, select, textarea, [role='textbox'], [role='combobox'], [role='listbox']"),
-    hasHeadings: !!scopeRoot.querySelector("h1, h2, h3, h4, h5, h6, [role='heading']"),
-    hasLandmarks: !!scopeRoot.querySelector("main, nav, aside, header, footer, [role='main'], [role='navigation'], [role='complementary'], [role='banner'], [role='contentinfo']"),
-    hasLiveRegions: !!scopeRoot.querySelector("[aria-live], [role='alert'], [role='status'], [role='log'], [role='timer']"),
-    hasTables: !!scopeRoot.querySelector("table, [role='table'], [role='grid']"),
-    hasIframes: !!scopeRoot.querySelector("iframe"),
-  });
-
-  const computeAggregateFlags = (scopes) => {
-    const agg = {
-      hasImages: false, hasInteractive: false, hasForms: false,
-      hasHeadings: false, hasLandmarks: false, hasLiveRegions: false,
-      hasTables: false, hasIframes: false,
-    };
-    for (const { root } of scopes) {
-      const f = computeScopeFlags(root);
-      for (const key of Object.keys(agg)) {
-        if (f[key]) agg[key] = true;
-      }
-    }
-    return agg;
-  };
-
   // ---------------- Overlay: resolve target + annotate ----------------
 
   /**
@@ -1674,7 +1543,7 @@
         if (candidates.length > MAX_TAG_CANDIDATES) return null;
         for (const el of candidates) {
           if (targetRef.role && el.getAttribute("role") !== targetRef.role) continue;
-          if (targetRef.name && getAccName(el) !== targetRef.name) continue;
+          if (targetRef.name && getDisplayName(el) !== targetRef.name) continue;
           return el;
         }
       } catch {}
@@ -1801,7 +1670,7 @@
       const badge = doc.createElement("div");
       badge.className = ANNOTATION_CLASS;
       badge.textContent = String(i + 1);
-      badge.title = getAccName(el) || cssPath(el);
+      badge.title = getDisplayName(el) || cssPath(el);
       badge.style.cssText = `position:absolute;top:${rect.top + sy - 9}px;left:${rect.left + sx - 9}px;min-width:18px;height:18px;background:#7BB85E;color:#141414;font:bold 10px/18px system-ui;text-align:center;border-radius:50%;padding:0 2px;box-sizing:border-box;z-index:2147483647;pointer-events:none;`;
       frag.appendChild(badge);
       pts.push([rect.left + sx + rect.width / 2, rect.top + sy + rect.height / 2]);
@@ -1843,6 +1712,7 @@
     // Initialize per-run caches
     resetScopeCache();
     resetSelectorCache();
+    resetPathCaches();
 
     // Subtree scope: resolve root element
     const rootEl = cfg.rootSelector
@@ -1879,9 +1749,6 @@
     const s = sanity(cfg.appMarkers || null);
     const findings = [];
     const cache = createPassCache();
-
-    // Compute aggregate presence flags for rule gating
-    const flags = computeAggregateFlags(scopes);
 
     // Compact rule helper: uses cached deep query across all scopes
     const _q = (sel, type, sev, wcag, test, note, opts) => {
@@ -1949,6 +1816,12 @@
     // 1.3.1 / 3.3.2 / 4.1.2: form controls without label/name
     _qa("input:not([type='hidden']), textarea, select, [role='textbox']").forEach(el => {
       if (isHidden(el)) return;
+      // Button-like inputs take their name from value/alt (or the UA default
+      // "Submit"/"Reset") — a missing <label> is not a defect there.
+      if (el.tagName === "INPUT" && /^(submit|reset|button|image)$/i.test(el.type)) {
+        if (!getAccName(el)) add(findings, { type: "FORM_CONTROL_NO_LABEL", el, severity: "medium", wcag: "1.3.1 / 3.3.2 / 4.1.2" });
+        return;
+      }
       const isNative = ["INPUT","TEXTAREA","SELECT"].includes(el.tagName);
       const hasNativeLabel = isNative && ("labels" in el) && el.labels && el.labels.length > 0;
       const hasAria = !!(el.getAttribute("aria-label") || el.getAttribute("aria-labelledby"));
@@ -1993,7 +1866,7 @@
         const val = el.getAttribute(attr);
         if (!val) return;
         val.split(/\s+/).filter(Boolean).forEach(id => {
-          if (!doc.getElementById(id)) {
+          if (!byIdInTree(el, id)) {
             add(findings, { type: "BROKEN_ARIA_REFERENCE", el, severity: "medium", wcag: "4.1.2", note: `${attr} -> missing "${id}"`, extra: { attr, id } });
           }
         });
@@ -2004,7 +1877,7 @@
     _qa("[aria-labelledby]").forEach(el => {
       if (isHidden(el)) return;
       (el.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean).forEach(id => {
-        const lbl = doc.getElementById(id);
+        const lbl = byIdInTree(el, id);
         if (lbl && lbl.getAttribute("aria-hidden") === "true") {
           add(findings, { type: "ARIA_LABELLEDBY_POINTS_TO_ARIA_HIDDEN", el, severity: "medium", wcag: "4.1.2", extra: { labelId: id } });
         }
@@ -2027,16 +1900,20 @@
       // 4.1.3 Status Messages: role=log usually expects announcements; soft-flag if no aria-live on log.
       logEls.forEach(log => {
         if (isHidden(log)) return;
+        // role=log is implicitly aria-live=polite (WAI-ARIA 1.2), so this is
+        // advice, not a defect: an explicit aria-live="polite" is a cheap
+        // hedge for AT/browser pairs with weak implicit-live support.
         if (!log.getAttribute("aria-live")) {
           add(findings, {
             type: "CHAT_LOG_NO_ARIA_LIVE_SOFT",
             el: log,
-            severity: liveHook ? "low" : "medium",
+            severity: "low",
+            confidence: "advisory",
             wcag: "4.1.3",
             product: "chat",
             note: liveHook
-              ? "role=log has no aria-live, but a live/status hook exists in DOM (manual announcer likely)."
-              : "role=log has no aria-live and no live/status hook detected — risk of missing message announcements."
+              ? "role=log (implicitly polite) has no explicit aria-live; a live/status hook also exists in the DOM."
+              : "role=log is implicitly aria-live=polite; consider an explicit aria-live=\"polite\" for wider AT support."
           });
         }
       });
@@ -2148,9 +2025,9 @@
       logEls.forEach(log => {
         if (isHidden(log)) return;
         if (!log.hasAttribute("aria-relevant")) {
-          add(findings, { type: "CHAT_NO_ARIA_RELEVANT", el: log, severity: "low", wcag: "4.1.3",
+          add(findings, { type: "CHAT_NO_ARIA_RELEVANT", el: log, severity: "info", confidence: "advisory", wcag: "4.1.3",
             product: "chat",
-            note: 'role="log" without aria-relevant. Add aria-relevant="additions" so only new messages are announced.' });
+            note: 'role="log" without aria-relevant (default "additions text"). Optional: aria-relevant="additions" if edits to existing messages should stay silent.' });
         }
       });
 
@@ -2386,7 +2263,7 @@
       const owns = el.getAttribute("aria-owns") || el.getAttribute("aria-controls") || "";
       const ownedIds = owns.split(/\s+/).filter(Boolean);
       const hasPopup = ownedIds.some(id => {
-        const target = doc.getElementById(id);
+        const target = byIdInTree(el, id);
         if (!target) return false;
         const r = target.getAttribute("role");
         return r === "listbox" || r === "tree" || r === "grid";
@@ -2408,12 +2285,18 @@
 
     // 4.1.1 Parsing: duplicate IDs (breaks ARIA references in microfrontends)
     // Pass 1: collect all elements per ID
+    // IDs are tree-scoped: the same id in two shadow roots (or a shadow root
+    // and the document) is not a duplicate. Group by (tree root, id).
     const idElements = new Map();
+    const treeIds = new Map();
     _qa("[id]").forEach(el => {
       const id = el.id;
       if (!id) return;
-      if (!idElements.has(id)) idElements.set(id, []);
-      idElements.get(id).push(el);
+      const root = el.getRootNode ? el.getRootNode() : doc;
+      if (!treeIds.has(root)) treeIds.set(root, treeIds.size);
+      const key = `${treeIds.get(root)}\u0000${id}`;
+      if (!idElements.has(key)) idElements.set(key, []);
+      idElements.get(key).push(el);
     });
     // Pass 1.5: build set of IDs referenced by ARIA attrs
     const ariaReferencedIds = new Set();
@@ -2423,8 +2306,9 @@
       });
     });
     // Pass 2: report every occurrence of duplicated IDs
-    for (const [id, elements] of idElements) {
+    for (const [key, elements] of idElements) {
       if (elements.length < 2) continue;
+      const id = key.slice(key.indexOf("\u0000") + 1);
       const ariaReferenced = ariaReferencedIds.has(id);
       const sev = ariaReferenced ? "high" : "medium";
       elements.forEach((el, idx) => {
@@ -2671,35 +2555,58 @@
       });
     });
 
-    // 2.5.8 Target Size (Minimum): interactive elements smaller than 24x24px
-    _qa("button,a[href],[role='button'],[role='link'],input:not([type='hidden']),select,textarea").forEach(el => {
-      if (isHidden(el) || hasInertAncestor(el)) return;
-      if ((el.getAttribute("aria-disabled") || "").toLowerCase() === "true") return;
-      if (el.hasAttribute("disabled")) return;
-      const hasProxyTarget = hasLargerInteractiveAncestor(el);
-      if (hasProxyTarget) return;
-      if (!isLikelyActionable(el) && !isNativeInteractiveControl(el)) return;
+    // 2.5.8 Target Size (Minimum): interactive elements smaller than 24x24px,
+    // unless the spacing exception holds — a 24px-diameter circle centred on
+    // the target intersects no other target and no other undersized target's
+    // circle. Without that exception every small but well-spaced control
+    // (a lone 16px icon button, a text-sized link) was flagged.
+    const targetEls = _qa("button,a[href],[role='button'],[role='link'],input:not([type='hidden']),select,textarea").filter(el => {
+      if (isHidden(el) || hasInertAncestor(el)) return false;
+      if ((el.getAttribute("aria-disabled") || "").toLowerCase() === "true") return false;
+      if (el.hasAttribute("disabled")) return false;
+      if (hasLargerInteractiveAncestor(el)) return false;
+      return isLikelyActionable(el) || isNativeInteractiveControl(el);
+    }).slice(0, 400);
+    const targets = targetEls.map(el => {
       const r = el.getBoundingClientRect();
-      const width = Math.round(r.width);
-      const height = Math.round(r.height);
-      if (width > 0 && height > 0 && (width < 24 || height < 24)) {
+      return { el, r, cx: r.left + r.width / 2, cy: r.top + r.height / 2, small: r.width > 0 && r.height > 0 && (Math.round(r.width) < 24 || Math.round(r.height) < 24) };
+    }).filter(t => t.r.width > 0 && t.r.height > 0);
+    const distToRect = (x, y, r) => {
+      const dx = Math.max(r.left - x, 0, x - r.right);
+      const dy = Math.max(r.top - y, 0, y - r.bottom);
+      return Math.hypot(dx, dy);
+    };
+    const spacingOk = (t) => {
+      for (const o of targets) {
+        if (o === t || o.el.contains(t.el) || t.el.contains(o.el)) continue;
+        if (o.small ? Math.hypot(o.cx - t.cx, o.cy - t.cy) < 24 : distToRect(t.cx, t.cy, o.r) < 12) return false;
+      }
+      return true;
+    };
+    targets.forEach(t => {
+      if (!t.small) return;
+      const { el } = t;
+      const width = Math.round(t.r.width);
+      const height = Math.round(t.r.height);
+      {
         const inlineTextLink = isInlineTextLinkException(el);
         if (inlineTextLink) return;
+        if (spacingOk(t)) return;
         let display = null;
         try { display = w.getComputedStyle(el).display; } catch {}
         add(findings, {
           type: "TOUCH_TARGET_TOO_SMALL",
           el,
           severity: "low",
-          note: `Size ${width}x${height}px is below 24x24px. Verify target size/hit area meets WCAG 2.2.`,
+          note: `Size ${width}x${height}px is below 24x24px and another target is within the 24px spacing circle. Verify target size/hit area meets WCAG 2.2.`,
           extra: {
             width,
             height,
             display,
             inlineTextLinkException: inlineTextLink,
-            proxyTargetAncestor: hasProxyTarget,
+            proxyTargetAncestor: false,
           },
-          fix: "Verify clickable hit-area is at least 24x24px. If hit-area is expanded by wrapper/pseudo-element, this finding may be ignored."
+          fix: "Make the hit area at least 24x24px, or space small targets so 24px circles around them don't overlap other targets."
         });
       }
     });
@@ -3069,7 +2976,7 @@
     _qa("td[headers]").forEach(el => {
       const headerIds = (el.getAttribute("headers") || "").trim().split(/\s+/);
       for (const id of headerIds) {
-        if (id && !doc.getElementById(id)) {
+        if (id && !byIdInTree(el, id)) {
           add(findings, { type: "TD_HEADERS_INVALID", severity: "medium", wcag: "1.3.1", el,
             note: `headers attribute references id="${id}" which does not exist in the document.`,
             extra: { id } });
@@ -3326,10 +3233,10 @@
       const describedby = (el.getAttribute("aria-describedby") || "").trim();
       const errormsg = (el.getAttribute("aria-errormessage") || "").trim();
       const hasDescription = (describedby && describedby.split(/\s+/).some(id => {
-        const ref = doc.getElementById(id);
+        const ref = byIdInTree(el, id);
         return ref && (ref.textContent || "").trim().length > 0;
       })) || (errormsg && (() => {
-        const ref = doc.getElementById(errormsg);
+        const ref = byIdInTree(el, errormsg);
         return ref && (ref.textContent || "").trim().length > 0;
       })());
       if (!hasDescription) {
@@ -3410,7 +3317,7 @@
       if (isHidden(el)) return;
       const forAttr = (el.getAttribute("for") || "").trim();
       if (!forAttr) return;
-      if (!doc.getElementById(forAttr)) {
+      if (!byIdInTree(el, forAttr)) {
         add(findings, { type: "LABEL_FOR_MISSING_TARGET", el, severity: "medium", wcag: "1.3.1 / 3.3.2",
           confidence: "strict",
           note: `<label for="${txt(forAttr, 40)}"> references an id that does not exist in the document.`,
@@ -3488,7 +3395,7 @@
     // -------- WCAG 2.2 specific checks --------
     if (is22) {
       // 2.5.8 Dragging Movements
-      _q("[draggable='true']", "DRAGGABLE_NO_ALTERNATIVE", "medium", "2.5.8", null, 'draggable="true" detected. WCAG 2.5.8 requires a non-dragging alternative input method.', { wcagVersion: "2.2" });
+      _q("[draggable='true']", "DRAGGABLE_NO_ALTERNATIVE", "medium", "2.5.7", null, 'draggable="true" detected. WCAG 2.5.7 requires a non-dragging alternative input method.', { wcagVersion: "2.2" });
 
       // 3.2.6 Consistent Help
       const helpLinks = _qa("a[href*='help'],a[href*='contact'],a[href*='support'],[data-testid*='help'],[data-testid*='contact']");
@@ -3568,8 +3475,14 @@
 
     api.last = res;
 
-    console.groupCollapsed(`🧩 A11YFlowAudit.run — findings=${dedup.length} — mode=${mode} — ${s.href}`);
-    console.table(top.map(x => ({
+    // Drop per-run caches: they hold arrays of every scanned element, which
+    // would otherwise pin detached SPA trees in memory via window.A11YFlowAudit.
+    resetScopeCache();
+    resetSelectorCache();
+    resetPathCaches();
+
+    con.groupCollapsed(`🧩 A11YFlowAudit.run — findings=${dedup.length} — mode=${mode} — ${s.href}`);
+    con.table(top.map(x => ({
       severity: x.severity,
       product: x.product,
       type: x.type,
@@ -3579,11 +3492,11 @@
       testId: x.testId,
       note: x.note
     })));
-    console.log("Sanity:", s);
-    console.log("Lists:", res.lists);
-    console.log("Headings:", res.headings);
-    console.log("Raw findings:", dedup);
-    console.groupEnd();
+    con.log("Sanity:", s);
+    con.log("Lists:", res.lists);
+    con.log("Headings:", res.headings);
+    con.log("Raw findings:", dedup);
+    con.groupEnd();
 
     return res;
   };
@@ -3607,7 +3520,7 @@
     // interval and a stale observeInFlight. Two quiet ticks minimum.
     minTicks = Math.max(2, Number(minTicks) || 0);
     if (observeInFlight?.promise) {
-      console.info("🧠 A11YFlowAudit.observe already running; returning active session.");
+      con.info("🧠 A11YFlowAudit.observe already running; returning active session.");
       return observeInFlight.promise;
     }
 
@@ -3682,10 +3595,10 @@
         api.lastObserved = result;
         observeInFlight = null;
 
-        console.groupCollapsed(`🧠 A11YFlowAudit.observe — ${seconds}s — totalUniqueFindings=${unique.length}`);
-        console.table(snapshots);
-        console.log("Unique findings:", unique);
-        console.groupEnd();
+        con.groupCollapsed(`🧠 A11YFlowAudit.observe — ${seconds}s — totalUniqueFindings=${unique.length}`);
+        con.table(snapshots);
+        con.log("Unique findings:", unique);
+        con.groupEnd();
 
         resolve(result);
       };
@@ -3710,7 +3623,7 @@
           // capture on pages with a chat feed (the extension's core case).
           tickErrors++;
           if (!firstTickError) firstTickError = String(err && err.message || err);
-          console.error("A11YFlowAudit.observe tick failed:", err);
+          con.error("A11YFlowAudit.observe tick failed:", err);
           if (tickErrors >= 3) finish(false);
         }
       };
@@ -3742,23 +3655,23 @@
         // State Transition Engine — observe mode C1/C3 evaluation
         try {
           const artifacts = steBuildCaptureArtifacts("observe", 0, 0);
-          const nextState = steBuildTransitionState({ frameId: 0, frameKeyStable: "", rootSelector: null, captureArtifacts: artifacts });
-          transitionSummaries.push(steBuildTransitionStateSummary(nextState));
+          const nextState = buildTransitionState({ frameId: 0, frameKeyStable: "", rootSelector: null, captureArtifacts: artifacts });
+          transitionSummaries.push(buildTransitionStateSummary(nextState));
           if (prevTransitionState) {
-            const delta = steBuildStateDelta(prevTransitionState, nextState);
-            const c1 = steEvaluateC1(delta, prevTransitionState, nextState, { emittedSet: observeEmittedSet });
+            const delta = buildStateDelta(prevTransitionState, nextState);
+            const c1 = evaluateC1(delta, prevTransitionState, nextState, { emittedSet: observeEmittedSet });
             if (c1) {
               const el = steResolveElement(c1, artifacts);
               add(merged, { type: c1.type, el, severity: c1.severity, wcag: c1.wcag, confidence: c1.confidence, note: c1.note });
             }
           }
           // C3 rules: structural checks on nextState (no delta guard needed)
-          const c3_1 = steEvaluateC3_1(null, prevTransitionState, nextState, { emittedSet: observeEmittedSet });
+          const c3_1 = evaluateC3_1(null, prevTransitionState, nextState, { emittedSet: observeEmittedSet });
           if (c3_1) {
             const el = steResolveElement(c3_1, artifacts);
             add(merged, { type: c3_1.type, el, severity: c3_1.severity, wcag: c3_1.wcag, confidence: c3_1.confidence, note: c3_1.note });
           }
-          const c3_2 = steEvaluateC3_2(null, prevTransitionState, nextState, { emittedSet: observeEmittedSet });
+          const c3_2 = evaluateC3_2(null, prevTransitionState, nextState, { emittedSet: observeEmittedSet });
           if (c3_2) {
             const el = steResolveElement(c3_2, artifacts);
             add(merged, { type: c3_2.type, el, severity: c3_2.severity, wcag: c3_2.wcag, confidence: c3_2.confidence, note: c3_2.note });
@@ -3788,7 +3701,7 @@
       timeout = setTimeout(() => finish(), seconds * 1000);
       tick();
 
-      console.info(`🧠 A11YFlowAudit.observe started (${seconds}s). Trigger loader/remount flow now.`);
+      con.info(`🧠 A11YFlowAudit.observe started (${seconds}s). Trigger loader/remount flow now.`);
     });
     observeInFlight = { promise };
     return promise;
@@ -3797,7 +3710,7 @@
   // ---------------- watch (loader chain + focus loss + silent loading) ----------------
   const watch = ({ seconds = 20, tickMs = 200, budget = {}, settleMs = 0, minMs = 8000 } = {}) => {
     if (watchInFlight?.promise) {
-      console.info("👀 A11YFlowAudit.watch already running; returning active session.");
+      con.info("👀 A11YFlowAudit.watch already running; returning active session.");
       return watchInFlight.promise;
     }
 
@@ -4040,12 +3953,12 @@
         }
         api.lastWatch = result;
 
-        console.groupCollapsed(`⏱️ A11YFlowAudit.watch — ${seconds}s — bursts=${bursts} loading=${totalLoadingMs}ms silent=${silentMs}ms focusLoss=${focusLoss}`);
-        if (verdicts.length) console.warn("OVER budget:", verdicts);
-        else console.info("Budgets OK ✅");
-        console.table(events.slice(0, 120));
-        console.log("Raw:", api.lastWatch);
-        console.groupEnd();
+        con.groupCollapsed(`⏱️ A11YFlowAudit.watch — ${seconds}s — bursts=${bursts} loading=${totalLoadingMs}ms silent=${silentMs}ms focusLoss=${focusLoss}`);
+        if (verdicts.length) con.warn("OVER budget:", verdicts);
+        else con.info("Budgets OK ✅");
+        con.table(events.slice(0, 120));
+        con.log("Raw:", api.lastWatch);
+        con.groupEnd();
 
         resolve(result);
       };
@@ -4099,28 +4012,28 @@
         try {
           steResolveElement._fallbackCount = 0;
           const watchArtifacts = steBuildCaptureArtifacts("watch", announcementCount, announcementCount + emptyAnnouncementCount);
-          const nextWState = steBuildTransitionState({ frameId: 0, frameKeyStable: "", rootSelector: null, captureArtifacts: watchArtifacts });
-          watchTransitionSummaries.push(steBuildTransitionStateSummary(nextWState));
+          const nextWState = buildTransitionState({ frameId: 0, frameKeyStable: "", rootSelector: null, captureArtifacts: watchArtifacts });
+          watchTransitionSummaries.push(buildTransitionStateSummary(nextWState));
           if (prevWatchTransitionState) {
-            const wDelta = steBuildStateDelta(prevWatchTransitionState, nextWState);
-            const c1 = steEvaluateC1(wDelta, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
+            const wDelta = buildStateDelta(prevWatchTransitionState, nextWState);
+            const c1 = evaluateC1(wDelta, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
             if (c1) {
               const el = steResolveElement(c1, watchArtifacts);
               add(findings, { type: c1.type, el, severity: c1.severity, wcag: c1.wcag, confidence: c1.confidence, note: c1.note });
             }
-            const c2 = steEvaluateC2(wDelta, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
+            const c2 = evaluateC2(wDelta, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
             if (c2) {
               const el = steResolveElement(c2, watchArtifacts);
               add(findings, { type: c2.type, el, severity: c2.severity, wcag: c2.wcag, confidence: c2.confidence, note: c2.note });
             }
           }
           // C3 rules: structural checks on nextWState (no delta guard needed)
-          const wc3_1 = steEvaluateC3_1(null, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
+          const wc3_1 = evaluateC3_1(null, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
           if (wc3_1) {
             const el = steResolveElement(wc3_1, watchArtifacts);
             add(findings, { type: wc3_1.type, el, severity: wc3_1.severity, wcag: wc3_1.wcag, confidence: wc3_1.confidence, note: wc3_1.note });
           }
-          const wc3_2 = steEvaluateC3_2(null, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
+          const wc3_2 = evaluateC3_2(null, prevWatchTransitionState, nextWState, { emittedSet: watchEmittedSet });
           if (wc3_2) {
             const el = steResolveElement(wc3_2, watchArtifacts);
             add(findings, { type: wc3_2.type, el, severity: wc3_2.severity, wcag: wc3_2.wcag, confidence: wc3_2.confidence, note: wc3_2.note });
@@ -4156,12 +4069,12 @@
         } catch (err) {
           watchTickErrors++;
           if (!firstWatchTickError) firstWatchTickError = String(err && err.message || err);
-          console.error("A11YFlowAudit.watch tick failed:", err);
+          con.error("A11YFlowAudit.watch tick failed:", err);
           if (watchTickErrors >= 3 || t >= seconds * 1000) finalize(false);
         }
       }, tickMs);
 
-      console.info(`👀 A11YFlowAudit.watch started (${seconds}s). Trigger the loader-heavy flow now.`);
+      con.info(`👀 A11YFlowAudit.watch started (${seconds}s). Trigger the loader-heavy flow now.`);
     });
     watchInFlight = { promise };
     return promise;
@@ -4191,14 +4104,14 @@
         i,
         tag: (el.tagName || "").toLowerCase(),
         tabIndex: getTabIndex(el),
-        name: getAccName(el),
+        name: getDisplayName(el),
         path: cssPath(el),
         ok
       });
 
       const key = cssPath(el);
       if (seen.has(key)) {
-        events.push({ i, type: "duplicate_in_order", path: key, name: getAccName(el), tabIndex: getTabIndex(el), note: "Element appears multiple times in computed order (heuristic)." });
+        events.push({ i, type: "duplicate_in_order", path: key, name: getDisplayName(el), tabIndex: getTabIndex(el), note: "Element appears multiple times in computed order (heuristic)." });
       } else {
         seen.add(key);
       }
@@ -4208,7 +4121,7 @@
           i,
           type: "focus_failed",
           path: cssPath(el),
-          name: getAccName(el),
+          name: getDisplayName(el),
           tabIndex: getTabIndex(el),
           note: "Tried to focus but activeElement did not change."
         });
@@ -4233,7 +4146,7 @@
       if (cycleCheck.has(p)) {
         const firstIdx = cycleCheck.get(p);
         if (i - firstIdx < 5) {
-          events.push({ i, type: "possible_focus_trap", path: p, name: getAccName(filtered[i]), tabIndex: getTabIndex(filtered[i]), note: `Element appeared at indices ${firstIdx} and ${i} — possible focus trap (cycle length ${i - firstIdx}).` });
+          events.push({ i, type: "possible_focus_trap", path: p, name: getDisplayName(filtered[i]), tabIndex: getTabIndex(filtered[i]), note: `Element appeared at indices ${firstIdx} and ${i} — possible focus trap (cycle length ${i - firstIdx}).` });
         }
       }
       cycleCheck.set(p, i);
@@ -4244,13 +4157,13 @@
       if (isHidden(dialog)) return;
       const dialogFocusables = [...dialog.querySelectorAll(focusableSelector)].filter(isFocusable);
       if (dialogFocusables.length === 0) {
-        events.push({ i: -1, type: "dialog_no_focusables", path: cssPath(dialog), name: getAccName(dialog), tabIndex: 0, note: "Open dialog has no focusable elements inside it." });
+        events.push({ i: -1, type: "dialog_no_focusables", path: cssPath(dialog), name: getDisplayName(dialog), tabIndex: 0, note: "Open dialog has no focusable elements inside it." });
       }
       const isModal = dialog.getAttribute("aria-modal") === "true" || dialog.tagName === "DIALOG";
       if (isModal && dialogFocusables.length > 0) {
         const siblingsInert = [...(dialog.parentElement?.children || [])].every(sib => sib === dialog || sib.inert || sib.getAttribute("aria-hidden") === "true");
         if (!siblingsInert) {
-          events.push({ i: -1, type: "dialog_focus_not_trapped", path: cssPath(dialog), name: getAccName(dialog), tabIndex: 0, note: "Modal dialog is open but sibling content is not inert/aria-hidden — focus may escape." });
+          events.push({ i: -1, type: "dialog_focus_not_trapped", path: cssPath(dialog), name: getDisplayName(dialog), tabIndex: 0, note: "Modal dialog is open but sibling content is not inert/aria-hidden — focus may escape." });
         }
       }
     });
@@ -4268,7 +4181,7 @@
       if (count >= max * 0.7 && max >= 5) {
         const role = el.getAttribute("role");
         if (role !== "dialog" && role !== "alertdialog" && el.tagName !== "DIALOG") {
-          events.push({ i: -1, type: "roach_motel", path: pp, name: getAccName(el), tabIndex: 0,
+          events.push({ i: -1, type: "roach_motel", path: pp, name: getDisplayName(el), tabIndex: 0,
             note: `${count}/${max} tab stops are inside a non-dialog container (${el.tagName.toLowerCase()}). Focus may be trapped.` });
         }
       }
@@ -4296,7 +4209,7 @@
           if (indices[j] - indices[j - 1] !== 1) { consecutive = false; break; }
         }
         if (consecutive && indices[indices.length - 1] - indices[0] < 5) {
-          events.push({ i: indices[0], type: "non_dialog_focus_trap", path: cp, name: getAccName(el), tabIndex: 0,
+          events.push({ i: indices[0], type: "non_dialog_focus_trap", path: cp, name: getDisplayName(el), tabIndex: 0,
             note: `Non-dialog container trapping ${indices.length} consecutive tab stops. Consider if focus containment is intentional.` });
         }
       }
@@ -4329,10 +4242,10 @@
     };
     api.lastTabWalk = summary;
 
-    console.groupCollapsed(`⌨️ A11YFlowAudit.tabWalk — walked=${max}/${order.length} — events=${events.length}`);
-    console.table(events.slice(0, 140));
-    console.log("Raw:", summary);
-    console.groupEnd();
+    con.groupCollapsed(`⌨️ A11YFlowAudit.tabWalk — walked=${max}/${order.length} — events=${events.length}`);
+    con.table(events.slice(0, 140));
+    con.log("Raw:", summary);
+    con.groupEnd();
 
     return summary;
   };
@@ -4354,7 +4267,8 @@
       if (!s) continue;
 
       // Check cumulative opacity from ancestors
-      let cumulativeOpacity = parseFloat(s.opacity) || 1;
+      const ownOpacity = parseFloat(s.opacity);
+      let cumulativeOpacity = Number.isFinite(ownOpacity) ? ownOpacity : 1;
       let ancestor = el.parentElement;
       while (ancestor && ancestor !== doc.documentElement && cumulativeOpacity > 0) {
         const ancestorOpacity = parseFloat(w.getComputedStyle(ancestor).opacity);
@@ -4366,10 +4280,12 @@
       const fg = parseColorAny(s.color);
       if (!fg || fg.a === 0) continue;
 
-      const bg = getEffectiveBg(el);
-      // Factor in cumulative opacity: effective fg blends toward bg at reduced opacity
-      const effectiveFg = cumulativeOpacity < 1
-        ? blend({ r: fg.r, g: fg.g, b: fg.b, a: fg.a * cumulativeOpacity }, bg)
+      const { bg, uncertain: bgUncertain } = getEffectiveBgInfo(el);
+      // Translucent text (rgba colour and/or reduced opacity) blends toward
+      // the background — rgba(0,0,0,.2) text is light grey, not black.
+      const fgAlpha = fg.a * cumulativeOpacity;
+      const effectiveFg = fgAlpha < 1
+        ? blend({ r: fg.r, g: fg.g, b: fg.b, a: fgAlpha }, bg)
         : { r: fg.r, g: fg.g, b: fg.b };
       const ratio = contrastRatio(effectiveFg, bg);
 
@@ -4388,8 +4304,15 @@
         note: cumulativeOpacity < 1 ? `Effective opacity: ${(cumulativeOpacity * 100).toFixed(0)}% — ratio adjusted for opacity blending.` : null
       };
 
+      if (bgUncertain) {
+        item.bgUncertain = true;
+        item.note = (item.note ? item.note + " " : "") + "Background image/gradient behind the text — ratio not computable; verify manually.";
+      }
       samples.push(item);
-      if (ratio + 1e-6 < req) {
+      // A gradient/image background makes the computed ratio meaningless
+      // (white text on a dark gradient reads as 1:1) — keep it as a sample
+      // for manual review, not a failure.
+      if (!bgUncertain && ratio + 1e-6 < req) {
         failures.push({
           ...item,
           wcag: "1.4.3",
@@ -4408,11 +4331,11 @@
     };
     api.lastContrast = res;
 
-    console.groupCollapsed(`🎚️ A11YFlowAudit.contrastScan — failures=${failures.length}/${nodes.length}`);
-    console.table(failures.slice(0, 120));
-    console.log("Samples:", res.samples);
-    console.log("Raw:", res);
-    console.groupEnd();
+    con.groupCollapsed(`🎚️ A11YFlowAudit.contrastScan — failures=${failures.length}/${nodes.length}`);
+    con.table(failures.slice(0, 120));
+    con.log("Samples:", res.samples);
+    con.log("Raw:", res);
+    con.groupEnd();
 
     return res;
   };
@@ -4451,5 +4374,7 @@
   // Stop the previous injection's timed modes before taking over the slot.
   try { w[KEY]?.__abortTimed?.(); } catch {}
   w[KEY] = api;
-  console.log(`✅ ${KEY} installed`, w.location.href, "inIframe=", w.self !== w.top, "mode=", detectMode());
+  // Carries no audit data (href is the page's own), so it may print on the
+  // extension's first injection before the gate is set.
+  con.log(`✅ ${KEY} installed`, w.location.href, "inIframe=", w.self !== w.top, "mode=", detectMode());
 })();

@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>FlowLens contrast fixtures</title>
+<style>body { background: #fff; font: 16px sans-serif; } p { margin: 4px; }</style></head>
+<body>
+<!--
+  Contrast regression fixtures, asserted by scripts/e2e-smoke.mjs.
+  id="fail-*" must be a contrastScan failure; id="ok-*" must not.
+-->
+<main>
+  <p id="fail-alpha-text" style="color: rgba(0,0,0,0.2)">Translucent text fails</p>
+  <p id="ok-black">Plain black text passes</p>
+  <p id="ok-gradient" style="color:#fff;background:linear-gradient(#000,#222)">White on dark gradient is not a failure</p>
+  <div style="background: rgba(0,0,0,0.5)"><p id="fail-grey-on-half" style="color:#555">Grey on half-black fails</p></div>
+</main>
+</body>
+</html>

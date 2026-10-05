@@ -162,12 +162,10 @@ async function persistActiveSessionBestEffort(session) {
   if (!session) return false;
   const keys = sessionScopeKeys(session);
   const estimatedBytes = estimateJsonBytes(session);
-  renderSaveStatus("saving");
   try {
     await storageSet({ [keys.active]: session });
     sessionState.lastPersistReasonCode = "-";
     debugSession("persist_active_ok", { estimatedBytes });
-    renderSaveStatus("saved");
     return true;
   } catch (err) {
     const reason = classifyPersistReason(err);
@@ -177,21 +175,18 @@ async function persistActiveSessionBestEffort(session) {
       try {
         await storageSet({ [keys.active]: session });
         sessionState.lastPersistReasonCode = "-";
-        renderSaveStatus("saved");
         return true;
       } catch (retryErr) {
         const retryReason = classifyPersistReason(retryErr);
         toast("Session save failed \u2014 data may be lost if DevTools closes");
         sessionState.lastPersistReasonCode = retryReason;
         debugSession("persist_active_fail", { estimatedBytes, error: String(retryErr?.message || retryErr) });
-        renderSaveStatus("error", retryReason === "QUOTA_EXCEEDED" ? "quota" : "error");
         return false;
       }
     }
     toast("Session save failed \u2014 storage quota exceeded");
     sessionState.lastPersistReasonCode = reason;
     debugSession("persist_active_fail", { estimatedBytes, error: String(err?.message || err) });
-    renderSaveStatus("error", "quota");
     return false;
   }
 }
@@ -210,7 +205,6 @@ async function archiveSessionBestEffort(session) {
   try {
     const keys = sessionScopeKeys(session, session.id);
     const estimatedBytes = estimateJsonBytes(session);
-    renderSaveStatus("saving");
     try {
       await storageSet({
         [keys.archive]: session,
@@ -218,14 +212,13 @@ async function archiveSessionBestEffort(session) {
       });
       sessionState.lastArchiveId = session.id;
       debugSession("archive_ok", { estimatedBytes });
-      renderSaveStatus("saved");
+      try { await registerArchivedSession(keys.archive, session); } catch (err) { console.warn("archive index update failed", err); }
       return true;
     } catch (err) {
       const reason = classifyPersistReason(err);
       console.warn("archive session failed", { reason, err });
       toast(`Session archive failed \u2014 ${reason === "QUOTA_EXCEEDED" ? "quota exceeded" : "storage error"}`);
       debugSession("archive_fail", { estimatedBytes, error: String(err?.message || err) });
-      renderSaveStatus("error", reason === "QUOTA_EXCEEDED" ? "quota" : "error");
       return false;
     }
   } finally {
@@ -235,28 +228,97 @@ async function archiveSessionBestEffort(session) {
 
 // ---- Session comparison ----
 
-async function listArchivedSessions() {
-  if (!__storageLocal) return [];
-  try {
-    const all = await __storageLocal.get(null);
-    const prefix = "session::archive::";
-    const sessions = [];
-    for (const [key, val] of Object.entries(all || {})) {
-      if (key.startsWith(prefix) && val && typeof val === "object" && val.id) {
-        sessions.push(val);
+// Archived sessions are listed through a small index key instead of
+// storage.get(null): that read pulled every archive (often megabytes) into
+// memory on each navigation just to fill the compare dropdowns. The index also
+// drives retention — archives beyond MAX_ARCHIVED_SESSIONS are deleted, so
+// chrome.storage.local (10 MB) no longer fills up and fails every save.
+const ARCHIVE_INDEX_KEY = "session::archiveIndex";
+const ARCHIVE_PREFIX = "session::archive::";
+const MAX_ARCHIVED_SESSIONS = 30;
+const MAX_SESSIONS_WITH_MEDIA = 5;
+
+function archiveIndexEntry(key, sess) {
+  return {
+    key,
+    id: String(sess.id),
+    startedAt: sess.startedAt || "",
+    steps: Array.isArray(sess.steps) ? sess.steps.length : 0,
+  };
+}
+
+// Serialize index read-modify-writes (two Ends in quick succession).
+let _archiveIndexChain = Promise.resolve();
+function withArchiveIndex(fn) {
+  const run = _archiveIndexChain.then(fn, fn);
+  _archiveIndexChain = run.catch(() => {});
+  return run;
+}
+
+async function loadArchiveIndex() {
+  const r = await storageGet([ARCHIVE_INDEX_KEY]);
+  if (Array.isArray(r?.[ARCHIVE_INDEX_KEY])) return r[ARCHIVE_INDEX_KEY];
+  // One-time migration from installs that predate the index.
+  const idx = [];
+  if (__storageLocal) {
+    try {
+      const all = await __storageLocal.get(null);
+      for (const [key, val] of Object.entries(all || {})) {
+        if (key.startsWith(ARCHIVE_PREFIX) && val && typeof val === "object" && val.id) idx.push(archiveIndexEntry(key, val));
       }
+    } catch (err) {
+      console.warn("archive index migration failed", err);
     }
-    // Also include current/lastEnded if available
-    if (sessionState.lastEndedSession?.id) {
-      const exists = sessions.some(s => s.id === sessionState.lastEndedSession.id);
-      if (!exists) sessions.push(sessionState.lastEndedSession);
+  }
+  idx.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  try { await storageSet({ [ARCHIVE_INDEX_KEY]: idx }); } catch (_) { /* rebuilt next time */ }
+  return idx;
+}
+
+// Record a newly archived session; evict the oldest archives (and their
+// media) past the caps. Media is only ever deleted for archived sessions —
+// never for an active recording in another DevTools panel.
+function registerArchivedSession(key, sess) {
+  return withArchiveIndex(async () => {
+    const idx = (await loadArchiveIndex()).filter(e => e.id !== String(sess.id));
+    idx.unshift(archiveIndexEntry(key, sess));
+    idx.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+    const evicted = idx.splice(MAX_ARCHIVED_SESSIONS);
+    await storageSet({ [ARCHIVE_INDEX_KEY]: idx });
+    if (evicted.length) {
+      try { await storageRemove(evicted.map(e => e.key)); } catch (err) { console.warn("archive eviction failed", err); }
     }
-    sessions.sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || ""));
-    return sessions;
+    if (typeof flowMediaStore !== "undefined") {
+      const mediaDrop = evicted.concat(idx.slice(MAX_SESSIONS_WITH_MEDIA)).map(e => e.id);
+      if (mediaDrop.length) await flowMediaStore.deleteSessions(mediaDrop);
+    }
+    return { evicted: evicted.length };
+  });
+}
+
+// Summaries (id, startedAt, steps, key), newest first. Includes the
+// last-ended session if it isn't archived yet.
+async function listArchivedSessions() {
+  try {
+    const idx = await loadArchiveIndex();
+    const out = idx.slice();
+    const last = sessionState.lastEndedSession;
+    if (last?.id && !out.some(e => e.id === String(last.id))) out.unshift(archiveIndexEntry(null, last));
+    out.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+    return out;
   } catch (err) {
     console.warn("listArchivedSessions failed", err);
     return [];
   }
+}
+
+async function loadArchivedSession(entry) {
+  if (!entry) return null;
+  const last = sessionState.lastEndedSession;
+  if (last?.id && String(last.id) === entry.id) return last;
+  if (!entry.key) return null;
+  const r = await storageGet([entry.key]);
+  return r?.[entry.key] || null;
 }
 
 function _sessionSummaryStats(sess) {
@@ -273,10 +335,9 @@ function _sessionSummaryStats(sess) {
   return { steps: steps.length, added, fixed, persisting, blockingAdded, blockingFixed, blocking: blockingAdded - blockingFixed };
 }
 
-function _sessionOptionLabel(sess) {
-  const date = sess.startedAt ? new Date(sess.startedAt).toLocaleString() : "?";
-  const steps = Array.isArray(sess.steps) ? sess.steps.length : 0;
-  return `${date} (${steps} steps)`;
+function _sessionOptionLabel(entry) {
+  const date = entry.startedAt ? new Date(entry.startedAt).toLocaleString() : "?";
+  return `${date} (${entry.steps || 0} steps)`;
 }
 
 async function populateCompareSelects() {
@@ -305,9 +366,11 @@ function runSessionComparison() {
   const selectB = document.getElementById("compareSelectB");
   const resultEl = document.getElementById("compareResult");
   if (!selectA || !selectB || !resultEl) return;
-  listArchivedSessions().then(sessions => {
-    const sessA = sessions.find(s => s.id === selectA.value);
-    const sessB = sessions.find(s => s.id === selectB.value);
+  listArchivedSessions().then(async entries => {
+    const [sessA, sessB] = await Promise.all([
+      loadArchivedSession(entries.find(e => e.id === selectA.value)),
+      loadArchivedSession(entries.find(e => e.id === selectB.value)),
+    ]);
     if (!sessA || !sessB) { toast("Select two sessions"); return; }
     if (sessA.id === sessB.id) { toast("Select two different sessions"); return; }
     const a = _sessionSummaryStats(sessA);
@@ -837,14 +900,24 @@ function buildStepDiffs(step, prevStep, rawAppendix = null) {
   const prevRun = prevStep ? _stableFor(prevStep, "run", rawAppendix) : null;
   const prevActive = prevStep ? _stableFor(prevStep, "active", rawAppendix) : null;
 
-  const mergeStable = (run, active) => ({
-    stableFindingSignatureSet: [
-      ...(run?.stableFindingSignatureSet || []),
-      ...(active?.stableFindingSignatureSet || []),
-    ],
-    blockingSet: [...(run?.blockingSet || []), ...(active?.blockingSet || [])],
-    severityCounts: sumSeverityCounts(run?.severityCounts, active?.severityCounts),
-  });
+  // Observe re-reports the baseline's static findings under "observe|…"
+  // signatures; drop those twins so one issue counts once (see observeTwinOf).
+  const mergeStable = (run, active) => {
+    const runSigs = new Set(run?.stableFindingSignatureSet || []);
+    const isTwin = (sig) => { const t = observeTwinOf(sig); return !!t && runSigs.has(t); };
+    const activeSigs = (active?.stableFindingSignatureSet || []).filter((s) => !isTwin(s));
+    const activeCounts = Object.assign({}, active?.severityCounts || {});
+    for (const s of (active?.stableFindingSignatureSet || [])) {
+      if (!isTwin(s)) continue;
+      const sev = String(s).split("|")[3];
+      if (sev in activeCounts) activeCounts[sev] = Math.max(0, asNumber(activeCounts[sev], 0) - 1);
+    }
+    return {
+      stableFindingSignatureSet: [...runSigs, ...activeSigs],
+      blockingSet: [...(run?.blockingSet || []), ...(active?.blockingSet || []).filter((s) => !isTwin(s))],
+      severityCounts: sumSeverityCounts(run?.severityCounts, activeCounts),
+    };
+  };
 
   const result = {
     run: step?.snapshots?.run ? _stableModeDiff(prevRun, currRun) : undefined,

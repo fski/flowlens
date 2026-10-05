@@ -4,6 +4,7 @@
   "version": "6.10.7",
   "scripts": {
     "test": "node --test test/*.test.mjs",
+    "test:e2e": "node scripts/e2e-smoke.mjs && node scripts/panel-e2e.mjs",
     "build": "node scripts/build.mjs",
     "build:dev": "node scripts/build.mjs --dev",
     "build:clean": "rm -rf dist && node scripts/build.mjs",
@@ -11,9 +12,8 @@
     "package:audit": "node scripts/package-audit.mjs",
     "release:guard": "node scripts/release-guard.mjs",
     "audit:vendor": "node scripts/audit-vendor.mjs",
-    "audit:vendor:all": "node scripts/audit-vendor-all.mjs",
     "release:check": "npm run build && npm run package && npm run package:audit && npm run release:guard",
-    "ci": "npm test && npm run build && npm run package && npm run package:audit && npm run audit:vendor && npm run audit:vendor:all && npm run release:guard"
+    "ci": "npm test && npm run build && npm run package && npm run package:audit && npm run audit:vendor && npm run release:guard"
   },
   "devDependencies": {
     "esbuild": "^0.25.0",

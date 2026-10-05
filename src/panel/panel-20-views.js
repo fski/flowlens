@@ -199,8 +199,8 @@ function decideNavAction(url, fromAuditedFrame, nav, session, autoOn, now) {
 }
 
 // Is a URL fragment a client-side ROUTE rather than an in-page anchor?
-// Hash routers use #/path, #!/path or #?key=value (the DH help-center MFE
-// navigates exclusively via #?…); plain anchors are bare slugs (#section).
+// Hash routers use #/path, #!/path or #?key=value (embedded help-center MFEs
+// navigate exclusively via #?…); plain anchors are bare slugs (#section).
 // OAuth implicit-flow fragments: a token-bearing URL (plus screenshot) must
 // never land in a stored session. Checked on EVERY accept path of
 // classifyNavForCapture — a real implicit-flow return changes the PATH
@@ -348,7 +348,10 @@ function buildCombinedGradient(colors) {
 // their own copies.
 function sevTabButton(sev, label, count, active, title = "") {
   const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
-  return `<button class="sevTab" role="tab" data-sev="${sev}" aria-selected="${active}" tabindex="${active ? 0 : -1}" type="button"${titleAttr}>
+  // Toggle buttons (aria-pressed), not tabs: severities combine (multi-select)
+  // and each one must be reachable with Tab — the old role=tab/tabindex=-1
+  // strip had no arrow-key handler, so only the active filter was reachable.
+  return `<button class="sevTab" data-sev="${sev}" aria-pressed="${active}" type="button"${titleAttr}>
       <span class="sevLabel">${escapeHtml(label)}</span>
       <span class="sevCount">${count != null ? count : "&ndash;"}</span>
     </button>`;
@@ -366,12 +369,14 @@ function renderSevTabs(findings = null) {
 
   const allTab = renderTab("", "All", total, isAll);
 
+  // Empty severities are noise ("Crit. 0", "Info 0") — show only those with
+  // findings, plus any the user has selected (so a filter can be undone).
   const sevTabs = SEV_LIST.map(sev => ({
     sev,
     label: sev === "critical" ? "Crit." : sev === "medium" ? "Med." : sev.charAt(0).toUpperCase() + sev.slice(1),
     count: c ? c[sev] : null,
     active: sel.has(sev),
-  }));
+  })).filter(t => t.active || !c || t.count > 0);
 
   // Group consecutive active tabs into runs
   const groups = [];
@@ -418,7 +423,30 @@ function renderContrastSevTabs() {
   ].join("");
 }
 
-async function persistRecords(scopeKey) {
+// Records keys (records::<origin>::<env>) accumulate for every site ever
+// audited. An index of last-use times keeps the newest MAX_RECORD_SCOPES and
+// deletes the rest, so stale origins can't exhaust the storage quota.
+const RECORDS_INDEX_KEY = "records::index";
+const MAX_RECORD_SCOPES = 25;
+let _recordsIndexChain = Promise.resolve();
+function touchRecordsScope(scopeKey) {
+  const run = _recordsIndexChain.then(async () => {
+    const r = await storageGet([RECORDS_INDEX_KEY]);
+    const idx = (r && r[RECORDS_INDEX_KEY] && typeof r[RECORDS_INDEX_KEY] === "object") ? { ...r[RECORDS_INDEX_KEY] } : {};
+    idx[scopeKey] = new Date().toISOString();
+    const keys = Object.keys(idx).sort((a, b) => String(idx[b]).localeCompare(String(idx[a])));
+    const evicted = keys.slice(MAX_RECORD_SCOPES);
+    for (const k of evicted) delete idx[k];
+    await storageSet({ [RECORDS_INDEX_KEY]: idx });
+    if (evicted.length) await storageRemove(evicted);
+    return evicted;
+  });
+  _recordsIndexChain = run.catch(() => {});
+  return run;
+}
+
+// Persist `records` (default: the panel's current list) under scopeKey.
+async function persistRecords(scopeKey, records = null) {
   const PERSIST_LIMIT_STEPS = [
     { records: 20, findings: 200, failures: 200, events: 200, samples: 30, snapshots: 120, verdicts: 60, maxString: 300 },
     { records: 15, findings: 150, failures: 150, events: 150, samples: 20, snapshots: 90, verdicts: 45, maxString: 220 },
@@ -516,17 +544,17 @@ async function persistRecords(scopeKey) {
   };
 
   // keep latest records in-memory; persistence uses progressively more compact payloads
-  if (state.records.length > 20) {
+  if (!records && state.records.length > 20) {
     state.records = state.records.slice(0, 20);
     state.byId = {};
     for (const rec of state.records) state.byId[String(rec.id)] = rec;
   }
+  const source = records || state.records;
 
-  renderSaveStatus("saving");
   let lastErr = null;
   for (let i = 0; i < PERSIST_LIMIT_STEPS.length; i++) {
     const limits = PERSIST_LIMIT_STEPS[i];
-    const compacted = state.records
+    const compacted = source
       .slice(0, limits.records)
       .map(rec => compactRecord(rec, limits));
     try {
@@ -534,7 +562,7 @@ async function persistRecords(scopeKey) {
       if (i > 0) {
         console.warn(`persistRecords recovered with compact level ${i + 1}/${PERSIST_LIMIT_STEPS.length}`, { bytes: estimateJsonBytes(compacted) });
       }
-      renderSaveStatus("saved");
+      try { await touchRecordsScope(scopeKey); } catch (err) { console.warn("records index update failed", err); }
       return true;
     } catch (err) {
       lastErr = err;
@@ -543,7 +571,9 @@ async function persistRecords(scopeKey) {
   }
 
   console.error("persistRecords failed", lastErr);
-  renderSaveStatus("error", "quota");
+  // Was a write into a save-status HUD that no longer exists in panel.html,
+  // so a failed Snap save was silent. Flow saves already toast on failure.
+  toast("Audit result not saved — browser storage is full");
   return false;
 }
 
@@ -553,6 +583,9 @@ async function loadRecords(scopeKey) {
   state.records = arr;
   state.byId = {};
   for (const rec of state.records) state.byId[String(rec.id)] = rec;
+  // The CTA's Run/Rerun label derives from the records — refresh it whenever
+  // they are replaced (it kept "Rerun" after navigating to a fresh origin).
+  updateSnapCta(state.activeMode || "run");
 }
 
 function resetFilters() {
@@ -576,7 +609,7 @@ function resetFilters() {
 function renderRecord(rec) {
   if (!rec) return;
   state.currentId = rec.id;
-  state.hasRunMode.add(rec.action);
+  state.selectedByMode[rec.action] = rec.id;
   // Store per-record highlight context (prevents global leakage)
   state._activeHighlightCtx = rec._highlightContext || {
     bestFrameId: rec.best?.frameId ?? 0,
@@ -592,18 +625,12 @@ function renderRecord(rec) {
 
   // default reset
   els.allTableBody.innerHTML = "";
-  state.currentFindings = [];
   if (mode !== "contrast") renderSevTabs();
   if (els.integrityOverview) els.integrityOverview.hidden = true;
-  if (els.shadowCoverageRow) els.shadowCoverageRow.hidden = true;
   showMode(mode);
 
   if (mode === "run") {
     renderRunSummary(bestResult, rec);
-    const allFindings = Array.isArray(bestResult?.findings) ? bestResult.findings : [];
-    const findings = applyAllFindingFilters(allFindings);
-    state.currentFindings = findings;
-    state.findingsByMode.run = allFindings;
     rerenderFindings();
   } else if (mode === "contrast") {
     state.contrastFilter = "all";
@@ -613,11 +640,7 @@ function renderRecord(rec) {
     renderSevTabs();
     renderTabWalk(bestResult);
   } else if (mode === "observe" && bestResult) {
-    const allFindings = Array.isArray(bestResult.findings) ? bestResult.findings : [];
-    const oFindings = applyAllFindingFilters(allFindings);
-    if (oFindings.length) {
-      state.currentFindings = oFindings;
-      state.findingsByMode.observe = allFindings;
+    if (currentFindings().length) {
       showMode("observe");
       rerenderFindings();
     } else {
@@ -710,13 +733,13 @@ async function deleteSingleRun(id) {
   const deletedIdx = state.records.indexOf(deleted);
   state.records = state.records.filter(x => String(x.id) !== idStr);
   delete state.byId[idStr];
+  updateSnapCta(state.activeMode || "run");
   if (String(state.currentId) === idStr) {
     if (state.records.length) {
       state.currentId = state.records[0].id;
       renderRecord(state.records[0]);
     } else {
       state.currentId = null;
-      state.currentFindings = [];
       state.lastResult = null;
       els.json.textContent = "(no results yet)";
       updateResultsVisibility(false);
@@ -742,12 +765,11 @@ async function deleteAllRunsAction() {
   state.records = [];
   state.byId = {};
   state.currentId = null;
-  state.currentFindings = [];
   state.lastResult = null;
-  state.hasRunMode = new Set();
-  state.findingsByMode = {};
+  state.selectedByMode = {};
   els.json.textContent = "(no results yet)";
   updateResultsVisibility(false);
+  updateSnapCta(state.activeMode || "run");
   renderPastRuns();
   const { origin, env } = getCurrentScopeInfo();
   const scopeKey = `records::${origin || ""}::${env}`;
@@ -1014,7 +1036,7 @@ function deriveHelpCenterRouteHint(url, activeProfileIds = []) {
 }
 
 // DevTools evals can silently LOSE their callback when the page navigates
-// mid-eval (SPA churn, live-region-heavy pages like the DH help center).
+// mid-eval (SPA churn, live-region-heavy pages like embedded help centers).
 // captureStepOptionC awaits this inside its try — an unresolved promise
 // meant finally never ran, inFlight stayed true forever and the whole
 // recording hung. Hard timeout: a missing title only costs a nicer label.
@@ -1158,11 +1180,11 @@ function setPersistentStatus(status = "IDLE", reason = "-", detail = "", surface
   // was Snap state leaking into the wrong context.
   const line = surface === "snap" ? els.snapStatusLine : els.lastStatusLine;
   if (!line) return;
-  const isIdle = normalized === "IDLE";
-  if (!isIdle) state.hasPersistentStatus = true;
-  const shouldShow = !isIdle || state.hasPersistentStatus;
-  line.hidden = !shouldShow;
-  if (!shouldShow) return;
+  if (normalized !== "IDLE") state.hasPersistentStatus = true;
+  // Only problems get a visible line. Success already shows as results (and
+  // the live findings count); "Last status: OK • RUN • 28 issues" under a
+  // table of 28 findings was a third copy of the same news.
+  line.hidden = !(normalized === "FAILED" || normalized === "PARTIAL");
   line.classList.remove("ok", "partial", "failed");
   if (normalized === "OK") line.classList.add("ok");
   else if (normalized === "PARTIAL") line.classList.add("partial");
@@ -1170,13 +1192,6 @@ function setPersistentStatus(status = "IDLE", reason = "-", detail = "", surface
   const reasonPart = reasonLabel && reasonLabel !== "—" ? ` • ${reasonLabel}` : "";
   const tail = detail ? ` • ${detail}` : "";
   line.textContent = `Last status: ${normalized}${reasonPart}${tail}`;
-}
-
-function setRunTelemetry({ usedFrames, diff } = {}) {
-  if (typeof usedFrames === "string") state.lastUsedFramesSummary = usedFrames;
-  if (typeof diff === "string") state.lastDiffSummary = diff;
-  if (els.usedFrames) els.usedFrames.textContent = state.lastUsedFramesSummary;
-  if (els.diff) els.diff.textContent = state.lastDiffSummary;
 }
 
 function getSelectedFrameLabel() {
@@ -1472,7 +1487,7 @@ function flowStepViews(sess) {
     var d = bucketStepDiff(step, prev);
     var blockingAdded = (step.diffs && step.diffs.consolidated && Number(step.diffs.consolidated.blockingAdded)) || 0;
     var unresolvedBlockers = 0;
-    var idx = step.findingIndex || {};
+    var idx = dedupeFindingIndex(step.findingIndex);
     for (var k in idx) { if (Object.prototype.hasOwnProperty.call(idx, k) && isRunFindingBlocking(idx[k])) unresolvedBlockers++; }
     out.push({
       index: step.index,
@@ -1513,15 +1528,10 @@ function flowVerdictHeaderHtml(sess) {
   var steps = (sess && Array.isArray(sess.steps)) ? sess.steps : [];
   if (!steps.length) return "";
   var views = flowStepViews(sess);
-  var totalBlockingAdded = 0, newTotal = 0, worst = null;
-  for (var i = 0; i < views.length; i++) {
-    totalBlockingAdded += views[i].blockingAdded;
-    newTotal += views[i].appeared;
-    if (!worst || views[i].appeared > worst.appeared) worst = views[i];
-  }
+  var totalBlockingAdded = 0;
+  for (var i = 0; i < views.length; i++) totalBlockingAdded += views[i].blockingAdded;
   var last = views[views.length - 1];
   var issuesNow = last ? (last.appeared + last.persisting) : 0;
-  void newTotal; void worst; // retained for future detail; not shown in the slim header
   var pass = totalBlockingAdded === 0;
   var badge = pass ? "PASS" : "FAIL";
   var badgeCls = pass ? "flowVerdictBadge--pass" : "flowVerdictBadge--fail";
@@ -1558,12 +1568,13 @@ function flowVerdictHeaderHtml(sess) {
   var hasSuspect = steps.some(function (s) { return s.profileSuspect === true && (s.profileLabel || s.rootSelector); });
   var hasDegraded = steps.some(function (s) { return s.stableSignatures && s.stableSignatures.run && s.stableSignatures.run.stepQuality && s.stableSignatures.run.stepQuality.degraded === true; });
   var hasRootMissing = steps.some(function (s) { return s.rootSelectorNotFound === true; });
-  if (hasSuspect || hasDegraded || hasRootMissing) {
+  // Only meaningful once there is something to compare (2+ steps).
+  if (steps.length > 1 && (hasSuspect || hasDegraded || hasRootMissing)) {
     var reasons = [];
-    if (hasDegraded) reasons.push("degraded signatures");
-    if (hasRootMissing) reasons.push("root selector not found");
-    if (hasSuspect) reasons.push("low profile confidence");
-    diffConfNote = ' <span class="diffConfidenceReduced" title="' + escapeHtml(reasons.join("; ")) + '">Diff confidence: reduced</span>';
+    if (hasDegraded) reasons.push("some elements lack stable identifiers");
+    if (hasRootMissing) reasons.push("the profile's root element was not found");
+    if (hasSuspect) reasons.push("the page type match is uncertain");
+    diffConfNote = ' <span class="diffConfidenceReduced" title="' + escapeHtml("Step-to-step comparison may be less reliable: " + reasons.join("; ")) + '">⚠ Comparison less reliable</span>';
   }
   // Slim header (progressive disclosure): verdict badge + step count + the two
   // decision-relevant numbers (Issues now, Blocking). New-total / worst-step
@@ -1572,7 +1583,7 @@ function flowVerdictHeaderHtml(sess) {
     + '<span class="flowVerdictBadge ' + badgeCls + '">' + badge + '</span>'
     + '<span class="flowVerdictText">' + steps.length + ' step' + (steps.length !== 1 ? "s" : "") + '</span>'
     + '<span class="flowStat"><span class="flowStatV">' + issuesNow + '</span><span class="flowStatL">Issues now</span></span>'
-    + '<span class="flowStat' + (totalBlockingAdded > 0 ? ' flowStat--bad' : '') + '"><span class="flowStatV">' + totalBlockingAdded + '</span><span class="flowStatL">Blocking</span></span>'
+    + '<span class="flowStat' + (totalBlockingAdded > 0 ? ' flowStat--bad' : '') + '"><span class="flowStatV">' + totalBlockingAdded + '</span><span class="flowStatL" title="Blocking issues introduced after the first step (the first step is the baseline)">New blocking</span></span>'
     + videoNote
     + diffConfNote
     + '</div>' + systemicNote;
@@ -1718,7 +1729,7 @@ function stepDetailHtml(sess, selectedIndex) {
   var shot = step.hasShot
     ? '<div class="flowDetailShot" data-shot-step="' + escapeHtml(shotKey) + '" data-shot-idx="' + step.index + '"></div>'
       + '<button class="btn xs flowShotDownload" type="button" data-shot-download="' + step.index + '" aria-label="Download step ' + step.index + ' screenshot">⤓ PNG</button>'
-    : '<div class="flowDetailShot flowDetailShot--empty">' + (step.shotError ? "screenshot unavailable" : "no screenshot") + '</div>';
+    : (step.shotError ? '<p class="flowDetailShotNote">Screenshot unavailable' + (step.shotErrorReason ? " — " + escapeHtml(step.shotErrorReason) : "") + '</p>' : '');
   var hasPrev = pos > 0, hasNext = pos < steps.length - 1;
   var nav = '<div class="flowStepNav">'
     + '<button class="btn xs" type="button" data-step-nav="prev"' + (hasPrev ? "" : " disabled") + ' aria-label="Previous step">‹ Prev</button>'
@@ -1785,7 +1796,23 @@ function _flowSelectedIndex(sess) {
   return steps[steps.length - 1].index; // default: latest step
 }
 
+// renderFlow rebuilds the filmstrip/step list with innerHTML, which destroyed
+// the focused step (focus fell to <body> on every select and every capture).
+// Remember which step control had focus and put it back on its replacement.
 function renderFlow() {
+  var active = typeof document !== "undefined" ? document.activeElement : null;
+  var holder = active && active.closest ? active.closest("#flowFilmstrip,#flowStepList") : null;
+  var stepIdx = holder && active.getAttribute ? active.getAttribute("data-step-index") : null;
+  _renderFlowInner();
+  if (holder && stepIdx != null && document.activeElement !== active) {
+    var sel = sessionState.selectedStepIndex;
+    var target = holder.querySelector('[data-step-index="' + (sel != null ? sel : stepIdx) + '"]')
+      || holder.querySelector('[data-step-index="' + stepIdx + '"]');
+    if (target && typeof target.focus === "function") target.focus();
+  }
+}
+
+function _renderFlowInner() {
   var sess = sessionState.current || sessionState.lastEndedSession;
   var steps = (sess && Array.isArray(sess.steps)) ? sess.steps : [];
   var hasSteps = steps.length > 0;

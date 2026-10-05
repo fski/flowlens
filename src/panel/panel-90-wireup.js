@@ -264,12 +264,15 @@ if (els.exportSessionJunitMenu) {
   });
 }
 if (els.sessionStart) {
-  els.sessionStart.addEventListener("click", () => {
+  els.sessionStart.addEventListener("click", async () => {
     if (sessionState.current) {
       toast("Session already active");
       return;
     }
-    startSession();
+    await startSession();
+    // Settings → Flow → "Record a video with each flow". Started from this
+    // click so getDisplayMedia still has the user gesture it requires.
+    if (els.flowVideoOnRecord?.checked && sessionState.current) startFlowVideo();
   });
 }
 if (els.sessionMark) els.sessionMark.addEventListener("click", () => captureStepOptionC());
@@ -305,11 +308,26 @@ function stepIndicesForNav() {
     if (tile) selectFlowStep(Number(tile.dataset.stepIndex));
   };
   const onSelectKey = (e) => {
-    if (e.key !== "Enter" && e.key !== " ") return;
     const tile = e.target.closest("[data-step-index]");
     if (!tile) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      selectFlowStep(Number(tile.dataset.stepIndex));
+      return;
+    }
+    // Filmstrip is a listbox: arrows/Home/End move the selection (and focus,
+    // restored by renderFlow).
+    if (!e.currentTarget || e.currentTarget !== els.flowFilmstrip) return;
+    const idx = stepIndicesForNav();
+    const cur = idx.indexOf(Number(tile.dataset.stepIndex));
+    let next = -1;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = Math.min(idx.length - 1, cur + 1);
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = Math.max(0, cur - 1);
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = idx.length - 1;
+    if (next < 0 || next === cur) return;
     e.preventDefault();
-    selectFlowStep(Number(tile.dataset.stepIndex));
+    selectFlowStep(idx[next]);
   };
   if (els.flowFilmstrip) { els.flowFilmstrip.addEventListener("click", onSelectClick); els.flowFilmstrip.addEventListener("keydown", onSelectKey); }
   if (els.flowStepList) { els.flowStepList.addEventListener("click", onSelectClick); els.flowStepList.addEventListener("keydown", onSelectKey); }
@@ -372,47 +390,12 @@ function stepIndicesForNav() {
     });
   }
 
-  // Record video: getDisplayMedia (user picks the tab) → webm in the media
-  // store. Toggle button; label reflects recording state.
-  if (els.flowRecordVideo) {
-    els.flowRecordVideo.addEventListener("click", async () => {
-      if (flowRecorder.isRecording()) {
-        const r = await flowRecorder.stop();
-        setRecordVideoUi(false);
-        if (r?.ok && r.blob) {
-          const sid = (sessionState.current || sessionState.lastEndedSession)?.id || "flow";
-          downloadBlobFile(r.blob, `flowlens-flow-${sid}.webm`);
-          // stop() set session.hasVideo in-memory (only when the store write
-          // succeeded); persist so the stored-video download control survives
-          // a panel reload before the session ends.
-          if (r.saved && sessionState.current) {
-            persistActiveSessionBestEffort(compactSessionForExport(sessionState.current)).catch(() => {});
-          }
-          toast(r.saved ? "Video saved & downloaded" : "Video downloaded — saving to browser storage failed");
-        } else {
-          toast("Recording stopped");
-        }
-        renderFlow();
-        return;
-      }
-      const sess = sessionState.current || sessionState.lastEndedSession;
-      if (!sess?.id) { toast("Start a flow first"); return; }
-      const r = await flowRecorder.start(sess.id);
-      if (r?.ok) { setRecordVideoUi(true); toast("Recording — pick the tab to capture"); }
-      else if (r?.reason === "cancelled") { /* user dismissed picker, no-op */ }
-      else if (r?.reason === "blocked") {
-        console.warn("getDisplayMedia blocked by permissions policy", r);
-        toast("Recording blocked in the DevTools panel (display-capture policy)");
-      } else {
-        console.warn("getDisplayMedia failed", r);
-        toast("Screen recording unavailable" + (r?.errorName ? ` — ${r.errorName}` : ""));
-      }
-    });
-  }
 }
-function setRecordVideoUi(recording) {
-  if (els.flowRecordVideo) els.flowRecordVideo.classList.toggle("isRecording", !!recording);
-  if (els.flowRecordVideoLabel) els.flowRecordVideoLabel.textContent = recording ? "Stop recording" : "Record video";
+
+if (els.flowVideoOnRecord) {
+  els.flowVideoOnRecord.addEventListener("change", async () => {
+    await updateUiPrefs({ flowVideoOnRecord: !!els.flowVideoOnRecord.checked });
+  });
 }
 
 if (els.sheetCopyRaw) {
@@ -433,14 +416,22 @@ document.addEventListener("click", (e) => {
   toast("Copied");
 }, true);
 
-// Keyboard navigation for table rows (Enter/Space to activate)
+// Keyboard navigation for table rows: Enter/Space activate (expand +
+// highlight), ArrowUp/ArrowDown move between rows.
 document.addEventListener("keydown", (e) => {
   if (e.target && e.target.closest("button, a, input, select, textarea")) return;
-  if (e.key !== "Enter" && e.key !== " ") return;
-  const tr = e.target.closest("tr.trow");
+  const tr = e.target && e.target.closest ? e.target.closest("tr.trow") : null;
   if (!tr) return;
-  e.preventDefault();
-  tr.click();
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    tr.click();
+    return;
+  }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    let n = e.key === "ArrowDown" ? tr.nextElementSibling : tr.previousElementSibling;
+    while (n && !(n.matches && n.matches("tr.trow"))) n = e.key === "ArrowDown" ? n.nextElementSibling : n.previousElementSibling;
+    if (n) { e.preventDefault(); n.focus(); }
+  }
 });
 
 // --- DELEGATED_TABLE_CLICKS ---
@@ -575,15 +566,8 @@ if (els.wcagLevel) {
 if (els.depthMax) {
   els.depthMax.addEventListener("change", async () => {
     await updateUiPrefs({ depthMax: Number(els.depthMax.value) || 3 });
-    // Re-render current findings with new depth filter
-    const currentRec = state.currentId ? state.byId[state.currentId] : state.records?.[0];
-    const mode = currentRec?.action || "run";
-    const cached = state.findingsByMode[mode];
-    if (cached) {
-      const filtered = applyAllFindingFilters(cached);
-      state.currentFindings = filtered;
-      scheduleRerenderFindings("depth_filter");
-    }
+    // Findings are derived through the depth filter — just re-render.
+    scheduleRerenderFindings("depth_filter");
     renderDiagnostics();
   });
 }
@@ -600,6 +584,19 @@ if (els.recipeSelect) {
 if (els.alsoConsole) {
   els.alsoConsole.addEventListener("change", async () => {
     await updateUiPrefs({ alsoConsole: !!els.alsoConsole.checked });
+  });
+}
+
+if (els.devMode) {
+  els.devMode.addEventListener("change", async () => {
+    applyDevMode(els.devMode.checked);
+    await updateUiPrefs({ devMode: !!els.devMode.checked });
+  });
+}
+
+if (els.singleKeyShortcuts) {
+  els.singleKeyShortcuts.addEventListener("change", async () => {
+    await updateUiPrefs({ singleKeyShortcuts: !!els.singleKeyShortcuts.checked });
   });
 }
 
@@ -680,7 +677,7 @@ if (els.copyCiJson) {
 
 // Explorer reactive filters (debounced). Routed through rerenderFindings so
 // the integrity-pill group filter stays applied — rendering straight from
-// state.currentFindings silently dropped it.
+// currentFindings() silently dropped it.
 let __explorerT = null;
 function scheduleExplorerRender() {
   clearTimeout(__explorerT);
@@ -744,7 +741,7 @@ if (els.sevTabs) {
       }
     }
 
-    renderSevTabs(state.currentFindings);
+    renderSevTabs(currentFindings());
     scheduleExplorerRender();
     const refocus = els.sevTabs.querySelector(`.sevTab[data-sev="${sev}"]`);
     if (refocus) refocus.focus();
@@ -798,9 +795,12 @@ if (els.tabWalkQ) {
   });
 }
 
-// keyboard shortcuts (tab-aware)
+// keyboard shortcuts (tab-aware). Single-character shortcuts must be
+// switchable off (WCAG 2.1.4) — Settings → Keyboard shortcuts.
+let _endShortcutArmedAt = 0;
 window.addEventListener("keydown", (e) => {
   if (state.running) return;
+  if (els.singleKeyShortcuts && !els.singleKeyShortcuts.checked) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.target && (e.target.matches("input,select,textarea") || e.target.isContentEditable)) return;
   const key = (e.key || "").toLowerCase();
@@ -816,8 +816,17 @@ window.addEventListener("keydown", (e) => {
       els.sessionMark.click();
       return;
     }
+    // Ending is irreversible: a stray "e" only arms it; a second "e" within
+    // 3s ends the session.
     if (key === "e" && sessionState.current && els.sessionEnd && !els.sessionEnd.disabled) {
-      els.sessionEnd.click();
+      const now = Date.now();
+      if (now - _endShortcutArmedAt < 3000) {
+        _endShortcutArmedAt = 0;
+        els.sessionEnd.click();
+      } else {
+        _endShortcutArmedAt = now;
+        toast("Press E again to end the session");
+      }
       return;
     }
     // r = start recording (if no session)
@@ -1158,14 +1167,17 @@ function maybeAutoCapture(url, { fromAuditedFrame = false } = {}) {
 }
 
 chrome.devtools.network.onNavigated.addListener(async () => {
-  state.findingsByMode = {};
-  state.hasRunMode = new Set();
+  // The old page's records were persisted when they were made; drop them
+  // from view and say "restoring" until the new scope's records load
+  // (refreshInspectedUrl clears the flag and renders). Everything Snap
+  // shows derives from state.records, so this one reset keeps data and
+  // view consistent.
+  state.records = [];
+  state.byId = {};
+  state.currentId = null;
+  state.restoringScope = true;
   state.contrastFilter = "all";
-  // Data and view must reset TOGETHER: clearing findingsByMode/hasRunMode
-  // while the explorer kept its painted rows left the view lying about
-  // state — the next partial re-render then showed the run-CTA under the
-  // stale list (rAF-deferred VT clear vs sync empty write).
-  state.currentFindings = [];
+  updateSnapCta(state.activeMode || "run");
   scheduleRerenderFindings("navigation");
   await refreshInspectedUrl();
   await refreshFrames();
@@ -1406,6 +1418,8 @@ initColToggles();
 updateScopeUi();
 setVersionBadge();
 loadUiPrefs();
+// The removed Snap "history" diff kept one ever-growing global key; drop it.
+storageRemove(["history"]).catch(() => {});
 
 (async () => {
   await refreshInspectedUrl();

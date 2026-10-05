@@ -54,6 +54,8 @@ async function endSession() {
     return false;
   }
   hideStepLabelInput();
+  // Finish the flow's video first so session.hasVideo is set before archiving.
+  try { await stopFlowVideoIfRecording(); } catch (e) { console.warn("stop flow video failed", e); }
   // Set endedAt BEFORE building the exportable snapshot — otherwise the
   // "last ended session" export claims in-progress with a growing duration.
   const previousEndedAt = sessionState.current.endedAt || null;
@@ -100,13 +102,7 @@ async function endSession() {
   renderSessionHud();
   populateCompareSelects();
 
-  // Bound media disk: keep screenshots/video only for the most recent sessions.
-  try {
-    const archived = await listArchivedSessions();
-    const keep = archived.slice(0, 5).map(s => s.id);
-    if (sessionState.lastEndedSession?.id) keep.push(sessionState.lastEndedSession.id);
-    if (typeof flowMediaStore !== "undefined") await flowMediaStore.pruneToSessions(keep);
-  } catch (_) { /* prune is best-effort */ }
+  // Media/archive retention runs in registerArchivedSession (archive time).
 
   // Auto-copy verdict summary
   const sess = exportableEndedSession;
@@ -216,7 +212,6 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     renderSessionHud();
   }, CAPTURE_SLOW_MS);
   updateSessionButtons();
-  setRunTelemetry({ usedFrames: "Capturing step…" });
   const t0 = performance.now();
   try {
     const activeMode = getSmartModeForCapture(isAutoCapture);
@@ -414,7 +409,6 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
       ? [...r.run.rootSelectorMatchedFrameIds] : [];
     step.depthMax = getActiveDepthMax();
     step.recipeId = getActiveRecipeId();
-    step.rulePack = getActiveRulePack() || null;
     step.excludedFrameCount = r?.run?.excludedFrameCount || 0;
     step.transitionStates = r?.active?.transitionStateSummaries || r?.run?.transitionStateSummaries || null;
     if (step.rootSelectorNotFound) {
@@ -474,7 +468,6 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
       estimatedBytes,
     });
 
-    setRunTelemetry({ diff: step.diffs?.consolidated?.text || "—" });
     const baselineFindings = asNumber(runSnapshot?.best?.normalized?.primaryCounts?.findings, 0);
     const activeFailed = activeMode !== "run" && (!r?.active?.ok || !activeSnapshot?.best);
     const activeReasonCode = activeMode === "run"
