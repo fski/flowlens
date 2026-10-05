@@ -43,7 +43,11 @@ const launchOpts = {
   headless: true,
   args: [`--disable-extensions-except=${DIST}`, `--load-extension=${DIST}`],
 };
+// Extensions need full Chromium: Playwright's default headless binary
+// (chromium-headless-shell) never loads them, so the SW would never start.
+// channel "chromium" runs the full build in new-headless mode.
 if (process.env.FLOWLENS_CHROMIUM) launchOpts.executablePath = process.env.FLOWLENS_CHROMIUM;
+else launchOpts.channel = "chromium";
 const context = await chromium.launchPersistentContext(userDataDir, launchOpts);
 
 let failed = 0;
