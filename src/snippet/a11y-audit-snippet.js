@@ -95,7 +95,10 @@
   // 1-based :nth-of-type index of node, or 0 when it is the only child of its
   // tag (no :nth-of-type needed).
   const nthOfType = (node) => {
-    const p = node.parentElement;
+    // Top-level children of a shadow root have no parentElement — their
+    // parent is the ShadowRoot. Without it, two sibling buttons there both
+    // got the bare segment "button" and every finding resolved to the first.
+    const p = node.parentElement || (node.parentNode && node.parentNode.nodeType === 11 ? node.parentNode : null);
     if (!p) return 0;
     let entry = _nthCache.get(p);
     if (!entry || !entry.index.has(node)) {
@@ -901,37 +904,36 @@
     findings.push(entry);
   };
 
+  // 2.4.7: the browser draws a focus ring (:focus-visible) unless the author
+  // removes it. So a control is only suspect when an author rule (or inline
+  // style) that matches it sets outline to none/0 AND no :focus/:focus-visible
+  // rule matching it supplies a replacement indicator (outline, box-shadow,
+  // border, text-decoration). Controls the author never touched keep the
+  // UA ring and are not flagged — the previous version flagged every control
+  // without an outline *at rest*, i.e. nearly all of them.
   RULE_REGISTRY.FOCUS_VISIBLE_SUPPRESSED.run = ({ findings }) => {
-    const focusHints = (() => {
-      const hints = [];
+    const sheetInfo = (() => {
+      const removers = [];   // base selectors whose rule removes the outline
+      const indicators = []; // base selectors of :focus rules that draw one
       let scannedRules = 0;
       let inaccessibleSheets = 0;
 
-      const hasVisibleIndicator = (styleDecl) => {
-        const outlineStyle = (styleDecl?.outlineStyle || "").toLowerCase();
-        const outlineWidth = parseFloat(styleDecl?.outlineWidth) || 0;
-        if (outlineStyle && outlineStyle !== "none" && outlineWidth > 0) return true;
-        if ((styleDecl?.boxShadow || "").toLowerCase() !== "none" && !!styleDecl?.boxShadow) return true;
-        const borderStyle = (styleDecl?.borderStyle || "").toLowerCase();
-        const borderWidth = parseFloat(styleDecl?.borderWidth) || 0;
-        if (borderStyle && borderStyle !== "none" && borderWidth > 0) return true;
-        return /(underline|overline|line-through)/.test((styleDecl?.textDecorationLine || "").toLowerCase());
+      const removesOutline = (st) => {
+        const os = (st?.outlineStyle || "").toLowerCase();
+        const ow = (st?.outlineWidth || "").toLowerCase();
+        return os === "none" || os === "hidden" || ow === "0" || ow === "0px";
       };
-
-      const addSelectorHint = (selector, styleDecl) => {
-        if (!selector || /::/.test(selector)) return;
-        if (!/:(focus-visible|focus)(?![-\w])/i.test(selector)) return;
-        const baseSelector = selector
-          .replace(/:(focus-visible|focus)(?![-\w])/gi, "")
-          .replace(/\s+/g, " ")
-          .trim();
-        if (!baseSelector) return;
-        hints.push({
-          baseSelector,
-          rawSelector: selector.trim().slice(0, 200),
-          hasIndicator: hasVisibleIndicator(styleDecl),
-        });
+      const hasVisibleIndicator = (st) => {
+        const os = (st?.outlineStyle || "").toLowerCase();
+        if (os && os !== "none" && os !== "hidden" && parseFloat(st?.outlineWidth || "1") !== 0) return true;
+        const bs = (st?.boxShadow || "").toLowerCase();
+        if (bs && bs !== "none") return true;
+        const brs = (st?.borderStyle || "").toLowerCase();
+        if (brs && brs !== "none" && (parseFloat(st?.borderWidth) || 0) > 0) return true;
+        if (st?.backgroundColor || st?.background) return true;
+        return /(underline|overline|line-through)/.test((st?.textDecorationLine || st?.textDecoration || "").toLowerCase());
       };
+      const strip = (sel) => sel.replace(/:(focus-visible|focus-within|focus)(?![-\w])/gi, "").replace(/\s+/g, " ").trim() || "*";
 
       const walkRules = (rules) => {
         if (!rules) return;
@@ -939,8 +941,13 @@
           scannedRules++;
           if (scannedRules > 4000) break;
           if (rule?.type === CSSRule.STYLE_RULE) {
-            const selectors = String(rule.selectorText || "").split(",").map(s => s.trim()).filter(Boolean);
-            selectors.forEach(sel => addSelectorHint(sel, rule.style));
+            const selectors = String(rule.selectorText || "").split(",").map(x => x.trim()).filter(Boolean);
+            for (const sel of selectors) {
+              if (/::/.test(sel)) continue;
+              const isFocusRule = /:(focus-visible|focus)(?![-\w])/i.test(sel);
+              if (removesOutline(rule.style)) removers.push(strip(sel));
+              if (isFocusRule && hasVisibleIndicator(rule.style)) indicators.push(strip(sel));
+            }
             continue;
           }
           if (rule?.cssRules && (rule.type === CSSRule.MEDIA_RULE || rule.type === CSSRule.SUPPORTS_RULE || rule.type === CSSRule.LAYER_BLOCK_RULE)) {
@@ -948,17 +955,16 @@
           }
         }
       };
-
       for (const sheet of [...doc.styleSheets]) {
-        try {
-          if (sheet?.cssRules) walkRules(sheet.cssRules);
-        } catch {
-          inaccessibleSheets++;
-        }
+        try { if (sheet?.cssRules) walkRules(sheet.cssRules); } catch { inaccessibleSheets++; }
       }
-
-      return { hints, scannedRules, inaccessibleSheets };
+      return { removers, indicators, scannedRules, inaccessibleSheets };
     })();
+
+    const matchesAny = (el, sels) => {
+      for (const sel of sels) { try { if (el.matches(sel)) return true; } catch { /* unsupported selector */ } }
+      return false;
+    };
 
     const candidates = [...doc.querySelectorAll("a[href],button,[role='button'],[role='link'],[tabindex],input:not([type='hidden']),select,textarea")]
       .filter(isEl)
@@ -968,49 +974,25 @@
       if (isHidden(el) || hasInertAncestor(el)) return;
       if (!isKeyboardReachable(el)) return;
       try {
+        const inlineRemoves = /^(none|hidden)$/i.test(el.style?.outlineStyle || "") || /^0(px)?$/.test(el.style?.outlineWidth || "");
+        const suppressed = inlineRemoves || matchesAny(el, sheetInfo.removers);
+        if (!suppressed) return; // UA focus ring intact
+        if (matchesAny(el, sheetInfo.indicators)) return; // replaced by an author indicator
         const cs = w.getComputedStyle(el);
-        const outlineStyle = cs.outlineStyle;
-        const outlineWidth = parseFloat(cs.outlineWidth) || 0;
-        const hasOutlineAtRest = outlineStyle !== "none" && outlineWidth > 0;
-        const boxShadow = cs.boxShadow;
-        const hasBoxShadowAtRest = boxShadow && boxShadow !== "none";
-        const hasIndicatorAtRest = hasOutlineAtRest || hasBoxShadowAtRest;
-        if (hasIndicatorAtRest) return;
-
-        let matchedFocusRules = 0;
-        let matchedIndicatorRules = 0;
-        let matcherErrors = 0;
-        for (const hint of focusHints.hints) {
-          try {
-            if (el.matches(hint.baseSelector)) {
-              matchedFocusRules++;
-              if (hint.hasIndicator) matchedIndicatorRules++;
-            }
-          } catch {
-            matcherErrors++;
-          }
-        }
-
-        if (matchedIndicatorRules > 0) return;
+        if (cs.boxShadow && cs.boxShadow !== "none") return; // persistent indicator
 
         add(findings, {
           type: "FOCUS_VISIBLE_SUPPRESSED",
           el,
           severity: "low",
           confidence: "advisory",
-          note: "No visible focus indicator detected at rest and no matching :focus/:focus-visible indicator rule found. Verify manually.",
+          note: "Author CSS removes the focus outline and no :focus/:focus-visible rule for this control restores an indicator. Verify manually.",
           extra: {
-            outlineStyle: outlineStyle || null,
-            outlineWidth,
-            boxShadow: boxShadow === "none" ? "none" : "set",
-            keyboardReachable: true,
-            matchedFocusRules,
-            matchedIndicatorRules,
-            scannedFocusRules: focusHints.scannedRules,
-            inaccessibleStylesheets: focusHints.inaccessibleSheets,
-            matcherErrors,
+            inlineOutlineRemoved: inlineRemoves,
+            scannedFocusRules: sheetInfo.scannedRules,
+            inaccessibleStylesheets: sheetInfo.inaccessibleSheets,
           },
-          fix: "Verify a visible :focus-visible style exists for this control. If focus style is delegated or injected at runtime, this finding can be ignored."
+          fix: "Add a visible :focus-visible style (outline or box-shadow) for this control, or stop removing the outline."
         });
       } catch {}
     });
@@ -2200,16 +2182,20 @@
       // 4.1.3 Status Messages: role=log usually expects announcements; soft-flag if no aria-live on log.
       logEls.forEach(log => {
         if (isHidden(log)) return;
+        // role=log is implicitly aria-live=polite (WAI-ARIA 1.2), so this is
+        // advice, not a defect: an explicit aria-live="polite" is a cheap
+        // hedge for AT/browser pairs with weak implicit-live support.
         if (!log.getAttribute("aria-live")) {
           add(findings, {
             type: "CHAT_LOG_NO_ARIA_LIVE_SOFT",
             el: log,
-            severity: liveHook ? "low" : "medium",
+            severity: "low",
+            confidence: "advisory",
             wcag: "4.1.3",
             product: "chat",
             note: liveHook
-              ? "role=log has no aria-live, but a live/status hook exists in DOM (manual announcer likely)."
-              : "role=log has no aria-live and no live/status hook detected — risk of missing message announcements."
+              ? "role=log (implicitly polite) has no explicit aria-live; a live/status hook also exists in the DOM."
+              : "role=log is implicitly aria-live=polite; consider an explicit aria-live=\"polite\" for wider AT support."
           });
         }
       });
@@ -2321,9 +2307,9 @@
       logEls.forEach(log => {
         if (isHidden(log)) return;
         if (!log.hasAttribute("aria-relevant")) {
-          add(findings, { type: "CHAT_NO_ARIA_RELEVANT", el: log, severity: "low", wcag: "4.1.3",
+          add(findings, { type: "CHAT_NO_ARIA_RELEVANT", el: log, severity: "info", confidence: "advisory", wcag: "4.1.3",
             product: "chat",
-            note: 'role="log" without aria-relevant. Add aria-relevant="additions" so only new messages are announced.' });
+            note: 'role="log" without aria-relevant (default "additions text"). Optional: aria-relevant="additions" if edits to existing messages should stay silent.' });
         }
       });
 
@@ -2581,12 +2567,18 @@
 
     // 4.1.1 Parsing: duplicate IDs (breaks ARIA references in microfrontends)
     // Pass 1: collect all elements per ID
+    // IDs are tree-scoped: the same id in two shadow roots (or a shadow root
+    // and the document) is not a duplicate. Group by (tree root, id).
     const idElements = new Map();
+    const treeIds = new Map();
     _qa("[id]").forEach(el => {
       const id = el.id;
       if (!id) return;
-      if (!idElements.has(id)) idElements.set(id, []);
-      idElements.get(id).push(el);
+      const root = el.getRootNode ? el.getRootNode() : doc;
+      if (!treeIds.has(root)) treeIds.set(root, treeIds.size);
+      const key = `${treeIds.get(root)}\u0000${id}`;
+      if (!idElements.has(key)) idElements.set(key, []);
+      idElements.get(key).push(el);
     });
     // Pass 1.5: build set of IDs referenced by ARIA attrs
     const ariaReferencedIds = new Set();
@@ -2596,8 +2588,9 @@
       });
     });
     // Pass 2: report every occurrence of duplicated IDs
-    for (const [id, elements] of idElements) {
+    for (const [key, elements] of idElements) {
       if (elements.length < 2) continue;
+      const id = key.slice(key.indexOf("\u0000") + 1);
       const ariaReferenced = ariaReferencedIds.has(id);
       const sev = ariaReferenced ? "high" : "medium";
       elements.forEach((el, idx) => {
@@ -2844,35 +2837,58 @@
       });
     });
 
-    // 2.5.8 Target Size (Minimum): interactive elements smaller than 24x24px
-    _qa("button,a[href],[role='button'],[role='link'],input:not([type='hidden']),select,textarea").forEach(el => {
-      if (isHidden(el) || hasInertAncestor(el)) return;
-      if ((el.getAttribute("aria-disabled") || "").toLowerCase() === "true") return;
-      if (el.hasAttribute("disabled")) return;
-      const hasProxyTarget = hasLargerInteractiveAncestor(el);
-      if (hasProxyTarget) return;
-      if (!isLikelyActionable(el) && !isNativeInteractiveControl(el)) return;
+    // 2.5.8 Target Size (Minimum): interactive elements smaller than 24x24px,
+    // unless the spacing exception holds — a 24px-diameter circle centred on
+    // the target intersects no other target and no other undersized target's
+    // circle. Without that exception every small but well-spaced control
+    // (a lone 16px icon button, a text-sized link) was flagged.
+    const targetEls = _qa("button,a[href],[role='button'],[role='link'],input:not([type='hidden']),select,textarea").filter(el => {
+      if (isHidden(el) || hasInertAncestor(el)) return false;
+      if ((el.getAttribute("aria-disabled") || "").toLowerCase() === "true") return false;
+      if (el.hasAttribute("disabled")) return false;
+      if (hasLargerInteractiveAncestor(el)) return false;
+      return isLikelyActionable(el) || isNativeInteractiveControl(el);
+    }).slice(0, 400);
+    const targets = targetEls.map(el => {
       const r = el.getBoundingClientRect();
-      const width = Math.round(r.width);
-      const height = Math.round(r.height);
-      if (width > 0 && height > 0 && (width < 24 || height < 24)) {
+      return { el, r, cx: r.left + r.width / 2, cy: r.top + r.height / 2, small: r.width > 0 && r.height > 0 && (Math.round(r.width) < 24 || Math.round(r.height) < 24) };
+    }).filter(t => t.r.width > 0 && t.r.height > 0);
+    const distToRect = (x, y, r) => {
+      const dx = Math.max(r.left - x, 0, x - r.right);
+      const dy = Math.max(r.top - y, 0, y - r.bottom);
+      return Math.hypot(dx, dy);
+    };
+    const spacingOk = (t) => {
+      for (const o of targets) {
+        if (o === t || o.el.contains(t.el) || t.el.contains(o.el)) continue;
+        if (o.small ? Math.hypot(o.cx - t.cx, o.cy - t.cy) < 24 : distToRect(t.cx, t.cy, o.r) < 12) return false;
+      }
+      return true;
+    };
+    targets.forEach(t => {
+      if (!t.small) return;
+      const { el } = t;
+      const width = Math.round(t.r.width);
+      const height = Math.round(t.r.height);
+      {
         const inlineTextLink = isInlineTextLinkException(el);
         if (inlineTextLink) return;
+        if (spacingOk(t)) return;
         let display = null;
         try { display = w.getComputedStyle(el).display; } catch {}
         add(findings, {
           type: "TOUCH_TARGET_TOO_SMALL",
           el,
           severity: "low",
-          note: `Size ${width}x${height}px is below 24x24px. Verify target size/hit area meets WCAG 2.2.`,
+          note: `Size ${width}x${height}px is below 24x24px and another target is within the 24px spacing circle. Verify target size/hit area meets WCAG 2.2.`,
           extra: {
             width,
             height,
             display,
             inlineTextLinkException: inlineTextLink,
-            proxyTargetAncestor: hasProxyTarget,
+            proxyTargetAncestor: false,
           },
-          fix: "Verify clickable hit-area is at least 24x24px. If hit-area is expanded by wrapper/pseudo-element, this finding may be ignored."
+          fix: "Make the hit area at least 24x24px, or space small targets so 24px circles around them don't overlap other targets."
         });
       }
     });

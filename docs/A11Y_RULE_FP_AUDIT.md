@@ -109,10 +109,10 @@
   5. Confirm expected counts (ENFORCED in CI by `scripts/e2e-smoke.mjs` —
      update both places together; historical counts predating v6 fixture
      additions were stale, re-measured 2026-07-19):
-     - `FOCUS_VISIBLE_SUPPRESSED`: 23 (page-wide: fixture suppresses focus styles broadly)
+     - `FOCUS_VISIBLE_SUPPRESSED`: 1 (`#badFocusButton` — the only control whose outline the author removes without a replacement)
      - `CLICK_WITHOUT_KEYBOARD`: 7
      - `ARIA_HIDDEN_FOCUSABLE`: 1
-     - `TOUCH_TARGET_TOO_SMALL`: 23
+     - `TOUCH_TARGET_TOO_SMALL`: 11 (two adjacent 16px icon buttons, two default selects, seven stacked 23px-high click targets; the lone, spaced `#spacedTinyButton` meets the 2.5.8 spacing exception)
      - `DUPLICATE_MAIN_LANDMARK`: 1
      - `IFRAME_MISSING_TITLE`: 1
      - `COMPETING_SKIP_NAV`: 1

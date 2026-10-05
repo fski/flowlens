@@ -174,7 +174,7 @@ For the full false-positive audit and precision plan, see [A11Y_RULE_FP_AUDIT.md
 
 | Rank | Rule | FP reason | Mitigation |
 |------|------|-----------|------------|
-| 1 | `FOCUS_VISIBLE_SUPPRESSED` | At-rest computed style only; `:focus-visible` styles in cross-origin stylesheets are invisible | Scans stylesheet rules; downgrades to advisory when unresolvable |
+| 1 | `FOCUS_VISIBLE_SUPPRESSED` | Flags only controls whose outline author CSS (or inline style) removes with no `:focus`/`:focus-visible` replacement; rules in cross-origin stylesheets are invisible, so suppression there is missed rather than guessed | Always advisory |
 | 2 | `CLICK_WITHOUT_KEYBOARD` | Ancestor/global key handlers cannot be proven | Ancestor delegation treated as unproven (advisory, never strict) |
 | 3 | `ARIA_HIDDEN_FOCUSABLE` | Focus guard sentinels and inert patterns | Exempts `data-focus-guard`, sentinel signatures, 1×1 guards; transition ticks downgraded to advisory |
 | 4 | `TOUCH_TARGET_TOO_SMALL` | Cannot detect wrapper/pseudo hit areas | Confidence downgraded to heuristic; inline text links exempted |
@@ -210,9 +210,9 @@ For the full false-positive audit and precision plan, see [A11Y_RULE_FP_AUDIT.md
 | Type | Expected count |
 |------|---------------|
 | `FOCUS_VISIBLE_SUPPRESSED` | 1 |
-| `CLICK_WITHOUT_KEYBOARD` | 3 |
+| `CLICK_WITHOUT_KEYBOARD` | 7 |
 | `ARIA_HIDDEN_FOCUSABLE` | 1 |
-| `TOUCH_TARGET_TOO_SMALL` | 1 |
+| `TOUCH_TARGET_TOO_SMALL` | 11 |
 | `DUPLICATE_MAIN_LANDMARK` | 1 |
 | `IFRAME_MISSING_TITLE` | 1 |
 
