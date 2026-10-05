@@ -8,6 +8,7 @@
  */
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { launchChromium, newAuditPage } from "./lib/launch-browser.mjs";
 
 const ROOT = join(import.meta.dirname, "..");
 const SNIPPET_PATH = join(ROOT, "dist", "a11y-audit-snippet.js");
@@ -34,15 +35,8 @@ if (!existsSync(SNIPPET_PATH)) {
   process.exit(2);
 }
 
-const { chromium } = await import("playwright");
-let browser = null;
-for (const attempt of [{ channel: "chrome" }, {}]) {
-  try { browser = await chromium.launch({ headless: true, ...attempt }); break; }
-  catch { /* try next */ }
-}
-if (!browser) { console.error("ERROR: no Chromium (npx playwright install chromium)"); process.exit(2); }
-
-const page = await browser.newPage();
+const browser = await launchChromium();
+const page = await newAuditPage(browser);
 await page.goto(FIXTURE_URL, { waitUntil: "load" });
 await page.addScriptTag({ content: readFileSync(SNIPPET_PATH, "utf8") });
 const byType = await page.evaluate(async () => {
