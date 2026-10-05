@@ -35,7 +35,7 @@ Open DevTools (F12) → **FlowLens**. The panel has three tabs:
 
 - **Snap** — run one audit mode on the current page.
 - **Flow** — record a multi-step flow and compare steps.
-- **Settings** — WCAG level, depth, recipe, profiles, frame targeting, output, shortcuts, diagnostics and WCAG coverage.
+- **Settings** — WCAG level, page type (depth and profiles under Advanced), frame targeting, Flow auto-capture and video, output, shortcuts, diagnostics and WCAG coverage.
 
 ---
 
@@ -84,9 +84,9 @@ Use Flow for checkouts, onboarding, wizards, help centers and chats — anything
 
 1. Configure targeting if needed (Settings → Targeting).
 2. Press **Record Flow** (or `r`). The current page is captured as the baseline step.
-3. Walk the flow. With **Auto** on (default), a step is captured after each navigation, SPA route change, navigation inside an audited embedded frame, or — for widgets that don't change the URL — once a new screen holds stable. The delay selector (0.5 s / 1 s / 2 s) sets how long to wait after a navigation before capturing. Third-party sites (SSO, payment) are skipped by auto-capture.
+3. Walk the flow. With auto-capture on (default, Settings → Flow), a step is captured after each navigation, SPA route change, navigation inside an audited embedded frame, or — for widgets that don't change the URL — once a new screen holds stable. Settings → Flow also sets how long to wait after a navigation before capturing (0.5 s / 1 s / 2 s). Third-party sites (SSO, payment) are skipped by auto-capture.
 4. Press **Mark step** (or `s`) to add a step by hand; you can then label it (Save / Skip). Manual steps capture the baseline audit plus the mode selected in Snap; auto-captured steps use Observe (Watch after a step that added blockers) and end early once the page settles.
-5. Optional: **Record video** records a local webm of a tab you pick.
+5. Optional: turn on **Record a video with each flow** in Settings → Flow — Record Flow then asks which tab to record, and End downloads the local webm.
 6. Press **End** (or `e` twice) to finish. The session is archived.
 
 A step is recorded only if the baseline audit succeeds. The status line shows `OK`, `PARTIAL/<reason>` (recorded, but something degraded) or `FAILED/<reason>`. Sessions are limited to 100 steps.
@@ -108,11 +108,13 @@ The first step is a baseline: its findings are not counted as regressions.
 | Group | Setting | Notes |
 |-------|---------|-------|
 | Audit | WCAG level | 2.1 AA/AAA, 2.2 AA (default)/AAA |
-| | Depth | 1 Fast, 2 Balanced, 3 Full (default) — filters which findings are shown |
-| | Recipe | Auto, Chat Widget, Help Center, Hybrid, Wizard / Form — presets scope, depth and mode |
-| | Profiles | Pills that add frame heuristics and profile-specific checks (`src/shared/flow-profiles.js`) |
+| | Page type | Auto-detect (default), Chat widget, Help center, Help center + chat, Form / checkout / wizard — presets scope, depth and mode |
+| | Advanced → Depth | 1 Fast, 2 Balanced, 3 Full (default) — filters which findings are shown |
+| | Advanced → Profiles | Pills that add frame heuristics and profile-specific checks (`src/shared/flow-profiles.js`) |
 | Targeting | Target scope | Primary frame (default, best-scoring frame), Host page only, Embedded frame only, All frames |
 | | Frame | Pick a frame; **Pin** keeps it per origin across reloads; **Refresh**; **Copy URL**. The targeting summary shows scope, frame, pin and selection reason |
+| Flow | Auto-capture | On by default — capture a step on each navigation; wait 0.5 s / 1 s / 2 s (default) before capturing |
+| | Screen video | Off by default — record a local webm of a tab you pick with each flow; downloaded on End |
 | Output | Log to console | Off by default — also print results to the inspected page's console |
 | | Single-key shortcuts | On by default — see [Keyboard Access](#5-keyboard-access) |
 
@@ -174,7 +176,7 @@ Known false-positive hotspots and the precision fixes are in [A11Y_RULE_FP_AUDIT
 
 **Checkout journey.** Select Tab Walk in Snap, then Flow → Record Flow on the cart. Walk address → payment → confirmation (auto-capture records each page; press Mark step after in-page changes such as an opened modal). End → Session Markdown. Look for blocking findings that appear on the payment step and labels that persist across the flow. Hosted payment iframes on another site are third-party and are not auto-captured.
 
-**Embedded help center or chat.** Enable the matching profile or recipe, set scope to **Embedded frame only**, pick and pin the frame. Record the flow (home → category → article → bot). Signals: `HC_TREE_ITEM_NO_NAME`, `HC_ARTICLE_NO_HEADING`, `CHAT_LOG_NO_ARIA_LIVE_SOFT`. Cross-origin iframes can't be scanned from the host page (`IFRAME_CROSS_ORIGIN`, info) — target the frame itself.
+**Embedded help center or chat.** Pick the matching page type (or profile under Advanced), set scope to **Embedded frame only**, pick and pin the frame. Record the flow (home → category → article → bot). Signals: `HC_TREE_ITEM_NO_NAME`, `HC_ARTICLE_NO_HEADING`, `CHAT_LOG_NO_ARIA_LIVE_SOFT`. Cross-origin iframes can't be scanned from the host page (`IFRAME_CROSS_ORIGIN`, info) — target the frame itself.
 
 **Modal-heavy flow.** Scope **Host page only**, Tab Walk selected. Mark steps with each modal open and closed. Signals: `ARIA_HIDDEN_FOCUSABLE` when the background isn't inert (advisory with `duringTransition=true` while a transition is running), Tab Walk `dialog_focus_not_trapped` and `roach_motel`.
 

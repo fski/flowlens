@@ -415,6 +415,7 @@ async function loadUiPrefs() {
   // Auto-capture: default ON (HTML default) — undefined must not read as false,
   // but a deliberate OFF has to survive a panel reload.
   if (els.autoCaptureNav) els.autoCaptureNav.checked = uiPrefs.autoCaptureNav !== false;
+  if (els.flowVideoOnRecord) els.flowVideoOnRecord.checked = !!uiPrefs.flowVideoOnRecord;
   if (els.autoCaptureDelay && uiPrefs.autoCaptureDelay) els.autoCaptureDelay.value = String(uiPrefs.autoCaptureDelay);
   const ciOpts = uiPrefs.junitCiOptions || {};
   if (els.ciFailOnBlocking) els.ciFailOnBlocking.checked = ciOpts.failOnBlocking !== false;

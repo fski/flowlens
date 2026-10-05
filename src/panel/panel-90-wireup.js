@@ -264,12 +264,15 @@ if (els.exportSessionJunitMenu) {
   });
 }
 if (els.sessionStart) {
-  els.sessionStart.addEventListener("click", () => {
+  els.sessionStart.addEventListener("click", async () => {
     if (sessionState.current) {
       toast("Session already active");
       return;
     }
-    startSession();
+    await startSession();
+    // Settings → Flow → "Record a video with each flow". Started from this
+    // click so getDisplayMedia still has the user gesture it requires.
+    if (els.flowVideoOnRecord?.checked && sessionState.current) startFlowVideo();
   });
 }
 if (els.sessionMark) els.sessionMark.addEventListener("click", () => captureStepOptionC());
@@ -387,47 +390,12 @@ function stepIndicesForNav() {
     });
   }
 
-  // Record video: getDisplayMedia (user picks the tab) → webm in the media
-  // store. Toggle button; label reflects recording state.
-  if (els.flowRecordVideo) {
-    els.flowRecordVideo.addEventListener("click", async () => {
-      if (flowRecorder.isRecording()) {
-        const r = await flowRecorder.stop();
-        setRecordVideoUi(false);
-        if (r?.ok && r.blob) {
-          const sid = (sessionState.current || sessionState.lastEndedSession)?.id || "flow";
-          downloadBlobFile(r.blob, `flowlens-flow-${sid}.webm`);
-          // stop() set session.hasVideo in-memory (only when the store write
-          // succeeded); persist so the stored-video download control survives
-          // a panel reload before the session ends.
-          if (r.saved && sessionState.current) {
-            persistActiveSessionBestEffort(compactSessionForExport(sessionState.current)).catch(() => {});
-          }
-          toast(r.saved ? "Video saved & downloaded" : "Video downloaded — saving to browser storage failed");
-        } else {
-          toast("Recording stopped");
-        }
-        renderFlow();
-        return;
-      }
-      const sess = sessionState.current || sessionState.lastEndedSession;
-      if (!sess?.id) { toast("Start a flow first"); return; }
-      const r = await flowRecorder.start(sess.id);
-      if (r?.ok) { setRecordVideoUi(true); toast("Recording — pick the tab to capture"); }
-      else if (r?.reason === "cancelled") { /* user dismissed picker, no-op */ }
-      else if (r?.reason === "blocked") {
-        console.warn("getDisplayMedia blocked by permissions policy", r);
-        toast("Recording blocked in the DevTools panel (display-capture policy)");
-      } else {
-        console.warn("getDisplayMedia failed", r);
-        toast("Screen recording unavailable" + (r?.errorName ? ` — ${r.errorName}` : ""));
-      }
-    });
-  }
 }
-function setRecordVideoUi(recording) {
-  if (els.flowRecordVideo) els.flowRecordVideo.classList.toggle("isRecording", !!recording);
-  if (els.flowRecordVideoLabel) els.flowRecordVideoLabel.textContent = recording ? "Stop recording" : "Record video";
+
+if (els.flowVideoOnRecord) {
+  els.flowVideoOnRecord.addEventListener("change", async () => {
+    await updateUiPrefs({ flowVideoOnRecord: !!els.flowVideoOnRecord.checked });
+  });
 }
 
 if (els.sheetCopyRaw) {

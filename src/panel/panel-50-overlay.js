@@ -542,13 +542,10 @@ var flowRecorder = (function () {
   return { start: start, stop: stop, isRecording: isRecording };
 })();
 
-// Stream ended outside our Stop button (user clicked Chrome's own "Stop
-// sharing" bar): finalize with the same side effects the button performs —
-// without this the button stayed on "Stop recording", hasVideo never got
-// persisted, and the header download control didn't appear until a re-render.
+// Stream ended before End (user clicked Chrome's own "Stop sharing" bar):
+// finalize so hasVideo is persisted and the header download control appears.
 async function handleRecorderAutoStop() {
   var r = await flowRecorder.stop();
-  if (typeof setRecordVideoUi === "function") setRecordVideoUi(false);
   if (r && r.ok && r.saved && sessionState.current) {
     persistActiveSessionBestEffort(compactSessionForExport(sessionState.current)).catch(function () {});
   }
@@ -618,6 +615,35 @@ async function captureStepShot(sessionId, step, scopeInfo, at) {
     step.shotErrorReason = String((e && e.message) || "exception").slice(0, 200);
     return false;
   }
+}
+
+// Flow screen video: started with the flow when Settings → Flow → "Record a
+// video with each flow" is on, stopped (saved + downloaded) on End.
+async function startFlowVideo() {
+  const sess = sessionState.current;
+  if (!sess?.id || typeof flowRecorder === "undefined") return false;
+  const r = await flowRecorder.start(sess.id);
+  if (r?.ok) { toast("Recording video — pick the tab to capture"); return true; }
+  if (r?.reason === "cancelled") return false; // user dismissed the picker
+  if (r?.reason === "blocked") {
+    console.warn("getDisplayMedia blocked by permissions policy", r);
+    toast("Video recording blocked in the DevTools panel (display-capture policy)");
+  } else {
+    console.warn("getDisplayMedia failed", r);
+    toast("Screen recording unavailable" + (r?.errorName ? ` — ${r.errorName}` : ""));
+  }
+  return false;
+}
+
+async function stopFlowVideoIfRecording() {
+  if (typeof flowRecorder === "undefined" || !flowRecorder.isRecording()) return false;
+  const r = await flowRecorder.stop();
+  if (r?.ok && r.blob) {
+    const sid = (sessionState.current || sessionState.lastEndedSession)?.id || "flow";
+    downloadBlobFile(r.blob, `flowlens-flow-${sid}.webm`);
+    toast(r.saved ? "Video saved & downloaded" : "Video downloaded — saving to browser storage failed");
+  }
+  return true;
 }
 
 // Trigger a local download of a Blob (flow video). Object URL revoked after.

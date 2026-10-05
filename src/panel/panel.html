@@ -313,18 +313,6 @@
             <button class="ctaBtn ctaBtn--outline" id="sessionEnd" type="button" title="End active session" disabled>
               End <kbd class="keycap" aria-hidden="true">e</kbd>
             </button>
-            <label class="autoCapToggle" title="Auto-capture on navigation">
-              <input type="checkbox" id="autoCaptureNav" checked />
-              <span class="autoCapLabel">Auto</span>
-            </label>
-            <select id="autoCaptureDelay" class="autoCapDelay" title="Auto-capture delay" aria-label="Auto-capture delay">
-              <option value="500">0.5s</option>
-              <option value="1000">1s</option>
-              <option value="2000" selected>2s</option>
-            </select>
-            <button class="ctaBtn ctaBtn--outline" id="flowRecordVideo" type="button" title="Record a local screen video of this flow (you pick the tab)">
-              <span class="recDot" aria-hidden="true">●</span> <span id="flowRecordVideoLabel">Record video</span>
-            </button>
           </div>
           <div class="flowLabelInput" id="flowLabelInput" hidden>
             <input id="flowLabelField" type="text" class="flowLabelField" placeholder="Label this step (optional)" maxlength="80" autocomplete="off" />
@@ -413,6 +401,22 @@
                 <span class="settingsHint">Conformance level used by Audit and Contrast checks</span>
               </div>
               <div class="settingsGroup">
+                <span class="settingsLabel">Page type</span>
+                <label class="sr-only" for="recipeSelect">Page type</label>
+                <select id="recipeSelect">
+                  <option value="auto" selected>Auto-detect</option>
+                  <option value="chat_widget">Chat widget</option>
+                  <option value="helpcenter">Help center</option>
+                  <option value="hybrid">Help center + chat</option>
+                  <option value="wizard">Form / checkout / wizard</option>
+                </select>
+                <span class="settingsHint">Tunes frame targeting, audit depth and checks for the kind of page &mdash; Auto-detect works for most pages</span>
+              </div>
+          </div>
+          <details class="settingsAdvanced" id="settingsAdvanced">
+            <summary class="settingsAdvancedSummary">Advanced</summary>
+            <div class="settingsGrid">
+              <div class="settingsGroup">
                 <span class="settingsLabel">Depth</span>
                 <label class="sr-only" for="depthMax">Audit depth level</label>
                 <select id="depthMax">
@@ -423,23 +427,12 @@
                 <span class="settingsHint">1 = quick surface scan, 3 = full incl. announcements &amp; multi-frame checks</span>
               </div>
               <div class="settingsGroup">
-                <span class="settingsLabel">Recipe</span>
-                <label class="sr-only" for="recipeSelect">Capture recipe</label>
-                <select id="recipeSelect">
-                  <option value="auto" selected>Auto</option>
-                  <option value="chat_widget">Chat Widget</option>
-                  <option value="helpcenter">Help Center</option>
-                  <option value="hybrid">Hybrid</option>
-                  <option value="wizard">Wizard / Form</option>
-                </select>
-                <span class="settingsHint">Preset tuned for a UI pattern &mdash; Auto detects it from the page</span>
-              </div>
-              <div class="settingsGroup">
                 <span class="settingsLabel">Profiles</span>
                 <div id="profileSelect" class="profilePills" role="group" aria-label="Active flow profiles"></div>
-                <span class="settingsHint">Targeting and checks tuned for common flow types, on top of the recipe &mdash; hover a profile for details</span>
+                <span class="settingsHint">Targeting and checks tuned for common flow types, on top of the page type &mdash; hover a profile for details</span>
               </div>
-          </div>
+            </div>
+          </details>
 
           <h2 class="settingsHeading">Targeting</h2>
           <div class="settingsGrid">
@@ -469,6 +462,26 @@
               </div>
               <div class="targetingSummary mono devOnly" id="targetingSummary" role="status" aria-live="polite" aria-atomic="true">
                 Target: Primary frame
+              </div>
+          </div>
+
+          <h2 class="settingsHeading">Flow</h2>
+          <div class="settingsGrid">
+              <div class="settingsGroup">
+                <span class="settingsLabel">Auto-capture</span>
+                <label class="switch"><input id="autoCaptureNav" type="checkbox" checked /> <span class="slider" aria-hidden="true"></span><span class="switchText">Capture a step on each navigation</span></label>
+                <label class="sr-only" for="autoCaptureDelay">Auto-capture delay</label>
+                <select id="autoCaptureDelay">
+                  <option value="500">Wait 0.5 s before capturing</option>
+                  <option value="1000">Wait 1 s before capturing</option>
+                  <option value="2000" selected>Wait 2 s before capturing</option>
+                </select>
+                <span class="settingsHint">Full navigations, SPA route changes and screen changes inside the audited frame</span>
+              </div>
+              <div class="settingsGroup">
+                <span class="settingsLabel">Screen video</span>
+                <label class="switch"><input id="flowVideoOnRecord" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Record a video with each flow</span></label>
+                <span class="settingsHint">You pick the tab when the flow starts; saved locally and downloaded when you End</span>
               </div>
           </div>
 

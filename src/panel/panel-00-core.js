@@ -59,8 +59,7 @@ const els = {
   flowUnresolvedOnly: document.getElementById("flowUnresolvedOnly"),
   flowFilmstripCount: document.getElementById("flowFilmstripCount"),
   flowLifecycleCount: document.getElementById("flowLifecycleCount"),
-  flowRecordVideo: document.getElementById("flowRecordVideo"),
-  flowRecordVideoLabel: document.getElementById("flowRecordVideoLabel"),
+  flowVideoOnRecord: document.getElementById("flowVideoOnRecord"),
 
   runCurrentMode: document.getElementById("runCurrentMode"),
 

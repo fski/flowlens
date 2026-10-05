@@ -1729,7 +1729,7 @@ function stepDetailHtml(sess, selectedIndex) {
   var shot = step.hasShot
     ? '<div class="flowDetailShot" data-shot-step="' + escapeHtml(shotKey) + '" data-shot-idx="' + step.index + '"></div>'
       + '<button class="btn xs flowShotDownload" type="button" data-shot-download="' + step.index + '" aria-label="Download step ' + step.index + ' screenshot">⤓ PNG</button>'
-    : '<div class="flowDetailShot flowDetailShot--empty">' + (step.shotError ? "screenshot unavailable" : "no screenshot") + '</div>';
+    : (step.shotError ? '<p class="flowDetailShotNote">Screenshot unavailable' + (step.shotErrorReason ? " — " + escapeHtml(step.shotErrorReason) : "") + '</p>' : '');
   var hasPrev = pos > 0, hasNext = pos < steps.length - 1;
   var nav = '<div class="flowStepNav">'
     + '<button class="btn xs" type="button" data-step-nav="prev"' + (hasPrev ? "" : " disabled") + ' aria-label="Previous step">‹ Prev</button>'

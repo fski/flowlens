@@ -171,7 +171,7 @@ Storage goes through `storageGet`/`storageSet`/`storageRemove` (`chrome.storage.
 | `session::archive::<origin>::<env>::<id>` | Ended session | Evicted via the index |
 | `session::archiveIndex` | `[{ key, id, startedAt, steps }]`, newest first | At most 30 archived sessions; screenshots/video kept for the newest 5. Archives are listed from this index, never with `storage.get(null)` (one-time migration excepted) |
 | `pinnedFrames` | `{ [origin]: { frameId } }` | Until unpinned |
-| `uiPrefs` | `wcagLevel`, `alsoConsole`, `singleKeyShortcuts`, `depthMax`, `recipeId`, `frameScope`, `autoCaptureNav`, `autoCaptureDelay`, `junitCiOptions` | Settings |
+| `uiPrefs` | `wcagLevel`, `alsoConsole`, `singleKeyShortcuts`, `depthMax`, `recipeId`, `frameScope`, `autoCaptureNav`, `autoCaptureDelay`, `flowVideoOnRecord`, `junitCiOptions` | Settings |
 | `activeProfiles`, `customProfiles` | Profiles | Settings |
 | `colPrefs` | Column visibility by column name | Columns menu |
 

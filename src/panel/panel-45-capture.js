@@ -54,6 +54,8 @@ async function endSession() {
     return false;
   }
   hideStepLabelInput();
+  // Finish the flow's video first so session.hasVideo is set before archiving.
+  try { await stopFlowVideoIfRecording(); } catch (e) { console.warn("stop flow video failed", e); }
   // Set endedAt BEFORE building the exportable snapshot — otherwise the
   // "last ended session" export claims in-progress with a growing duration.
   const previousEndedAt = sessionState.current.endedAt || null;

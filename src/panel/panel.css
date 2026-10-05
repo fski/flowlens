@@ -1206,10 +1206,6 @@ kbd {
 }
 
 /* ═══ AUTO-CAPTURE TOGGLE ═══ */
-.autoCapToggle { display: flex; align-items: center; gap: 4px; padding: 4px 8px; border: 1px solid var(--brd); border-radius: var(--radius-xs); cursor: pointer; font: 600 12px/1 var(--font-mono); color: var(--tx2); }
-.autoCapToggle:has(input:checked) { border-color: var(--green); color: var(--green); background: rgba(76,175,80,0.08); }
-.autoCapToggle input { accent-color: var(--green); margin: 0; }
-.autoCapDelay { padding: 2px 4px; border: 1px solid var(--brd); border-radius: 3px; background: var(--raised); color: var(--tx2); font: 500 11px/1 var(--font-mono); }
 
 /* ═══ STEP LABEL INPUT ═══ */
 .flowLabelInput { display: flex; align-items: center; gap: 6px; padding: 8px 16px; }
@@ -1456,9 +1452,6 @@ kbd {
 .flowStat--bad .flowStatV { color: var(--red); }
 
 /* Record video button */
-#flowRecordVideo .recDot { color: var(--tx3); font-size: 10px; }
-#flowRecordVideo.isRecording { border-color: var(--red); color: var(--red); }
-#flowRecordVideo.isRecording .recDot { color: var(--red); animation: recPulse 1.2s ease-in-out infinite; }
 @keyframes recPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
 @media (max-width: 640px) {
@@ -2647,3 +2640,17 @@ kbd {
 body:not(.devMode) .devOnly { display: none !important; }
 /* Without the (dev-only) Raw JSON toggle, keep Export at the right edge as in the Figma. */
 body:not(.devMode) .bottomSheet--json .sheetHeaderWrap { justify-content: flex-end; }
+
+/* Settings → Advanced (depth, profiles): collapsed by default. */
+.settingsAdvanced { margin: 4px 0 16px; }
+.settingsAdvancedSummary {
+  cursor: pointer;
+  color: var(--tx2);
+  font: 700 12px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 8px 0;
+}
+.settingsAdvanced[open] .settingsAdvancedSummary { color: var(--tx); }
+#autoCaptureDelay { margin-top: 8px; }
+.flowDetailShotNote { margin: 0 0 8px; color: var(--tx3); font: 400 11px/1.4 var(--font-mono); }
