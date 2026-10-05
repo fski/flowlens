@@ -129,7 +129,7 @@ You can pin a frame per origin so it persists across reloads and acts as a manua
 
 ## Keyboard shortcuts
 
-`1` / `2` / `3` switch the Snap / Flow / Settings tabs. Inside the Flow tab: `r` starts a recording session, `s` marks a step, `e` ends the session. There are no per-mode shortcuts.
+`1` / `2` / `3` switch the Snap / Flow / Settings tabs. Inside the Flow tab: `r` starts a recording session, `s` marks a step, `e` pressed twice ends the session. There are no per-mode shortcuts. Single-key shortcuts can be turned off in **Settings → Keyboard shortcuts** (WCAG 2.1.4). Finding rows are keyboard-reachable: Tab to the table, ↑/↓ between rows, Enter to expand and highlight.
 
 ## Export
 

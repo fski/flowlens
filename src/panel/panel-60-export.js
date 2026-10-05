@@ -373,6 +373,7 @@ function renderProfileSelect() {
 async function loadUiPrefs() {
   const { uiPrefs = {} } = await storageGet(["uiPrefs"]);
   if (els.alsoConsole) els.alsoConsole.checked = !!uiPrefs.alsoConsole;
+  if (els.singleKeyShortcuts) els.singleKeyShortcuts.checked = uiPrefs.singleKeyShortcuts !== false;
   if (els.wcagLevel && uiPrefs.wcagLevel) els.wcagLevel.value = uiPrefs.wcagLevel;
   // Recipe first, persisted per-field overrides after — otherwise a non-auto
   // recipe re-clobbers the user's saved depth/mode on every panel load.

@@ -91,20 +91,21 @@ describe("renderResultsShell", () => {
 describe("sevTabButton — shared filter-tab markup", () => {
   const ctx = createContext();
 
-  it("emits a sevTab with count and aria-selected", () => {
+  it("emits a toggle button with count and aria-pressed (no tab roles)", () => {
     const html = ctx.sevTabButton("high", "High", 3, true);
     assert.match(html, /class="sevTab"/);
     assert.match(html, /data-sev="high"/);
-    assert.match(html, /aria-selected="true"/);
-    assert.match(html, /tabindex="0"/);
+    assert.match(html, /aria-pressed="true"/);
+    assert.doesNotMatch(html, /role="tab"/);
+    assert.doesNotMatch(html, /tabindex=/, "every filter stays in the Tab order");
     assert.match(html, />High</);
     assert.match(html, />3</);
   });
 
-  it("null count renders an en-dash, inactive gets tabindex -1", () => {
+  it("null count renders an en-dash, inactive is aria-pressed=false", () => {
     const html = ctx.sevTabButton("", "All", null, false);
     assert.match(html, /&ndash;/);
-    assert.match(html, /tabindex="-1"/);
+    assert.match(html, /aria-pressed="false"/);
   });
 
   it("title is optional and escaped", () => {
@@ -119,6 +120,6 @@ describe("sevTabButton — shared filter-tab markup", () => {
     ctx.renderContrastSevTabs();
     const html = ctx.els.sevTabs.innerHTML;
     assert.equal((html.match(/class="sevTab"/g) || []).length, 3);
-    assert.match(html, /data-sev="fail"[^>]*aria-selected="true"/);
+    assert.match(html, /data-sev="fail"[^>]*aria-pressed="true"/);
   });
 });

@@ -72,18 +72,18 @@
         </div>
 
         <!-- Severity filter tabs -->
-        <div class="sevTabs" id="sevTabs" role="tablist" aria-label="Filter by severity"></div>
+        <div class="sevTabs" id="sevTabs" role="group" aria-label="Filter by severity"></div>
 
         <!-- Progress -->
-        <div class="progress" id="progressWrap" hidden role="status" aria-live="polite" aria-atomic="true" aria-label="Audit progress">
+        <div class="progress" id="progressWrap" hidden aria-label="Audit progress">
           <div class="pMeta">
             <span class="pLabel" id="progressLabel">Scanning…</span>
             <span class="pTime mono" id="progressTime">0.0s</span>
           </div>
-          <div class="pTrack" aria-hidden="true">
+          <div class="pTrack">
             <div class="pFill" id="progressBar" role="progressbar" aria-label="Audit progress completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="0%" aria-describedby="progressLabel progressStatus"></div>
           </div>
-          <span class="sr-only" id="progressStatus">Audit idle</span>
+          <span class="sr-only" id="progressStatus" role="status" aria-live="polite">Audit idle</span>
         </div>
 
         <!-- Empty state -->
@@ -364,9 +364,9 @@
           <div class="flowMain">
             <div class="flowStepListWrap">
               <label class="flowFilterToggle"><input type="checkbox" id="flowUnresolvedOnly" /> <span>Only steps with unresolved blockers</span></label>
-              <div class="flowStepList" id="flowStepList" role="list" aria-label="Flow steps"></div>
+              <div class="flowStepList" id="flowStepList" role="group" aria-label="Flow steps"></div>
             </div>
-            <div class="flowStepDetail" id="flowStepDetail" role="region" aria-live="polite" aria-label="Selected step detail"></div>
+            <div class="flowStepDetail" id="flowStepDetail" role="region" aria-label="Selected step detail"></div>
           </div>
         </div>
 
@@ -478,6 +478,11 @@
                 <span class="settingsLabel">Console logging</span>
                 <label class="switch"><input id="alsoConsole" type="checkbox" /> <span class="slider" aria-hidden="true"></span><span class="switchText">Log to console</span></label>
                 <span class="settingsHint">Also print full results to the inspected page&rsquo;s console</span>
+              </div>
+              <div class="settingsGroup">
+                <span class="settingsLabel">Keyboard shortcuts</span>
+                <label class="switch"><input id="singleKeyShortcuts" type="checkbox" checked /> <span class="slider" aria-hidden="true"></span><span class="switchText">Single-key shortcuts</span></label>
+                <span class="settingsHint">1/2/3 switch tabs; in Flow: r record, s mark step, e end (press twice). Turn off if they clash with speech input or your screen reader.</span>
               </div>
           </div>
         </section>

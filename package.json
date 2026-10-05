@@ -4,6 +4,7 @@
   "version": "6.10.7",
   "scripts": {
     "test": "node --test test/*.test.mjs",
+    "test:e2e": "node scripts/e2e-smoke.mjs && node scripts/panel-e2e.mjs",
     "build": "node scripts/build.mjs",
     "build:dev": "node scripts/build.mjs --dev",
     "build:clean": "rm -rf dist && node scripts/build.mjs",

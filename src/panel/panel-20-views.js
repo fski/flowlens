@@ -348,7 +348,10 @@ function buildCombinedGradient(colors) {
 // their own copies.
 function sevTabButton(sev, label, count, active, title = "") {
   const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
-  return `<button class="sevTab" role="tab" data-sev="${sev}" aria-selected="${active}" tabindex="${active ? 0 : -1}" type="button"${titleAttr}>
+  // Toggle buttons (aria-pressed), not tabs: severities combine (multi-select)
+  // and each one must be reachable with Tab — the old role=tab/tabindex=-1
+  // strip had no arrow-key handler, so only the active filter was reachable.
+  return `<button class="sevTab" data-sev="${sev}" aria-pressed="${active}" type="button"${titleAttr}>
       <span class="sevLabel">${escapeHtml(label)}</span>
       <span class="sevCount">${count != null ? count : "&ndash;"}</span>
     </button>`;
@@ -1810,7 +1813,23 @@ function _flowSelectedIndex(sess) {
   return steps[steps.length - 1].index; // default: latest step
 }
 
+// renderFlow rebuilds the filmstrip/step list with innerHTML, which destroyed
+// the focused step (focus fell to <body> on every select and every capture).
+// Remember which step control had focus and put it back on its replacement.
 function renderFlow() {
+  var active = typeof document !== "undefined" ? document.activeElement : null;
+  var holder = active && active.closest ? active.closest("#flowFilmstrip,#flowStepList") : null;
+  var stepIdx = holder && active.getAttribute ? active.getAttribute("data-step-index") : null;
+  _renderFlowInner();
+  if (holder && stepIdx != null && document.activeElement !== active) {
+    var sel = sessionState.selectedStepIndex;
+    var target = holder.querySelector('[data-step-index="' + (sel != null ? sel : stepIdx) + '"]')
+      || holder.querySelector('[data-step-index="' + stepIdx + '"]');
+    if (target && typeof target.focus === "function") target.focus();
+  }
+}
+
+function _renderFlowInner() {
   var sess = sessionState.current || sessionState.lastEndedSession;
   var steps = (sess && Array.isArray(sess.steps)) ? sess.steps : [];
   var hasSteps = steps.length > 0;

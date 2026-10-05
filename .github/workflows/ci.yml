@@ -22,6 +22,8 @@ jobs:
         run: npm run build
       - name: E2E smoke — fixture rule counts
         run: node scripts/e2e-smoke.mjs
+      - name: Panel E2E — extension loaded in Chromium
+        run: node scripts/panel-e2e.mjs
       - name: Headless runner smoke — deterministic CI report
         run: |
           node scripts/ci-runner.mjs --url "file://$PWD/fixtures/a11y-rule-fixtures.html" --out /tmp/ci-a

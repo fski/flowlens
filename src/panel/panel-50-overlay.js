@@ -271,14 +271,14 @@ function explorerRowHtml(f, idx) {
   const sev = f.severity || 'info';
   const isCrossFrame = isCrossFrameFinding(f);
   const crossBadge = isCrossFrame ? ' <span class="badge crossFrame">Cross-frame</span>' : '';
-  return `<tr class="trow" data-i="${idx}" data-sev="${escapeHtml(sev)}"${isCrossFrame ? ' data-crossframe="1"' : ''}><td><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span></td><td>${escapeHtml(f.wcag ?? "")}</td><td>${cellHtml(f.name, 50)}${crossBadge}</td><td>${cellHtml(f.type ?? "", 30)}</td></tr>`;
+  return `<tr class="trow" tabindex="0" data-i="${idx}" data-sev="${escapeHtml(sev)}"${isCrossFrame ? ' data-crossframe="1"' : ''}><td><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span></td><td>${escapeHtml(f.wcag ?? "")}</td><td>${cellHtml(f.name, 50)}${crossBadge}</td><td>${cellHtml(f.type ?? "", 30)}</td></tr>`;
 }
 function contrastRowHtml(f, idx) {
   const pass = f.ratio >= f.required;
-  return `<tr class="trow${pass ? ' contrastPass' : ''}" data-i="${idx}"><td>${escapeHtml(String(f.ratio ?? ""))}</td><td>${escapeHtml(String(f.apcaLc ?? "\u2013"))}</td><td>${escapeHtml(String(f.required ?? ""))}</td><td>${f.largeText ? "yes" : "no"}</td><td>${cellHtml(f.text, 50)}</td><td>${escapeHtml(f.tag ?? "")}</td><td>${escapeHtml(f.testId ?? "")}</td><td>${cellHtml(f.path, 60)}</td><td>${cellHtml(f.note, 50)}</td></tr>`;
+  return `<tr class="trow${pass ? ' contrastPass' : ''}" tabindex="0" data-i="${idx}"><td>${escapeHtml(String(f.ratio ?? ""))}</td><td>${escapeHtml(String(f.apcaLc ?? "\u2013"))}</td><td>${escapeHtml(String(f.required ?? ""))}</td><td>${f.largeText ? "yes" : "no"}</td><td>${cellHtml(f.text, 50)}</td><td>${escapeHtml(f.tag ?? "")}</td><td>${escapeHtml(f.testId ?? "")}</td><td>${cellHtml(f.path, 60)}</td><td>${cellHtml(f.note, 50)}</td></tr>`;
 }
 function tabRowHtml(e, idx) {
-  return `<tr class="trow${e._issue ? ' tabIssue' : ''}" data-i="${idx}"><td>${escapeHtml(String(e.i ?? ""))}</td><td>${escapeHtml(String(e.type ?? ""))}</td><td>${escapeHtml(String(e.tabIndex ?? ""))}</td><td>${cellHtml(e.name, 50)}</td><td>${cellHtml(e.path, 60)}</td><td>${cellHtml(e.note, 50)}</td></tr>`;
+  return `<tr class="trow${e._issue ? ' tabIssue' : ''}" tabindex="0" data-i="${idx}"><td>${escapeHtml(String(e.i ?? ""))}</td><td>${escapeHtml(String(e.type ?? ""))}</td><td>${escapeHtml(String(e.tabIndex ?? ""))}</td><td>${cellHtml(e.name, 50)}</td><td>${cellHtml(e.path, 60)}</td><td>${cellHtml(e.note, 50)}</td></tr>`;
 }
 
 function txt(s, n = 140) {

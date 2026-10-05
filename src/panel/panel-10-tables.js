@@ -352,13 +352,15 @@ function showProgress(action, durationSec) {
     if (isObserve && els.runCurrentMode) {
       els.runCurrentMode.style.setProperty("--cta-progress", `${Math.min(pct, 100)}%`);
     }
+    // The status region is announced: update it at start and finish only —
+    // a per-second countdown meant ~40 screen-reader interruptions in Watch.
+    // The progressbar value tracks every tick for anyone who queries it.
     if (remaining <= 0) {
       clearInterval(state._progressInterval);
       if (!isObserve && label) label.textContent = `${prefix} \u2022 finishing\u2026`;
       if (status) status.textContent = `${prefix}, finishing`;
       setProgressA11y(bar, pct, "finishing");
     } else {
-      if (status) status.textContent = `${prefix}, ${remaining} seconds remaining`;
       setProgressA11y(bar, pct, `${remaining}s remaining`);
     }
   }, 1000);
@@ -469,6 +471,9 @@ function setExportMenuOpen(open, { restoreFocus = false } = {}) {
 async function copyText(text) {
   // DevTools panel can have Clipboard API blocked by Permissions Policy.
   // Fallback to execCommand-based copy which still works in most environments.
+  // The temporary textarea steals focus; hand it back to the control the
+  // user activated (a keyboard user was otherwise dropped on <body>).
+  const prevFocus = document.activeElement;
   try {
     const ta = document.createElement("textarea");
     ta.value = String(text ?? "");
@@ -482,6 +487,7 @@ async function copyText(text) {
     ta.setSelectionRange(0, ta.value.length);
     const ok = document.execCommand("copy");
     document.body.removeChild(ta);
+    if (prevFocus && prevFocus !== document.body && typeof prevFocus.focus === "function") prevFocus.focus();
     if (!ok) throw new Error("execCommand(copy) returned false");
     return true;
   } catch (e) {

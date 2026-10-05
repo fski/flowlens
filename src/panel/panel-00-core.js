@@ -14,6 +14,7 @@ const els = {
   copyFrameUrl: document.getElementById("copyFrameUrl"),
   profileSelect: document.getElementById("profileSelect"),
   alsoConsole: document.getElementById("alsoConsole"),
+  singleKeyShortcuts: document.getElementById("singleKeyShortcuts"),
   pinFrame: document.getElementById("pinFrame"),
   wcagLevel: document.getElementById("wcagLevel"),
   targetingSummary: document.getElementById("targetingSummary"),

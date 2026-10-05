@@ -305,11 +305,26 @@ function stepIndicesForNav() {
     if (tile) selectFlowStep(Number(tile.dataset.stepIndex));
   };
   const onSelectKey = (e) => {
-    if (e.key !== "Enter" && e.key !== " ") return;
     const tile = e.target.closest("[data-step-index]");
     if (!tile) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      selectFlowStep(Number(tile.dataset.stepIndex));
+      return;
+    }
+    // Filmstrip is a listbox: arrows/Home/End move the selection (and focus,
+    // restored by renderFlow).
+    if (!e.currentTarget || e.currentTarget !== els.flowFilmstrip) return;
+    const idx = stepIndicesForNav();
+    const cur = idx.indexOf(Number(tile.dataset.stepIndex));
+    let next = -1;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = Math.min(idx.length - 1, cur + 1);
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = Math.max(0, cur - 1);
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = idx.length - 1;
+    if (next < 0 || next === cur) return;
     e.preventDefault();
-    selectFlowStep(Number(tile.dataset.stepIndex));
+    selectFlowStep(idx[next]);
   };
   if (els.flowFilmstrip) { els.flowFilmstrip.addEventListener("click", onSelectClick); els.flowFilmstrip.addEventListener("keydown", onSelectKey); }
   if (els.flowStepList) { els.flowStepList.addEventListener("click", onSelectClick); els.flowStepList.addEventListener("keydown", onSelectKey); }
@@ -433,14 +448,22 @@ document.addEventListener("click", (e) => {
   toast("Copied");
 }, true);
 
-// Keyboard navigation for table rows (Enter/Space to activate)
+// Keyboard navigation for table rows: Enter/Space activate (expand +
+// highlight), ArrowUp/ArrowDown move between rows.
 document.addEventListener("keydown", (e) => {
   if (e.target && e.target.closest("button, a, input, select, textarea")) return;
-  if (e.key !== "Enter" && e.key !== " ") return;
-  const tr = e.target.closest("tr.trow");
+  const tr = e.target && e.target.closest ? e.target.closest("tr.trow") : null;
   if (!tr) return;
-  e.preventDefault();
-  tr.click();
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    tr.click();
+    return;
+  }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    let n = e.key === "ArrowDown" ? tr.nextElementSibling : tr.previousElementSibling;
+    while (n && !(n.matches && n.matches("tr.trow"))) n = e.key === "ArrowDown" ? n.nextElementSibling : n.previousElementSibling;
+    if (n) { e.preventDefault(); n.focus(); }
+  }
 });
 
 // --- DELEGATED_TABLE_CLICKS ---
@@ -600,6 +623,12 @@ if (els.recipeSelect) {
 if (els.alsoConsole) {
   els.alsoConsole.addEventListener("change", async () => {
     await updateUiPrefs({ alsoConsole: !!els.alsoConsole.checked });
+  });
+}
+
+if (els.singleKeyShortcuts) {
+  els.singleKeyShortcuts.addEventListener("change", async () => {
+    await updateUiPrefs({ singleKeyShortcuts: !!els.singleKeyShortcuts.checked });
   });
 }
 
@@ -798,9 +827,12 @@ if (els.tabWalkQ) {
   });
 }
 
-// keyboard shortcuts (tab-aware)
+// keyboard shortcuts (tab-aware). Single-character shortcuts must be
+// switchable off (WCAG 2.1.4) — Settings → Keyboard shortcuts.
+let _endShortcutArmedAt = 0;
 window.addEventListener("keydown", (e) => {
   if (state.running) return;
+  if (els.singleKeyShortcuts && !els.singleKeyShortcuts.checked) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.target && (e.target.matches("input,select,textarea") || e.target.isContentEditable)) return;
   const key = (e.key || "").toLowerCase();
@@ -816,8 +848,17 @@ window.addEventListener("keydown", (e) => {
       els.sessionMark.click();
       return;
     }
+    // Ending is irreversible: a stray "e" only arms it; a second "e" within
+    // 3s ends the session.
     if (key === "e" && sessionState.current && els.sessionEnd && !els.sessionEnd.disabled) {
-      els.sessionEnd.click();
+      const now = Date.now();
+      if (now - _endShortcutArmedAt < 3000) {
+        _endShortcutArmedAt = 0;
+        els.sessionEnd.click();
+      } else {
+        _endShortcutArmedAt = now;
+        toast("Press E again to end the session");
+      }
       return;
     }
     // r = start recording (if no session)
