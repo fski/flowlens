@@ -1590,23 +1590,36 @@
     return Math.round(Lc * 10) / 10;
   };
 
-  const getEffectiveBg = (el) => {
+  // Composite background behind el: translucent layers up to the first
+  // opaque one, over the root (<html>) background, over white. Reports
+  // `uncertain` when a background-image (gradient/url) sits in that stack —
+  // its colour can't be read from computed style.
+  const getEffectiveBgInfo = (el) => {
     const layers = [];
+    let uncertain = false;
     let node = el;
+    let opaque = false;
     while (node && node !== doc.documentElement) {
-      const c = parseColorAny(w.getComputedStyle(node).backgroundColor);
+      const cs = w.getComputedStyle(node);
+      if (cs.backgroundImage && cs.backgroundImage !== "none") uncertain = true;
+      const c = parseColorAny(cs.backgroundColor);
       if (c && c.a > 0) {
         layers.push(c);
-        if (c.a >= 1) break;
+        if (c.a >= 1) { opaque = true; break; }
       }
       node = node.parentElement;
     }
     let bg = { r: 255, g: 255, b: 255, a: 1 };
-    const bodyBg = doc.body ? parseColorAny(w.getComputedStyle(doc.body).backgroundColor) : null;
-    if (bodyBg && bodyBg.a > 0) bg = bodyBg.a >= 1 ? bodyBg : blend(bodyBg, bg);
+    if (!opaque && doc.documentElement) {
+      const rootCs = w.getComputedStyle(doc.documentElement);
+      if (rootCs.backgroundImage && rootCs.backgroundImage !== "none") uncertain = true;
+      const rootBg = parseColorAny(rootCs.backgroundColor);
+      if (rootBg && rootBg.a > 0) bg = blend(rootBg, bg);
+    }
     for (let i = layers.length - 1; i >= 0; i--) bg = blend(layers[i], bg);
-    return bg;
+    return { bg, uncertain };
   };
+  const getEffectiveBg = (el) => getEffectiveBgInfo(el).bg;
 
   const isLargeText = (el) => {
     const s = w.getComputedStyle(el);
@@ -4520,7 +4533,8 @@
       if (!s) continue;
 
       // Check cumulative opacity from ancestors
-      let cumulativeOpacity = parseFloat(s.opacity) || 1;
+      const ownOpacity = parseFloat(s.opacity);
+      let cumulativeOpacity = Number.isFinite(ownOpacity) ? ownOpacity : 1;
       let ancestor = el.parentElement;
       while (ancestor && ancestor !== doc.documentElement && cumulativeOpacity > 0) {
         const ancestorOpacity = parseFloat(w.getComputedStyle(ancestor).opacity);
@@ -4532,10 +4546,12 @@
       const fg = parseColorAny(s.color);
       if (!fg || fg.a === 0) continue;
 
-      const bg = getEffectiveBg(el);
-      // Factor in cumulative opacity: effective fg blends toward bg at reduced opacity
-      const effectiveFg = cumulativeOpacity < 1
-        ? blend({ r: fg.r, g: fg.g, b: fg.b, a: fg.a * cumulativeOpacity }, bg)
+      const { bg, uncertain: bgUncertain } = getEffectiveBgInfo(el);
+      // Translucent text (rgba colour and/or reduced opacity) blends toward
+      // the background — rgba(0,0,0,.2) text is light grey, not black.
+      const fgAlpha = fg.a * cumulativeOpacity;
+      const effectiveFg = fgAlpha < 1
+        ? blend({ r: fg.r, g: fg.g, b: fg.b, a: fgAlpha }, bg)
         : { r: fg.r, g: fg.g, b: fg.b };
       const ratio = contrastRatio(effectiveFg, bg);
 
@@ -4554,8 +4570,15 @@
         note: cumulativeOpacity < 1 ? `Effective opacity: ${(cumulativeOpacity * 100).toFixed(0)}% — ratio adjusted for opacity blending.` : null
       };
 
+      if (bgUncertain) {
+        item.bgUncertain = true;
+        item.note = (item.note ? item.note + " " : "") + "Background image/gradient behind the text — ratio not computable; verify manually.";
+      }
       samples.push(item);
-      if (ratio + 1e-6 < req) {
+      // A gradient/image background makes the computed ratio meaningless
+      // (white text on a dark gradient reads as 1:1) — keep it as a sample
+      // for manual review, not a failure.
+      if (!bgUncertain && ratio + 1e-6 < req) {
         failures.push({
           ...item,
           wcag: "1.4.3",

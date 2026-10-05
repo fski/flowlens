@@ -14,6 +14,7 @@ const ROOT = join(import.meta.dirname, "..");
 const SNIPPET_PATH = join(ROOT, "dist", "a11y-audit-snippet.js");
 const FIXTURE_URL = `file://${join(ROOT, "fixtures", "a11y-rule-fixtures.html")}`;
 const ACCNAME_URL = `file://${join(ROOT, "fixtures", "accname-fixtures.html")}`;
+const CONTRAST_URL = `file://${join(ROOT, "fixtures", "contrast-fixtures.html")}`;
 const NAME_RULES = ["NO_ACCESSIBLE_NAME", "LINK_NO_ACCESSIBLE_NAME", "FORM_CONTROL_NO_LABEL", "BROKEN_ARIA_REFERENCE", "DIALOG_NO_ACCESSIBLE_NAME", "DUPLICATE_NAV_NO_LABEL"];
 
 // Expected counts — keep in sync with docs/A11Y_RULE_FP_AUDIT.md §4 step 5.
@@ -72,9 +73,26 @@ const acc = await accPage.evaluate(async (NAME_RULES) => {
   ids.push({ id: "ok-shadow-btn", expect: null });
   return { hits, ids };
 }, NAME_RULES);
+
+// Contrast fixtures: fail-* must be failures, ok-* must not.
+const cPage = await newAuditPage(browser);
+await cPage.goto(CONTRAST_URL, { waitUntil: "load" });
+await cPage.addScriptTag({ content: readFileSync(SNIPPET_PATH, "utf8") });
+const contrast = await cPage.evaluate(async () => {
+  window.__A11YFLOW_CONSOLE__ = false;
+  const r = await window.A11YFlowAudit.contrastScan({ limit: 50 });
+  const failing = new Set((r.failures || []).map(f => f.path || ""));
+  return [...document.querySelectorAll("[id^='ok-'],[id^='fail-']")]
+    .map(e => ({ id: e.id, failed: [...failing].some(p => p.endsWith(`#${e.id}`)) }));
+});
 await browser.close();
 
 let failed = 0;
+for (const { id, failed: isFail } of contrast) {
+  const ok = id.startsWith("fail-") ? isFail : !isFail;
+  if (!ok) failed++;
+  console.log(`${ok ? "✓" : "✗"} contrast ${id}: ${id.startsWith("fail-") ? "expected failure" : "expected pass"}`);
+}
 for (const { id, expect } of acc.ids) {
   const mine = acc.hits.filter(h => h.path.endsWith(`#${id}`) || h.path === `button#${id}`);
   const ok = expect ? mine.some(h => h.type === expect) : mine.length === 0;
