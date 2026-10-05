@@ -1,9 +1,9 @@
 # FlowLens Session Capture QA (10 minutes)
 
 ## Setup
-1. Open DevTools panel on target app page.
-2. Confirm frame list is populated (`Refresh frames` once).
-3. Start from a clean session (`Start session`).
+1. Open the FlowLens panel on the target app page.
+2. Settings → Targeting: confirm the frame list is populated (**Refresh** once).
+3. Flow tab → **Record Flow** (the current page becomes the baseline step). Turn **Auto** off for Scripts A–C so only manual steps are recorded.
 
 ## Script A: 5 steps, no navigation
 1. Mark step on initial state.
@@ -11,7 +11,7 @@
 3. Trigger another interaction, mark step.
 4. Return to prior state, mark step.
 5. Mark step once more without changes.
-6. Verify HUD updates step count and status each time.
+6. Verify the step list and status line update after each step.
 
 ## Script B: 5 steps, SPA navigation
 1. Navigate to 2-3 SPA routes without hard reload.
@@ -26,18 +26,18 @@
 ## Partial/failure checks
 1. Force partial active-mode failure:
    - Select active mode that is likely unavailable in current frame context.
-   - Mark step and verify `PARTIAL/active:*` appears in HUD.
+   - Mark step and verify `PARTIAL/active:*` appears in the status line.
 2. Simulate quota pressure:
    - Run long session (many steps) until raw cap warning appears.
    - Verify capture continues (`PARTIAL/raw:capped`) and steps still append.
 
 ## Export checks
-1. Click `Session MD` and verify inline `Copied ✓` hint.
-2. Click `Session JSON` and verify filename:
+1. **End** the session, then Export → **Session Markdown** and verify it is copied to the clipboard.
+2. Export → **Session JSON** and verify filename:
    - `flowlens-session_<originSlug>_<env>_<YYYYMMDD-HHMM>.json`
 3. Verify JSON contains `determinismMeta`, versions, steps, and bounded raw appendix.
 
 ## Pass criteria
 - No blocking UI errors during mark-step flow.
 - In-flight mark-step cannot be double-triggered.
-- HUD status/reason code remains deterministic and readable.
+- Status/reason code remains deterministic and readable.

@@ -199,8 +199,8 @@ function decideNavAction(url, fromAuditedFrame, nav, session, autoOn, now) {
 }
 
 // Is a URL fragment a client-side ROUTE rather than an in-page anchor?
-// Hash routers use #/path, #!/path or #?key=value (the DH help-center MFE
-// navigates exclusively via #?…); plain anchors are bare slugs (#section).
+// Hash routers use #/path, #!/path or #?key=value (embedded help-center MFEs
+// navigate exclusively via #?…); plain anchors are bare slugs (#section).
 // OAuth implicit-flow fragments: a token-bearing URL (plus screenshot) must
 // never land in a stored session. Checked on EVERY accept path of
 // classifyNavForCapture — a real implicit-flow return changes the PATH
@@ -1034,7 +1034,7 @@ function deriveHelpCenterRouteHint(url, activeProfileIds = []) {
 }
 
 // DevTools evals can silently LOSE their callback when the page navigates
-// mid-eval (SPA churn, live-region-heavy pages like the DH help center).
+// mid-eval (SPA churn, live-region-heavy pages like embedded help centers).
 // captureStepOptionC awaits this inside its try — an unresolved promise
 // meant finally never ran, inFlight stayed true forever and the whole
 // recording hung. Hard timeout: a missing title only costs a nicer label.

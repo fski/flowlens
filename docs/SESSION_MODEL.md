@@ -1,259 +1,188 @@
 # FlowLens — Session Model
 
-> Version 3.0.0 · Chrome DevTools extension for accessibility auditing (WCAG)
+> **Audience:** Maintainers working on Flow capture, signatures, diffs, storage, or session exports.
 >
-> **Audience:** Maintainers working on session capture, signature logic, diff algorithms, or export formatting.
->
-> For the design-level overview of session capture, see [SESSION_CAPTURE.md](./SESSION_CAPTURE.md).
+> Code lives in the panel parts under `src/panel/` (capture: `panel-45-capture.js`; persistence, raw appendix, legacy signature bundles: `panel-30-flow.js`; stable signatures, diff and lifecycle builders: `panel-40-engine.js`; exports: `panel-50-overlay.js`). Locate code by symbol name.
 
 ---
 
 ## Table of Contents
 
-1. [Step Schema](#1-step-schema)
-2. [ModeSnapshot Schema](#2-modesnapshot-schema)
-3. [Signature Strategy](#3-signature-strategy)
+1. [Capture Flow](#1-capture-flow)
+2. [Step and ModeSnapshot Schemas](#2-step-and-modesnapshot-schemas)
+3. [Signatures](#3-signatures)
 4. [Blocking Logic](#4-blocking-logic)
 5. [Diff Model](#5-diff-model)
-6. [Caps and Compaction](#6-caps-and-compaction)
-7. [Determinism Versioning](#7-determinism-versioning)
-8. [Maintainer Guidelines](#8-maintainer-guidelines)
+6. [Caps, Compaction, Storage](#6-caps-compaction-storage)
+7. [Status Codes](#7-status-codes)
+8. [Exports and Determinism Versioning](#8-exports-and-determinism-versioning)
+9. [Maintainer Guidelines](#9-maintainer-guidelines)
 
 ---
 
-## 1. Step Schema
+## 1. Capture Flow
 
-Each step captured by `Mark step` is stored as a `Step` object. Implemented in `panel.js` as plain objects with JSDoc type hints.
+A session starts with **Record Flow** (`startSession()`), which captures the current page as the baseline step. Steps are then added by auto-capture (navigation, SPA route change, embedded-frame navigation, DOM-step sentinel) or manually with **Mark step**; **End** (`endSession()`) archives the session.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string | Unique step ID |
-| `index` | number | Step number (0-based) |
-| `label` | string | User-provided label |
-| `at` | ISO 8601 | Timestamp |
-| `url` | string | Page URL at the moment of capture |
-| `routeHint` | string | Auto-derived route hint (see below) |
-| `snapshots.run` | ModeSnapshot | Baseline run snapshot |
-| `snapshots.active` | ModeSnapshot \| null | Active mode snapshot (null if active mode = run) |
-| `diffs.run` | DiffSummary | Diff of baseline vs. previous step |
-| `diffs.active` | DiffSummary \| null | Diff of active mode vs. previous step |
-| `diffs.consolidated` | DiffSummary | Merged diff across modes |
-| `frameSelections` | object | `usedFrameIds`, `usedFrameKeys` |
+Each step (`captureStepOptionC()`):
 
-### Route hint derivation
+1. Sends one `CAPTURE_STEP` message; the SW runs a baseline `run` audit plus the active mode (if it isn't `run`).
+   - Manual capture uses the Snap tab's active mode (`getActiveModeForSessionCapture()`).
+   - Auto-capture uses `observe`, switching to `watch` after a step whose observe capture added blocking findings (`getSmartModeForCapture()`).
+2. Builds `ModeSnapshot`s for run and active, registers their raw payloads in `session.rawAppendix`.
+3. Computes `step.stableSignatures` (`computeStableSignatureSet()`), `step.findingIndex` (`buildFindingIndexForStep()`) and `step.diffs` (`buildStepDiffs()`) against the previous step.
+4. Appends the step, prunes the raw appendix, and persists the active session best-effort (failures are warnings; the session continues in memory).
 
-Priority order:
-1. Help Center article hint (`articleId`/slug) — when helpcenter profile is active and an article ID is detected.
-2. Normalized URL path hint — lowercase, volatile ID tokens normalized, query/hash stripped.
-3. Normalized `document.title`.
-4. `"(unknown)"` fallback.
+A step is accepted only if the baseline `run` succeeds. Frame-level failures are kept per frame and never abort the step. Screenshots (`CAPTURE_SHOT`) are best-effort and only taken while the inspected tab is the active tab of its window.
+
+Route hint (`deriveStepRouteHint()`), in priority order: Help Center article hint (`hc/<slug>`, when a help-center profile is active) → normalized URL path (volatile ID segments → `_id`, query/hash stripped) → `title:<normalized document.title>` → `"(unknown)"`.
 
 ---
 
-## 2. ModeSnapshot Schema
+## 2. Step and ModeSnapshot Schemas
 
-Each mode captured per step produces a `ModeSnapshot`:
+### Step
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `mode` | string | Mode name: `run`, `contrast`, `tabWalk`, `watch`, `observe` |
-| `best` | object | `{ frameId, frameKey, normalized, rawRef }` — best-scoring frame entry |
-| `perFrame` | array | Results per frame (compacted — raw data removed, only normalized summaries) |
-| `targeting` | object | `{ scope, targetMode, pinned, helpCenterMatchEnabled, selectionReason, frameKeyVersion, usedFrameIds }` |
+| Field | Description |
+|-------|-------------|
+| `id`, `index` | Step id; `index` is 1-based |
+| `label` | User label or `null` |
+| `at`, `url`, `routeHint` | Capture time, page URL, derived route hint |
+| `activeModeCaptured` | Mode captured alongside the baseline |
+| `snapshots.run` / `snapshots.active` | `ModeSnapshot` (active is `null` when the active mode is `run`) |
+| `stableSignatures.run` / `.active` | `{ stableFindingSignatureSet, severityCounts, blockingSet, summaryScore }` |
+| `findingIndex` | Stable signature → `{ name, type, severity, wcag, confidence }` (run + active) — used by the Flow view's Appeared/Persisting/Resolved lists and the lifecycle swimlane |
+| `diffs.run` / `.active` / `.consolidated` | Diff summaries (see §5) |
+| `frameSelections` | `{ usedFrameIds, usedFrameKeys }` |
+| `profileLabel`, `profileConfidence`, `profileMatchSignals`, `profileSuspect` | Profile match for the best frame |
+| `rootSelector`, `rootSelectorNotFound`, `depthMax`, `recipeId`, `transitionStates` | Capture context |
+| `hasShot`, `shotError` | Screenshot status (image itself lives in IndexedDB) |
 
-`best.rawRef` is a key into `session.rawAppendix` — only the best-entry raw per captured mode per step is stored. Legacy inline raw payloads are migrated/compacted during export.
+### ModeSnapshot (`toModeSnapshot()`)
+
+| Field | Description |
+|-------|-------------|
+| `mode` | `run`, `contrast`, `tabWalk`, `watch`, `observe` |
+| `best` | `{ frameId, frameKey, frameKeyStable, normalized: { type, blockingCount, summaryScore, primaryCounts }, rawRef }` |
+| `perFrame` | Per-frame `{ frameId, frameKey, frameKeyStable, ok, normalized, error, reason }` — no raw payloads |
+| `targeting` | `{ scope, pinned, selectionReason, frameKeyVersion, usedFrameIds, … }` |
+
+`best.rawRef` points into `session.rawAppendix`; only the best frame's raw payload per mode per step is kept.
 
 ---
 
-## 3. Signature Strategy
+## 3. Signatures
 
-Signatures are built per mode in `panel.js:1870-2128`. They provide deterministic identity for findings across steps and sessions.
+### Frame keys (`deriveFrameKey()` in `src/sw/sw.js`)
 
-### Signature formats per mode
+- `frameKeyStable` = `fk::v1::<origin>::<pathHint>` — identity; `pathHint` is the first two URL path segments with numeric/hex/UUID-like segments normalized to `_id`.
+- `frameKey` = `<frameKeyStable>::<markerHash8>` — adds an FNV-1a hash of the profile marker hits (diagnostic).
+- `frameId` is used only for runtime targeting. Duplicate `frameKeyStable` values within one capture get an ordinal suffix.
 
-| Mode | Signature format | Blocking? |
-|------|-----------------|-----------|
-| `run` | `run∣{frameKey}∣{type}∣{wcag}∣{confidence}∣{severity}∣{level}∣testid:{testId}∣pathh:{pathHash}∣{name}∣{note}` | `isRunFindingBlocking(f)` |
-| `contrast` | `contrast∣{frameKey}∣{wcag}∣ratio:{bucket}∣required:{bucket}∣{tag}∣testid:{testId}∣pathh:{pathHash}∣{text}` | Always true |
-| `tabWalk` | `tabwalk∣{frameKey}∣{type}∣pathh:{pathHash}∣{name}∣{note}∣tabi:{bucket}` | `TAB_BLOCKING_TYPES.has(type)` |
-| `watch` | `watch∣{frameKey}∣{metric}∣b:{budget}∣v:{value}` + optionally `watch∣{frameKey}∣focus_loss∣v:{count}` | Always true |
-| `observe` | `observe∣{frameKey}∣{type}∣{wcag}∣{severity}∣testid:{testId}∣pathh:{pathHash}∣{note}` + `observe∣{frameKey}∣trend∣peak:{bucket}∣jumps:{bucket}` | `isRunFindingBlocking(f)` / false (trend) |
+### Stable signatures (diff identity)
 
-Builder functions:
-- `runSignatureEntries()` — `panel.js:~1900`
-- `contrastSignatureEntries()` — `panel.js:~1956`
-- `tabWalkSignatureEntries()` — `panel.js:~1988`
-- `watchSignatureEntries()` — `panel.js:~2019`
-- `observeSignatureEntries()` — `panel.js:~2061`
+`buildStableSignature()` → `<mode>|<type>|<wcag>|<severity>|<locatorHash>`, where `locatorHash` = FNV-1a over `frameKeyStable`, `testId`, `role`, `pathHashForSig(path)` and tag. Text content, labels and marker hashes are excluded. Contrast, Tab Walk and Watch items use `buildStableItemSignature()` with the same shape. These drive step diffs, the Flow view and the lifecycle swimlane.
 
-Merged via `buildModeSignatureBundle()` and `mergeSignatureBundles()` (`panel.js:2130-2175`).
+### Rich signature bundles (Markdown flow summary)
 
-### Signature quality
+`runSignatureEntries()`, `contrastSignatureEntries()`, `tabWalkSignatureEntries()`, `watchSignatureEntries()` and `findingSignatureEntries("observe", …)` build more descriptive signatures (wcag/level/confidence/severity, `testid:`, `pathh:`, normalized name/note; Observe adds a `trend|peak:|jumps:` entry; Watch adds `focus_loss`). `buildModeSignatureBundle()` / `mergeSignatureBundles()` feed `computeFlowBlockingRollup()`, used only by the Session Markdown "flow summary" and the Flow verdict's systemic-issues line.
+
+### Signature quality (`computeSignatureQuality()`)
 
 | Quality | Meaning |
 |---------|---------|
-| `high` | Finding has `testId` — strong, stable identity |
-| `medium` | Good CSS path (not volatile) |
-| `low` | Weak path — volatile/dynamic selectors; surfaced as "may be unstable" in Flow markdown |
+| `high` | Has `testId` or the path contains an id (`#`) |
+| `medium` | Has a non-volatile path |
+| `low` | Shadow-DOM path with `:nth-of-type` and no strong anchor, or no path — shown as "may be unstable" in Markdown |
 
-### Stability mechanisms
-
-- **Primary signatures always include `frameKey`** — ties identity to the frame, not the ephemeral `frameId`.
-- **`normalizeIdentityText()`** strips volatile UUID/number-like tokens before hashing.
-- **`pathHashForSig()`** (FNV-1a) replaces raw CSS paths — normalizes dynamic indices.
-- **`bucketNumber()`** buckets numeric values — prevents micro-drift in floating-point comparisons.
-- **Weak signature fallback**: findings with `signatureQuality: low` receive a `weakSignature` used only for Flow persistence matching (not Screen table identity).
+Normalization helpers: `normalizeIdentityText()` (strips volatile UUID/number-like tokens), `pathHashForSig()` (hashed normalized path), `bucketNumber()` (numeric bucketing).
 
 ---
 
 ## 4. Blocking Logic
 
-### `isRunFindingBlocking(finding)`
-
-Defined in `panel.js:1098-1105`:
-
-```
-1. severity ∉ {high, medium} → NOT blocking
-2. confidence = advisory → NOT blocking
-3. severity = high → BLOCKING
-4. severity = medium AND confidence = strict → BLOCKING
-5. severity = medium AND confidence = heuristic → NOT blocking
-```
-
-### Practical outcomes
+`isRunFindingBlocking(finding)` is the single predicate (Snap, Flow and CI agree):
 
 | Severity | Confidence | Blocking? |
 |----------|-----------|-----------|
-| `high` | `strict` | **Yes** (highest priority) |
-| `high` | `heuristic` | **Yes** (high severity overrides heuristic uncertainty) |
-| `high` | `advisory` | No |
-| `medium` | `strict` | **Yes** (deterministic medium = confirmed problem) |
+| `critical` / `high` | `strict` or `heuristic` | **Yes** |
+| `medium` | `strict` | **Yes** |
 | `medium` | `heuristic` | No |
-| `medium` | `advisory` | No |
-| `low` / `info` | any | Never blocking |
+| any | `advisory` | No |
+| `low` / `info` | any | No |
 
-### Tab Walk blocking
-
-`TAB_BLOCKING_TYPES` (`panel.js:122-129`): `possible_focus_trap`, `non_dialog_focus_trap`, `roach_motel`, `dialog_focus_not_trapped`, `focus_on_body`, `focus_failed`.
-
-### Blocking in Flow
-
-- Blocking signatures determine the flow summary in Session Markdown.
-- Sorted by: `blockingWeight` desc → `occurrences` desc → `firstSeenStep` asc → signature lexicographic.
-- `blockingAdded` / `blockingFixed` diff fields track blocking-only changes per step.
+Other modes: Contrast failures and Watch verdicts are always blocking; Tab Walk events are blocking when their type is in `TAB_BLOCKING_TYPES` (`possible_focus_trap`, `non_dialog_focus_trap`, `roach_motel`, `dialog_focus_not_trapped`, `focus_on_body`, `focus_failed`).
 
 ---
 
 ## 5. Diff Model
 
-Diffs are computed per mode and consolidated in `diffModeBundles()` (`panel.js:2190-2250`).
-
-### Diff fields
+One diff engine: `buildStepDiffs()` compares stable signature sets (`computeStableDiff()`) per mode (`run`, `active`) and consolidated (run + active).
 
 | Field | Description |
 |-------|-------------|
-| `added` | New findings — present in current step, absent in previous |
-| `fixed` | Resolved findings — present in previous step, absent in current |
-| `persisting` | Findings present in both steps (matched by primary signature) |
-| `weakMatched` | Findings matched via weak signature fallback (low-quality identity) |
-| `blockingAdded` | Subset of `added` that are blocking |
-| `blockingFixed` | Subset of `fixed` that were blocking |
-| `countsDelta` | Numeric change per metric: `findings`, `high`, `medium`, `low`, `info` |
+| `added` | Signatures present now, absent in the previous step |
+| `fixed` | Signatures present in the previous step, absent now |
+| `persisting` | Present in both |
+| `blockingAdded` / `blockingFixed` | Blocking subset of added / fixed |
+| `countsDelta` | Per-severity count change |
+| `text` | Human-readable summary |
 
-### Matching algorithm
+The first step is a baseline: its blocking deltas are zeroed, so a one-step flow can pass. The Flow view's Appeared / Persisting / Resolved lists come from `bucketStepDiff()` over `step.findingIndex` (same identity), and `buildIssueLifecycle()` builds the swimlane.
 
-1. Build signature sets for current and previous step.
-2. Match by primary signature (exact match).
-3. For unmatched findings with `signatureQuality: low`, attempt weak signature matching.
-4. Remaining unmatched in current = `added`; remaining unmatched in previous = `fixed`.
-
-### Watch/Observe diffs
-
-- **Watch** verdicts generate metric-based signatures: `watch∣{frameKey}∣{metric}∣b:{budget}∣v:{value}`.
-- **Observe** trends generate: `observe∣{frameKey}∣trend∣peak:{bucket}∣jumps:{bucket}`.
-- These participate in the same diff pipeline — a budget breach appearing in step N but not N-1 shows as `added`.
+Sessions saved before stable signatures are migrated on load (`normalizeLoadedSession()` → `migrateStepStableSignatures()`); without raw data the step is marked `stepQuality.degraded`.
 
 ---
 
-## 6. Caps and Compaction
-
-### Session-level caps
+## 6. Caps, Compaction, Storage
 
 | Cap | Value | Enforcement |
 |-----|-------|-------------|
-| `MAX_STEPS` | 100 | `mark-step` refuses new steps after the limit |
-| `MAX_RAW_APPENDIX_ENTRIES` | 200 (2 × MAX_STEPS) | Protects against raw payload growth |
-| `RAW_SOFT_COMPACT_KEEP_RECENT` | 30 | When at cap, raw refs are dropped from older steps first |
-| `MAX_SESSION_BYTES_ESTIMATE` | 4.5 MB | Approximate session JSON size. Warning only, not a hard block |
+| `MAX_STEPS` | 100 | Mark step refuses further steps (`session:limit`) |
+| `MAX_RAW_APPENDIX_ENTRIES` | 200 | Raw appendix cap; older steps' raw refs are dropped first, keeping the most recent `RAW_SOFT_COMPACT_KEEP_RECENT` (30) |
+| `MAX_SESSION_BYTES_ESTIMATE` | 4.5 MB | Warning only |
+| `CAPTURE_SLOW_MS` | 4000 ms | Capture shown as slow |
 
-### Raw appendix
+When the appendix is still full, new steps keep normalized data only (`raw:capped`); diffs and exports continue. Per-mode raw caps (`compactRawForSession()`): run 220 findings; contrast 120 failures + 40 samples; Tab Walk 200 events/stops; Watch 200 events + 80 verdicts; Observe 220 findings + 140 snapshots.
 
-- `session.rawAppendix: Record<string, object>` stores compacted raw objects.
-- Each `ModeSnapshot.best` stores `rawRef` only (pointer into appendix).
-- Only the best-entry raw per captured mode per step is stored.
-- When the raw appendix is capped, new steps continue with normalized data only (`rawRef` omitted). Diffs and export continue — this is non-fatal.
+Storage (`chrome.storage.local`):
 
-### Per-mode raw caps
+| Key | Contents |
+|-----|----------|
+| `session::active::<origin>::<env>` | The recording session (resume prompt on reopen) |
+| `session::archive::<origin>::<env>::<sessionId>` | Ended sessions |
+| `session::archiveIndex` | `[{ key, id, startedAt, steps }]`, newest first — the archive listing (no `storage.get(null)`). Max 30 archived sessions; older ones are evicted |
 
-Applied by `compactRawForSession()`:
-
-| Mode | Cap |
-|------|-----|
-| Run | 220 findings |
-| Contrast | 120 failures + 40 samples |
-| Tab Walk / Watch events | 200 |
-| Watch verdicts | 80 |
-| Observe snapshots | 140 |
-
-### Record compaction (non-session)
-
-`persistRecords()` (`panel.js:828-937`) progressively compacts audit records per origin:
-- Tier 1: keep 50 records
-- Tier 2: keep 25 records (on first quota exceeded)
-- Tier 3: keep 10 records (on second quota exceeded)
+Screenshots and video live in IndexedDB (`flowlens-media`, `src/shared/flow-media-store.js`); media is kept only for the newest 5 archived sessions.
 
 ---
 
-## 7. Determinism Versioning
+## 7. Status Codes
 
-Session JSON includes `determinismMeta` for forward compatibility:
+The Flow status line shows `OK`, `PARTIAL/<code>` (baseline recorded, something degraded) or `FAILED/<code>` (step not recorded). Codes (`MARK_REASON_DETAILS`): `baseline:parse`, `baseline:ok:false`, `baseline:no_scope_match`, `baseline:transport`, `active:ok:false`, `active:no_scope_match`, `active:parse`, `active:transport`, `persist:quota`, `persist:error`, `raw:capped`, `session:limit`.
+
+---
+
+## 8. Exports and Determinism Versioning
+
+- **Session JSON** — `compactSessionForExport()` + `determinismMeta` (`buildDeterminismMeta()`): versions, `totalSteps`, `perStepFrameKeys` (count + hash per step), `shadowCoverageSummary`, `warnings[]` (e.g. missing `usedFrameKeys`, `frameKeyVersion` mismatch). `runConfigSummary.rulePack` is always `null` (rule packs were removed; the field is kept).
+- **Session Markdown** — `buildSessionMarkdown()`: metadata, flow summary (top 24 blocking signatures from `computeFlowBlockingRollup()`, sorted blockingWeight desc → signature quality desc → occurrences desc → first seen step asc → signature), per-step diffs and targeting, frame appendix.
+- **Session JUnit XML**, **Diff Report JSON**, **Screenshots (.zip)** — from the export menu.
+
+Versions are stamped by the SW (`src/sw/sw.js`):
 
 | Field | Current | Bump when |
 |-------|---------|-----------|
-| `schemaVersion` | `1` | Persisted session shape changes (field removed/moved) |
-| `signatureVersion` | `1` | Issue-signature construction rules change |
-| `frameKeyVersion` | `1` | Frame key algorithm changes (`deriveFrameKey` in `sw.js`) |
-
-Additional fields: `totalSteps`, `perStepFrameKeys` (bounded count + hash records), `warnings[]` (non-fatal consistency issues).
-
-Downstream tools should check version fields before processing a session to ensure compatibility.
+| `schemaVersion` | 4 | Persisted session shape changes (field removed/moved) |
+| `signatureVersion` | 2 | Signature construction changes |
+| `frameKeyVersion` | 1 | `deriveFrameKey()` changes |
 
 ---
 
-## 8. Maintainer Guidelines
+## 9. Maintainer Guidelines
 
-### Modifying signature logic
-
-Signatures are built in `panel.js` `*SignatureEntries()` functions (see [§3](#3-signature-strategy) for locations).
-
-Rules:
-- **Bump `signatureVersion`** after any change to signature construction. This is persisted in `determinismMeta`.
-- Signatures must be **deterministic** — identical finding must produce identical signature.
-- Use `normalizeIdentityText()` for text field normalization.
-- Use `pathHashForSig()` instead of raw CSS paths.
-- Use `bucketNumber()` for numeric values to prevent float micro-drift.
-
-### Modifying exports
-
-**Single-run Markdown** — `buildMarkdown()` (`panel.js:2483`):
-- Add new sections by appending (do not reorder existing sections).
-- Add new fields by adding a new `lines.push()` — do not modify existing pushes.
-
-**Session Markdown** — `buildSessionMarkdown()` (`panel.js:2350`):
-- Flow summary sort order (`panel.js:2427-2434`) must remain deterministic: blockingWeight desc → occurrences desc → firstSeenStep asc → sig lexicographic.
-- Add new columns by appending to the row template.
-- Add new per-step sections by appending after existing `lines.push()` calls.
-
-**Session JSON**:
-- Add new fields with default values (not `undefined`) — backward compatible.
-- **Bump `schemaVersion`** if you remove or move a field.
+- Signatures must be deterministic: use `normalizeIdentityText()`, `pathHashForSig()` and `bucketNumber()`; never raw text, raw paths or timestamps. Bump `signatureVersion` after any change.
+- Keep one diff engine: capture and `deleteStep()` both diff via `buildStepDiffs()` over `step.stableSignatures` (computed with `computeStableSignatureSet()` before the diff).
+- Session JSON: add fields with defaults; bump `schemaVersion` if you remove or move a field.
+- Markdown exports: append new sections/lines; keep the flow-summary sort order.
+- Fixture check for signature stability: in `fixtures/a11y-rule-fixtures.html`, `#insertSigSibling` inserts a sibling between steps; the strong-id control (`data-testid="sig-strong-control"`) must persist across steps, while the weak control (`#sigStableWeak`) may churn.

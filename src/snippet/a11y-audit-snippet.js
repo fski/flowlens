@@ -3395,7 +3395,7 @@ import {
     // -------- WCAG 2.2 specific checks --------
     if (is22) {
       // 2.5.8 Dragging Movements
-      _q("[draggable='true']", "DRAGGABLE_NO_ALTERNATIVE", "medium", "2.5.8", null, 'draggable="true" detected. WCAG 2.5.8 requires a non-dragging alternative input method.', { wcagVersion: "2.2" });
+      _q("[draggable='true']", "DRAGGABLE_NO_ALTERNATIVE", "medium", "2.5.7", null, 'draggable="true" detected. WCAG 2.5.7 requires a non-dragging alternative input method.', { wcagVersion: "2.2" });
 
       // 3.2.6 Consistent Help
       const helpLinks = _qa("a[href*='help'],a[href*='contact'],a[href*='support'],[data-testid*='help'],[data-testid*='contact']");

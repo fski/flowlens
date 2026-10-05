@@ -68,9 +68,10 @@ All processing happens entirely in the browser:
 - No DOM paths appear in CI JSON output
 - Cross-frame integrity checks operate on hashed structural summaries only
 - The audit engine makes no network requests; the only outbound traffic is opening a W3C WCAG documentation link if you explicitly click one
-- The audit snippet writes nothing to the page's console unless you enable "Also log to console" (page-side error/RUM tools capture console output)
+- The audit snippet writes nothing to the page's console unless you enable **Settings → Log to console** (page-side error/RUM tools capture console output)
 - Screenshots are only taken while the inspected tab is the visible tab of its window, so an undocked DevTools never captures some other tab
-- Per-step screenshots and optional flow video are stored locally in the browser's IndexedDB and never uploaded; pruned to the most recent sessions
+- Per-step screenshots and optional flow video are stored locally in the browser's IndexedDB and never uploaded; kept only for the 5 most recent archived sessions
+- Stored results are bounded: 20 per origin/env, 25 origins, 30 archived sessions
 - No data leaves the browser
 
 ## Audit modes
@@ -101,10 +102,12 @@ Everything is local — no new Chrome permissions, no uploads. Screenshots are v
 
 FlowLens includes generic profiles that tune depth settings and frame targeting for common flow patterns:
 
-- **Chat Widget** — embedded iframe chat, recommends Depth 3
-- **Help Center + Bot Hybrid** — portal with integrated bot, recommends Depth 3
-- **Help Center (Static)** — article-based help center, recommends Depth 2
+- **Chat Widget (v2)** — embedded iframe chat, recommends Depth 3
+- **Help Center + Bot (v2)** — portal with integrated bot, recommends Depth 3
+- **Help Center Static (v2)** — article-based help center, recommends Depth 2
 - **Wizard / Multi-step Form** — checkouts, onboarding, multi-page forms, recommends Depth 2
+
+plus the generic Help Center, Chat, AI Bot Tree and Hybrid Help+Chat profiles (`src/shared/flow-profiles.js`).
 
 Profiles are vendor-agnostic. Targeting uses ARIA roles and DOM structure, not product-specific selectors.
 
@@ -115,6 +118,16 @@ Profiles are vendor-agnostic. Targeting uses ARIA roles and DOM structure, not p
 3. Go to `chrome://extensions/`, enable Developer mode
 4. Click "Load unpacked", select the `dist/` folder
 5. Open DevTools (F12), go to the **FlowLens** tab
+
+## Development
+
+```sh
+npm test            # node:test unit suites
+npm run test:e2e    # headless Chromium: fixture rule counts + panel E2E (run npm run build first; needs npx playwright install chromium)
+npm run ci          # tests → build → package → package audit → vendor audit → release guard
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/](docs/README.md).
 
 ## Frame targeting
 
@@ -133,7 +146,43 @@ You can pin a frame per origin so it persists across reloads and acts as a manua
 
 ## Export
 
-Results can be copied as JSON, downloaded as a `.json` file, copied as Markdown, or exported as CI-ready JSON (stable signatures, regression entries, depth 3 aggregates).
+Snap results: JSON (download/copy), Markdown, JUnit XML. Ended Flow sessions: Session JSON/Markdown/JUnit XML, a machine-readable diff report, and a screenshots ZIP. **Settings → Diagnostics → Copy CI JSON** produces the CI-ready JSON report (stable signatures, regression entries, depth 3 aggregates).
+
+## CI runner & GitHub Action
+
+`scripts/ci-runner.mjs` audits a list of URLs headlessly with the same snippet the extension injects and writes `flowlens-report.json` (the CI JSON contract, validated before writing) and `junit.xml` (one testcase per step).
+
+```sh
+npm ci && npx playwright install chromium && npm run build
+node scripts/ci-runner.mjs --url https://example.com/cart --url https://example.com/checkout \
+  --wcag 2.2-AA --fail-on-blocking --max-failures 0 --out artifacts/ci
+# or: --steps steps.json   ([{ "url": "…", "label": "…" }, …])
+```
+
+As a GitHub Action (`action.yml` at the repo root):
+
+```yaml
+- uses: fski/flowlens@main   # pin a tag or commit in real use
+  with:
+    urls: |
+      https://staging.example.com/cart
+      https://staging.example.com/checkout
+    wcag: 2.2-AA            # default
+    fail-on-blocking: true  # default
+    max-failures: 0         # blocking findings allowed at the first step
+    out: flowlens-ci        # default; holds flowlens-report.json + junit.xml
+```
+
+`steps-file` (JSON, as above) takes precedence over `urls`. With fail-on-blocking, a run fails (exit 1) when the first step has more blocking findings than `max-failures`, or a later step introduces a blocking finding; exit 2 means a usage or runtime error. Set `FLOWLENS_CHROMIUM` to use a specific Chromium executable.
+
+**Limitations (runner v1)** — much narrower than the extension:
+
+- Each step is a fresh navigation to a URL; there are no scripted interactions (clicks, form input, logins).
+- Main frame only — iframes are not audited and there is no frame targeting.
+- Run mode only (no Contrast, Tab Walk, Observe, Watch) and no Depth 3 (C1–C4) checks.
+- The audit runs right after the page's `load` event; content that renders later is missed.
+- Signatures hash `type|wcag|testId|cssPath`, so DOM restructuring can turn a persisting finding into a fixed + added pair. They are not the extension's session signatures.
+- Pages are opened with CSP bypassed so the injected snippet can run.
 
 ## Files
 
@@ -147,7 +196,7 @@ src/
   sw/sw.js                      service worker, message routing, script injection
   snippet/a11y-audit-snippet.js the actual audit code injected into pages
   engine/
-    stateTransitionEngine.js    C1–C4 conversation integrity evaluators
+    stateTransitionEngine.js    C1–C4 evaluators (ES module, bundled into sw.js + snippet)
     depth3Aggregates.js         integrity axis aggregation
     ciExporter.js               CI JSON report builder
   shared/
@@ -158,14 +207,22 @@ src/
     version.js                  single source of truth for the version
   host/default.config.json     generic HostConfig (build variants)
   assets/icons/                extension icons
-scripts/                       build, package, release-guard, vendor audits
-test/                          node:test suites (zero npm deps)
+scripts/
+  build.mjs, package.mjs        build dist/, zip artifacts/
+  package-audit.mjs, release-guard.mjs, audit-vendor.mjs   release/CI checks
+  ci-runner.mjs                 headless CI runner (used by action.yml)
+  e2e-smoke.mjs, panel-e2e.mjs  headless Chromium E2E (npm run test:e2e)
+  spike-axe-compare.mjs         axe-core comparison (docs/AXE_SPIKE.md)
+  lib/launch-browser.mjs        shared Playwright launcher
+fixtures/                      rule, accname and contrast fixture pages; corpus/ sample apps
+test/                          node:test suites (npm test)
+action.yml                     GitHub Action wrapping the CI runner
 dist/                          build output — load this in Chrome (gitignored)
 ```
 
 ## How it works
 
-`panel.js` sends messages to `sw.js`, which injects `a11y-audit-snippet.js` into the target frame(s) via `chrome.scripting.executeScript`. The snippet runs the audit in the page context and returns results. The panel stores results in `chrome.storage.local` (up to 20 per origin/env; fewer when storage quota forces progressive compaction), supports diffing between runs, and uses virtual scrolling for large result sets.
+`panel.js` sends messages to `sw.js`, which injects `a11y-audit-snippet.js` into the target frame(s) via `chrome.scripting.executeScript`. The snippet runs the audit in the page context and returns results. The SW and snippet both import the state transition engine; esbuild bundles each into a single file at build time. The panel stores results in `chrome.storage.local` (up to 20 per origin/env; fewer when storage quota forces progressive compaction) and uses virtual scrolling for large result sets. Flow sessions diff each step against the previous one.
 
 The state transition engine (C1–C4) evaluates conversation integrity from the audit findings. Depth 3 aggregates summarize integrity across four axes. The CI exporter produces a deterministic JSON report suitable for automated pipelines.
 
@@ -211,7 +268,7 @@ The config is validated and normalized at build time. HostConfig **never** affec
 npm run audit:vendor
 ```
 
-Scans `src/` for company-specific references (excluding `src/host/`). Fails if any are found. Runs automatically in CI.
+Scans all git-tracked text files for company-specific references (excluding `src/host/`). Fails if any are found. Runs in CI as part of `npm run ci`.
 
 ## Chrome Web Store
 
