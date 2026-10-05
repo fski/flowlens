@@ -94,9 +94,10 @@ const NEXT_ARTIFACTS_FOCUS_LOST = {
   liveMutationCount: 0,
 };
 
-/** Artifacts with no live regions (C1 should fire). */
+/** Artifacts with no live regions and a feed without role=log (C1 should fire). */
 const BASE_NO_LIVE = {
   ...BASE_ARTIFACTS,
+  chatCandidates: [{ ...BASE_ARTIFACTS.chatCandidates[0], role: "region" }],
   liveRegions: [],
 };
 

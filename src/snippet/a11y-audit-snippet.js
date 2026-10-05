@@ -264,8 +264,9 @@
   //
   // Deterministic definitions:
   //   liveRegionPresent — within root scope, exists ≥1 element with
-  //     aria-live != "off" OR role="status"/"alert". Do NOT treat role="log"/
-  //     "feed" as live region automatically unless aria-live is present.
+  //     aria-live != "off" OR role="status"/"alert". role="log" is NOT counted
+  //     here, but C1 exempts a role=log feed directly (implicit polite live
+  //     region per WAI-ARIA 1.2). role="feed" is not a live region.
   //   announceEventCount — number of observed mutation events affecting live
   //     region candidate elements. Counters only (no timestamps, no samples).
 
@@ -410,7 +411,12 @@
     const o = opts || {}; const emittedSet = o.emittedSet || null;
     const quality = (nextState || {}).quality || {};
     if (delta.messageCountDelta < 1) return null;
-    if (delta.liveRegionPresent && delta.announceEventCountDelta > 0) return null;
+    // role=log is an implicit polite live region (WAI-ARIA 1.2).
+    if (delta.feedRole === "log") return null;
+    // observe doesn't count announcements (always 0) — a present live region
+    // can't be judged silent there.
+    if (delta.liveRegionPresent &&
+        (delta.announceEventCountDelta > 0 || quality.captureMode === "observe")) return null;
     const hasFeedContext = delta.feedRole === "log" || delta.feedRole === "feed" || delta.evidence.feedLocator != null;
     if (!hasFeedContext) return null;
 
@@ -427,7 +433,7 @@
     if (quality.capped && !delta.evidence.feedLocator) { severity = "low"; noteSuffix = " (reduced confidence: capture capped, evidence locator missing)"; }
 
     return { type: "CHAT_NEW_MESSAGE_NOT_ANNOUNCED", severity, wcag: "4.1.3", confidence: "heuristic",
-      note: "Chat container received new messages but lacks announcement semantics (role=log, role=feed, or aria-live)." + noteSuffix,
+      note: "Chat container received new messages but lacks announcement semantics (role=log or an aria-live region)." + noteSuffix,
       evidenceLocatorHash: evidenceHash,
       evidenceCssPath: delta.evidence.feedLocator ? delta.evidence.feedLocator.cssPath : null };
   }
