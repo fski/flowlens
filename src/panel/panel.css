@@ -856,10 +856,14 @@ kbd {
   outline-offset: -2px;
 }
 
+/* Narrow panel: labels hide VISUALLY only — display:none also removed the
+   tabs' accessible names (their icons are alt=""). */
 @media (max-width: 479px) {
-  .subTab .tabLabel { display: none; }
   .subTab .keycap { display: none; }
-  .topTab .tabLabel { display: none; }
+  .topTab .tabLabel {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
 }
 
 /* ═══ KEYCAP BADGES ═══ */
@@ -2603,3 +2607,94 @@ kbd {
    JS-side fix). Restore standard semantics globally; per-class [hidden]
    fixups above become redundant but stay harmless. */
 [hidden] { display: none !important; }
+
+
+/* ═══ BRUTALIST RIBBON + AUDIT TRIGGERS ═════════════════════════════════════
+   Design tokens from the FlowLens Figma (JetBrains Mono, #141414/#1C1C1C
+   surfaces, #2F2F2F rules, #A1A1A1 active stroke, per-mode accents, amber
+   CTA) pushed brutalist: square corners, solid 2px strokes instead of
+   gradient masks, uppercase type, and a hard offset shadow on every control
+   that starts an audit or capture. Scoped to the top tabs, the mode tabs and
+   .ctaBtn — the rest of the panel keeps its existing styling. */
+:root {
+  --brut-stroke: #A1A1A1;
+  --brut-shadow: #000000;
+}
+
+.topTabBar { gap: 0; padding: 0; border-bottom: 2px solid var(--brut-stroke); }
+.topTab {
+  max-width: none;
+  border: 0;
+  border-right: 2px solid var(--brd);
+  border-radius: 0;
+  margin-bottom: 0;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.topTab .tabLabel { font-size: 13px; font-weight: 700; }
+.topTab:last-child { border-right: 0; }
+.topTab[aria-selected="true"] {
+  background: var(--surface);
+  color: var(--tx);
+  box-shadow: inset 0 -4px 0 var(--brut-stroke);
+}
+.topTab[aria-selected="true"]::before { content: none; }
+.topTab--flow[aria-selected="true"] { box-shadow: inset 0 -4px 0 #F4686A; }
+
+/* Mode tabs: icon-only, as in Figma — the label stays for screen readers
+   and the title gives a tooltip. */
+.subTabBar { gap: 0; padding: 0; background: var(--surface); }
+.subTab {
+  flex: 1 1 0;
+  min-width: 44px;
+  padding: 12px 8px;
+  border: 0;
+  border-right: 2px solid var(--brd);
+  border-radius: 0;
+  margin-bottom: 0;
+}
+.subTab:last-child { border-right: 0; }
+.subTab .tabLabel {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+.subTab[aria-selected="true"],
+.subTab.active { background: var(--raised); }
+.subTab[aria-selected="true"]::before { content: none; }
+.subTab--run[aria-selected="true"]      { box-shadow: inset 0 -4px 0 #DB9F3E; }
+.subTab--contrast[aria-selected="true"] { box-shadow: inset 0 -4px 0 #54B8A6; }
+.subTab--tabWalk[aria-selected="true"]  { box-shadow: inset 0 -4px 0 #7BB85E; }
+.subTab--observe[aria-selected="true"]  { box-shadow: inset 0 -4px 0 #5AADDB; }
+.subTab--watch[aria-selected="true"]    { box-shadow: inset 0 -4px 0 #8B8EDB; }
+.subTabBarWrap::before, .subTabBarWrap::after { content: none; }
+
+/* Audit / capture triggers: slab buttons with a hard offset shadow that
+   collapses on press. */
+.ctaSlot { padding: 16px 12px 14px 8px; }
+.ctaBtn {
+  border: 2px solid var(--brut-shadow);
+  border-radius: 0;
+  box-shadow: 4px 4px 0 var(--brut-shadow);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  transition: transform .06s, box-shadow .06s, filter .15s;
+}
+.ctaBtn:hover { filter: brightness(1.08); }
+.ctaBtn:active:not(:disabled) {
+  transform: translate(4px, 4px);
+  box-shadow: 0 0 0 var(--brut-shadow);
+}
+.ctaBtn:focus-visible { outline: 3px solid var(--tx); outline-offset: 3px; }
+.ctaBtn--outline {
+  border: 2px solid var(--brut-stroke);
+  box-shadow: 4px 4px 0 var(--brut-shadow);
+}
+.ctaBtn:disabled { box-shadow: none; }
+.ctaBtn.running,
+.ctaBtn.busy {
+  border: 2px dashed var(--tx3);
+  box-shadow: none;
+  transform: none;
+}
+.ctaBtn.running.ctaBtn--teal { border-radius: 0; border: 2px solid var(--brd); }
+.helperText { text-transform: uppercase; letter-spacing: .08em; }
