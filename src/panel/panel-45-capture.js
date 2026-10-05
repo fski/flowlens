@@ -210,7 +210,6 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
     renderSessionHud();
   }, CAPTURE_SLOW_MS);
   updateSessionButtons();
-  setRunTelemetry({ usedFrames: "Capturing step…" });
   const t0 = performance.now();
   try {
     const activeMode = getSmartModeForCapture(isAutoCapture);
@@ -408,7 +407,6 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
       ? [...r.run.rootSelectorMatchedFrameIds] : [];
     step.depthMax = getActiveDepthMax();
     step.recipeId = getActiveRecipeId();
-    step.rulePack = getActiveRulePack() || null;
     step.excludedFrameCount = r?.run?.excludedFrameCount || 0;
     step.transitionStates = r?.active?.transitionStateSummaries || r?.run?.transitionStateSummaries || null;
     if (step.rootSelectorNotFound) {
@@ -468,7 +466,6 @@ async function captureStepOptionC(label = null, { isAutoCapture = false } = {}) 
       estimatedBytes,
     });
 
-    setRunTelemetry({ diff: step.diffs?.consolidated?.text || "—" });
     const baselineFindings = asNumber(runSnapshot?.best?.normalized?.primaryCounts?.findings, 0);
     const activeFailed = activeMode !== "run" && (!r?.active?.ok || !activeSnapshot?.best);
     const activeReasonCode = activeMode === "run"

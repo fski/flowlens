@@ -1,7 +1,6 @@
 const SNIPPET_FILE = "a11y-audit-snippet.js";
 const SESSION_SCHEMA_VERSION = 4;
 const SESSION_SIGNATURE_VERSION = 2;
-const EN_MAPPING_VERSION = 1;
 const FRAME_KEY_VERSION = 1;
 const DEBUG_SESSION = false;
 const RUN_SEVERITY_WEIGHTS = { high: 5, medium: 3, low: 1, info: 0 };
@@ -400,39 +399,14 @@ function normalizeFrameScope(value) {
   return null;
 }
 
-function normalizeScopeAndCompatibility(target) {
+// The panel always sends target.scope; anything else falls back to PRIMARY.
+// (The pre-scope target.mode "legacy" payloads were never sent by the
+// shipped panel — panel and SW ship together — and their branches are gone.)
+function normalizeTargetScope(target) {
   const explicitScope = normalizeFrameScope(target?.scope);
-  if (explicitScope) {
-    return {
-      scope: explicitScope,
-      compatibilityMode: false,
-      legacyMode: null,
-      reason: "explicit_scope",
-    };
-  }
-
-  const legacyMode = String(target?.mode || "").toLowerCase();
-  if (legacyMode === "top") {
-    return { scope: FRAME_SCOPE.HOST, compatibilityMode: true, legacyMode, reason: "legacy_top" };
-  }
-  if (legacyMode === "all") {
-    return { scope: FRAME_SCOPE.ALL, compatibilityMode: true, legacyMode, reason: "legacy_all" };
-  }
-  if (legacyMode === "manual") {
-    return { scope: FRAME_SCOPE.PRIMARY, compatibilityMode: true, legacyMode, reason: "legacy_manual" };
-  }
-  if (legacyMode === "auto") {
-    // Preserve legacy fan-out behavior only when scope is absent (old panel/runtime compatibility).
-    return { scope: FRAME_SCOPE.PRIMARY, compatibilityMode: true, legacyMode, reason: "legacy_auto" };
-  }
-
-  // New default behavior when payload does not define scope/mode explicitly.
-  return {
-    scope: FRAME_SCOPE.PRIMARY,
-    compatibilityMode: false,
-    legacyMode: null,
-    reason: "default_primary",
-  };
+  return explicitScope
+    ? { scope: explicitScope, reason: "explicit_scope" }
+    : { scope: FRAME_SCOPE.PRIMARY, reason: "default_primary" };
 }
 
 function normalizeFrameIds(ids) {
@@ -452,8 +426,7 @@ function getManualFrameIdsFromTarget(target) {
   return [...new Set([...a, ...b])];
 }
 
-function hasManualOverride(target, normalized) {
-  if (normalized?.legacyMode === "manual") return true;
+function hasManualOverride(target) {
   if (target?.manual === true) return true;
   if (target?.pinned === true) return true;
   return getManualFrameIdsFromTarget(target).length > 0;
@@ -465,8 +438,6 @@ function makeTargetResolution({
   scope = FRAME_SCOPE.PRIMARY,
   selectionReason = "unknown",
   error = null,
-  compatibilityMode = false,
-  compatibilityReason = null,
   excludedFrameCount = 0,
 }) {
   return {
@@ -475,8 +446,6 @@ function makeTargetResolution({
     scope,
     selectionReason,
     error,
-    compatibilityMode,
-    compatibilityReason,
     excludedFrameCount,
   };
 }
@@ -756,9 +725,6 @@ async function executeAuditAcrossFrames({
       selectionReason: resolutionReason,
       scope: resolvedScope,
       frameKeyVersion: FRAME_KEY_VERSION,
-      frameKeyByFrameId: {},
-      compatibilityMode: !!resolved?.compatibilityMode,
-      compatibilityReason: resolved?.compatibilityReason || null,
       excludedFrameCount: resolved?.excludedFrameCount || 0,
     };
   }
@@ -859,9 +825,6 @@ async function executeAuditAcrossFrames({
   }
 
   const perFrame = scoredFrames.map(compactFramePayload);
-  const frameKeyByFrameId = Object.fromEntries(scoredFrames.map(x => [String(x.frameId), x.frameKey]));
-  const frameKeyStableByFrameId = Object.fromEntries(scoredFrames.map(x => [String(x.frameId), x.frameKeyStable]));
-  const frameSignalsHashByFrameId = Object.fromEntries(scoredFrames.map(x => [String(x.frameId), x.frameSignalsHash]));
 
   // Attach best frame's probe data for profile matching in panel.
   const bestProbe = bestEntry ? (probeByFrameId.get(bestEntry.frameId) || null) : null;
@@ -884,11 +847,6 @@ async function executeAuditAcrossFrames({
     selectionReason: picked?.reason || resolutionReason,
     scope: resolvedScope,
     frameKeyVersion: FRAME_KEY_VERSION,
-    frameKeyByFrameId,
-    frameKeyStableByFrameId,
-    frameSignalsHashByFrameId,
-    compatibilityMode: !!resolved?.compatibilityMode,
-    compatibilityReason: resolved?.compatibilityReason || null,
     excludedFrameCount: resolved?.excludedFrameCount || 0,
   };
 }
@@ -1444,7 +1402,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         fastSettle: true,
       });
 
-      const active = safeActiveMode === "run"
+      // A failed baseline means the panel discards the step anyway — don't
+      // spend up to 55s (holding the tab lock) on the active window too.
+      const active = (safeActiveMode === "run" || !baseline?.ok)
         ? null
         : await executeAuditAcrossFrames({
           tabId,
@@ -1462,10 +1422,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           fastSettle: true,
         });
 
-      const mergedFrameKeyByFrameId = {
-        ...(baseline?.frameKeyByFrameId || {}),
-        ...(active?.frameKeyByFrameId || {}),
-      };
       debugSession("capture_step", {
         durationMs: Date.now() - startedAt,
         framesEnumerated: (frames || []).length,
@@ -1483,7 +1439,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         frameKeyVersion: FRAME_KEY_VERSION,
         run: baseline,
         active,
-        frameKeyByFrameId: mergedFrameKeyByFrameId,
       });
       } finally { release(); releaseKeepalive(); }
       return;
@@ -1548,7 +1503,7 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 }
 
-async function computeFrameScores({ tabId, frames, match, legacyAutoFanout = false }) {
+async function computeFrameScores({ tabId, frames, match }) {
   const selectors = Array.isArray(match?.domSelectorsAny) ? match.domSelectorsAny : [];
   const urlIncludes = Array.isArray(match?.urlIncludes) ? match.urlIncludes : [];
   const urlExcludes = Array.isArray(match?.urlExcludesAny) ? match.urlExcludesAny : [];
@@ -1572,13 +1527,12 @@ async function computeFrameScores({ tabId, frames, match, legacyAutoFanout = fal
     for (const inc of urlIncludes) {
       if (u.includes(String(inc).toLowerCase())) s += 5;
     }
-    if (hasHeuristics && f.frameId !== 0) s += 1;
     urlScores.set(f.frameId, s);
   }
 
   const domMatches = new Map();
   const frameSizes = new Map();
-  if (hasHeuristics || legacyAutoFanout) {
+  if (hasHeuristics) {
     try {
       const probe = await chrome.scripting.executeScript({
         target: { tabId, allFrames: true },
@@ -1620,6 +1574,10 @@ async function computeFrameScores({ tabId, frames, match, legacyAutoFanout = fal
     }
     const area = frameSizes.get(f.frameId) || 0;
     if (score > 0 && area > 0) score += Math.round((area / maxArea) * 3);
+    // Embedded-app tie-break — only for frames that matched a heuristic. As
+    // a flat +1 for every subframe it made an unrelated ad/tracker iframe beat
+    // the top document whenever no URL include matched.
+    if (score > 0 && f.frameId !== 0) score += 1;
     return { frameId: f.frameId, score };
   }));
 
@@ -1639,102 +1597,21 @@ function pickBestFrameFromCandidates({ scored, candidateIds, fallbackToTop = fal
 async function resolveTargetFrameIds({ tabId, target, frames, match }) {
   const allFrames = Array.isArray(frames) ? frames : [];
   const allFrameIds = allFrames.map(f => f.frameId);
-  const normalized = normalizeScopeAndCompatibility(target);
+  const normalized = normalizeTargetScope(target);
   const manualFrameIds = getManualFrameIdsFromTarget(target);
   const manualFrameId = manualFrameIds.length >= 1 ? manualFrameIds[0] : null;
   // 2+ pinned frames used to silently drop the pins here while chooseBestEntry
   // still enforced them, yielding bestEntry:null on an ok:true response —
   // manual override now honors ALL pinned frames.
-  const manualOverride = hasManualOverride(target, normalized) && manualFrameIds.length >= 1;
+  const manualOverride = hasManualOverride(target) && manualFrameIds.length >= 1;
   const scores = await computeFrameScores({
     tabId,
     frames: allFrames,
     match,
-    legacyAutoFanout: normalized.compatibilityMode && normalized.legacyMode === "auto",
   });
   const scored = scores.scored || [];
   const _efc = scores.excludedFrameCount || 0;
   const _resolve = (opts) => makeTargetResolution({ ...opts, excludedFrameCount: _efc });
-
-  // Legacy payload compatibility (scope absent from old panel/runtime combinations).
-  if (normalized.compatibilityMode) {
-    if (normalized.legacyMode === "top") {
-      return _resolve({
-        ok: true,
-        frameIds: [0],
-        scope: FRAME_SCOPE.HOST,
-        selectionReason: "legacy_top",
-        compatibilityMode: true,
-        compatibilityReason: normalized.reason,
-      });
-    }
-    if (normalized.legacyMode === "all") {
-      return _resolve({
-        ok: true,
-        frameIds: allFrameIds,
-        scope: FRAME_SCOPE.ALL,
-        selectionReason: "legacy_all",
-        compatibilityMode: true,
-        compatibilityReason: normalized.reason,
-      });
-    }
-    if (normalized.legacyMode === "manual") {
-      const ids = normalizeFrameIds(manualFrameIds);
-      if (!ids.length) {
-        return _resolve({
-          ok: false,
-          frameIds: [],
-          scope: FRAME_SCOPE.PRIMARY,
-          selectionReason: "legacy_manual_missing_frame",
-          error: "NO_SCOPE_MATCH",
-          compatibilityMode: true,
-          compatibilityReason: normalized.reason,
-        });
-      }
-      return _resolve({
-        ok: true,
-        frameIds: [ids[0]],
-        scope: FRAME_SCOPE.PRIMARY,
-        selectionReason: "legacy_manual",
-        compatibilityMode: true,
-        compatibilityReason: normalized.reason,
-      });
-    }
-    if (normalized.legacyMode === "auto") {
-      if (!scores.hasHeuristics) {
-        return _resolve({
-          ok: true,
-          frameIds: [0],
-          scope: FRAME_SCOPE.PRIMARY,
-          selectionReason: "legacy_auto_no_heuristics_top",
-          compatibilityMode: true,
-          compatibilityReason: normalized.reason,
-        });
-      }
-      const topScore = scored[0]?.score ?? 0;
-      if (topScore <= 0) {
-        return _resolve({
-          ok: true,
-          frameIds: [0],
-          scope: FRAME_SCOPE.PRIMARY,
-          selectionReason: "legacy_auto_fallback_top",
-          compatibilityMode: true,
-          compatibilityReason: normalized.reason,
-        });
-      }
-      const picked = scored
-        .filter(x => x.score >= topScore - 3 && x.score > 0)
-        .map(x => x.frameId);
-      return _resolve({
-        ok: true,
-        frameIds: picked.length ? picked : [0],
-        scope: FRAME_SCOPE.PRIMARY,
-        selectionReason: "legacy_auto_fanout",
-        compatibilityMode: true,
-        compatibilityReason: normalized.reason,
-      });
-    }
-  }
 
   if (!allFrameIds.length) {
     return _resolve({

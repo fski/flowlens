@@ -90,7 +90,6 @@ function compactSessionForExport(session) {
     profileConfidence: lastStep?.profileConfidence || null,
     profileMatchSignals: lastStep?.profileMatchSignals || [],
     frameScope: clone.settings?.scopeAtCapture || clone.settings?.targetModeAtCapture || "primary",
-    rulePack: lastStep?.rulePack || null,
     // Same predicate as the verdict header — suspect counts only when a
     // profile/root selector was actually in play; a looser copy here made the
     // panel and the CI export disagree about the same session.
@@ -1052,29 +1051,8 @@ function filterFindingsByDepth(findings, depthMax) {
   });
 }
 
-function filterFindingsByRulePack(findings, rulePack) {
-  if (!Array.isArray(findings) || !rulePack) return findings || [];
-  const { enabledRuleIds, disabledRuleIds } = rulePack;
-  const hasEnabled = Array.isArray(enabledRuleIds) && enabledRuleIds.length > 0;
-  const hasDisabled = Array.isArray(disabledRuleIds) && disabledRuleIds.length > 0;
-  if (!hasEnabled && !hasDisabled) return findings;
-  const enabledSet = hasEnabled ? new Set(enabledRuleIds) : null;
-  const disabledSet = hasDisabled ? new Set(disabledRuleIds) : null;
-  return findings.filter(f => {
-    if (enabledSet && !enabledSet.has(f.type)) return false;
-    if (disabledSet && disabledSet.has(f.type)) return false;
-    return true;
-  });
-}
-
-function getActiveRulePack() {
-  return activeRulePack;
-}
-
 function applyAllFindingFilters(findings) {
-  let result = filterFindingsByDepth(findings, getActiveDepthMax());
-  result = filterFindingsByRulePack(result, getActiveRulePack());
-  return result;
+  return filterFindingsByDepth(findings, getActiveDepthMax());
 }
 
 /**
@@ -1362,10 +1340,6 @@ async function refreshFrames() {
 function getTargetSpec() {
   const scope = getScopeValue();
   const target = { scope };
-  // Keep legacy mode field for best-effort compatibility with older runtimes.
-  if (scope === "host") target.mode = "top";
-  else if (scope === "all") target.mode = "all";
-  else target.mode = "auto";
 
   if (els.pinFrame.checked) {
     const frameId = els.frameSelect.value === "" ? NaN : Number(els.frameSelect.value);
@@ -1373,7 +1347,6 @@ function getTargetSpec() {
       target.frameIds = [frameId];
       target.manual = true;
       target.pinned = true;
-      target.mode = "manual";
     }
   }
   return target;
@@ -1651,36 +1624,6 @@ async function _highlightFindingInner(finding, highlightCtx) {
   return res;
 }
 
-async function saveHistorySnapshot({ key, snapshot }) {
-  const { history = {} } = await storageGet(["history"]);
-  history[key] = snapshot;
-  await storageSet({ history });
-}
-
-async function loadHistorySnapshot(key) {
-  const { history = {} } = await storageGet(["history"]);
-  return history[key] || null;
-}
-
-function diffSnapshots(prev, next) {
-  if (!prev || !next) return { text: "(no previous)" };
-  const prevSet = new Set(prev.findingHashes || []);
-  const nextSet = new Set(next.findingHashes || []);
-
-  let added = 0;
-  let removed = 0;
-  for (const h of nextSet) if (!prevSet.has(h)) added++;
-  for (const h of prevSet) if (!nextSet.has(h)) removed++;
-
-  const cPrev = prev.counts || { high:0, medium:0, low:0, info:0 };
-  const cNext = next.counts || { high:0, medium:0, low:0, info:0 };
-
-  const d = (k) => (cNext[k] || 0) - (cPrev[k] || 0);
-  const fmt = (n) => (n > 0 ? `+${n}` : `${n}`);
-  const text = `added=${added}, fixed=${removed} • high ${fmt(d("high"))}, medium ${fmt(d("medium"))}, low ${fmt(d("low"))}, info ${fmt(d("info"))}`;
-  return { added, removed, text };
-}
-
 function buildMachineReadableDiffReport(session) {
   const steps = Array.isArray(session?.steps) ? session.steps : [];
   if (steps.length < 2) return null;
@@ -1732,7 +1675,6 @@ function buildMachineReadableDiffReport(session) {
 async function runAction(action, opts = {}) {
   state.activeMode = action;
   setPressed(action);
-  setRunTelemetry({ usedFrames: "Running…", diff: "—" });
   setPersistentStatus("RUNNING", action.toUpperCase(), "Execution in progress", "snap");
 
   const { url, envTag } = getCurrentScopeInfo();
@@ -1765,7 +1707,6 @@ async function runAction(action, opts = {}) {
     const failed = { ok: false, action, error: String(err?.message || err) };
     state.lastResult = failed;
     renderRawJson(els.json, els.rawJsonBody, pretty(failed));
-    setRunTelemetry({ usedFrames: "—", diff: "(run failed)" });
     setPersistentStatus("FAILED", "TRANSPORT", "Run transport failure", "snap");
     console.error("RUN_AUDIT transport failure", err);
     toast(`${action} failed`);
@@ -1784,7 +1725,6 @@ async function runAction(action, opts = {}) {
     const noScope = r?.reason === "NO_SCOPE_MATCH" || r?.error === "NO_SCOPE_MATCH";
     const manualMissing = r?.reason === "MANUAL_FRAMES_MISSING" || r?.error === "MANUAL_FRAMES_MISSING";
     if (manualMissing) {
-      setRunTelemetry({ usedFrames: "\u2014", diff: "(pinned frame not available)" });
       setPersistentStatus("FAILED", "MANUAL_FRAMES_MISSING", "Pinned frame not available", "snap");
       console.warn("RUN_AUDIT: pinned frame missing", r);
       toast("Pinned frame not available. Clear pin to continue.", {
@@ -1797,7 +1737,6 @@ async function runAction(action, opts = {}) {
     const failMsg = notScriptable
       ? "This page can't be audited (browser-restricted URL)"
       : noScope ? "No frame matches selected scope" : `${action} failed`;
-    setRunTelemetry({ usedFrames: "\u2014", diff: notScriptable ? "(page not scriptable)" : noScope ? "(no frame matches selected scope)" : "(run failed)" });
     setPersistentStatus("FAILED", notScriptable ? "PAGE_NOT_SCRIPTABLE" : noScope ? "NO_SCOPE_MATCH" : "BACKEND", failMsg, "snap");
     console.error("RUN_AUDIT backend failure", r);
     toast(failMsg);
@@ -1843,7 +1782,6 @@ async function runAction(action, opts = {}) {
     console.warn("Record rendered but history persistence failed");
   }
 
-  setRunTelemetry({ usedFrames: (r?.usedFrameIds || []).join(", ") || "—" });
 
   const bestEntry = rec.best || null;
   // Per-record highlight context — no global leakage
@@ -1853,23 +1791,6 @@ async function runAction(action, opts = {}) {
   const bestResult = bestEntry?.result || null;
   const allFindings = Array.isArray(bestResult?.findings) ? bestResult.findings : [];
   const findings = applyAllFindingFilters(allFindings);
-
-  // History/diff uses unfiltered findings for consistency across depth/rulePack changes
-  const key = `snap::${originFrom(url)}::${detectEnv(url)}::${bestEntry?.frameUrl || ""}`;
-  const prev = await loadHistorySnapshot(key);
-  const snapshot = {
-    at: new Date().toISOString(),
-    envTag,
-    counts: countBySeverity(allFindings),
-    findingHashes: allFindings.map(hashFinding),
-  };
-  if (allFindings.length) {
-    const d = diffSnapshots(prev, snapshot);
-    setRunTelemetry({ diff: d.text });
-    await saveHistorySnapshot({ key, snapshot });
-  } else {
-    setRunTelemetry({ diff: "(no findings snapshot)" });
-  }
 
   const _fc = findings.length;
   const _cc = bestResult?.failuresCount ?? bestResult?.failures?.length;

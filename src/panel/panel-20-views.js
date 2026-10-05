@@ -1200,13 +1200,6 @@ function setPersistentStatus(status = "IDLE", reason = "-", detail = "", surface
   line.textContent = `Last status: ${normalized}${reasonPart}${tail}`;
 }
 
-function setRunTelemetry({ usedFrames, diff } = {}) {
-  if (typeof usedFrames === "string") state.lastUsedFramesSummary = usedFrames;
-  if (typeof diff === "string") state.lastDiffSummary = diff;
-  if (els.usedFrames) els.usedFrames.textContent = state.lastUsedFramesSummary;
-  if (els.diff) els.diff.textContent = state.lastDiffSummary;
-}
-
 function getSelectedFrameLabel() {
   if (!els.frameSelect) return "Auto";
   const selected = els.frameSelect.selectedOptions?.[0];

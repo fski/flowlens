@@ -66,8 +66,6 @@ const els = {
   json: document.getElementById("json"),
   inspectedUrl: document.getElementById("inspectedUrl"),
   envBadge: document.getElementById("envBadge"),
-  usedFrames: document.getElementById("usedFrames"),
-  diff: document.getElementById("diff"),
 
   sevTabs: document.getElementById("sevTabs"),
   emptyState: document.getElementById("emptyState"),
@@ -233,8 +231,6 @@ const state = {
   hasRunMode: new Set(),
   topTab: "snap",
   pinnedFrameId: null,
-  lastDiffSummary: "—",
-  lastUsedFramesSummary: "—",
   lastPersistentStatus: { status: "IDLE", reason: "-", detail: "" },
   lastSelectionReason: "—",
   hasPersistentStatus: false,
@@ -486,7 +482,6 @@ const RECIPES = {
   },
 };
 let activeRecipeId = "auto";
-let activeRulePack = null; // { enabledRuleIds?: string[], disabledRuleIds?: string[] } or null
 
 // --- Column sorting ---
 const sortState = {

@@ -213,22 +213,6 @@
     return k ? `${tag}:nth-of-type(${k})` : tag;
   };
 
-  /**
-   * Build targeting reference for overlay annotations.
-   * Multiple targeting signals for resolveTarget() fallback chain.
-   */
-  const buildTargetRef = (el) => {
-    if (!isEl(el)) return null;
-    return {
-      cssSelector: cssPath(el),
-      testId: testId(el),
-      tag: el.tagName?.toLowerCase() || null,
-      role: el.getAttribute?.("role") || null,
-      name: getAccName ? null : null, // populated after getAccName is defined
-      inShadow: !!(el.getRootNode?.() instanceof w.ShadowRoot),
-    };
-  };
-
   const commonAncestorDepth = (a, b) => {
     if (!isEl(a) || !isEl(b)) return Infinity;
     const pathA = [];
@@ -1338,9 +1322,7 @@
     return { hasHandler, activationKeys: [...activation] };
   };
 
-  const hasInlineKeyboardHandler = (el) => getInlineKeyboardMeta(el).hasHandler;
 
-  const hasAncestorKeyboardHandler = (el, maxDepth = 3) => getAncestorKeyboardMeta(el, maxDepth).hasHandler;
 
   const getAncestorClickMeta = (el, maxDepth = 3) => {
     let node = el?.parentElement || null;
@@ -1714,41 +1696,6 @@
     return results;
   };
 
-  // ---------------- Rule gating: scope presence flags ----------------
-
-  /**
-   * Compute presence flags per scope. Called once per scope at start of rule execution.
-   * Allows rules to skip entire categories when no matching elements exist.
-   * Must not change rule semantics. Deterministic.
-   */
-  const computeScopeFlags = (scopeRoot) => ({
-    hasImages: !!scopeRoot.querySelector("img, [role='img'], svg[role='img']"),
-    hasInteractive: !!scopeRoot.querySelector(
-      "a[href], button, input, select, textarea, [tabindex], [role='button'], [role='link'], [role='checkbox'], [role='radio'], [role='slider'], [role='switch'], [role='textbox']"
-    ),
-    hasForms: !!scopeRoot.querySelector("input, select, textarea, [role='textbox'], [role='combobox'], [role='listbox']"),
-    hasHeadings: !!scopeRoot.querySelector("h1, h2, h3, h4, h5, h6, [role='heading']"),
-    hasLandmarks: !!scopeRoot.querySelector("main, nav, aside, header, footer, [role='main'], [role='navigation'], [role='complementary'], [role='banner'], [role='contentinfo']"),
-    hasLiveRegions: !!scopeRoot.querySelector("[aria-live], [role='alert'], [role='status'], [role='log'], [role='timer']"),
-    hasTables: !!scopeRoot.querySelector("table, [role='table'], [role='grid']"),
-    hasIframes: !!scopeRoot.querySelector("iframe"),
-  });
-
-  const computeAggregateFlags = (scopes) => {
-    const agg = {
-      hasImages: false, hasInteractive: false, hasForms: false,
-      hasHeadings: false, hasLandmarks: false, hasLiveRegions: false,
-      hasTables: false, hasIframes: false,
-    };
-    for (const { root } of scopes) {
-      const f = computeScopeFlags(root);
-      for (const key of Object.keys(agg)) {
-        if (f[key]) agg[key] = true;
-      }
-    }
-    return agg;
-  };
-
   // ---------------- Overlay: resolve target + annotate ----------------
 
   /**
@@ -2028,9 +1975,6 @@
     const s = sanity(cfg.appMarkers || null);
     const findings = [];
     const cache = createPassCache();
-
-    // Compute aggregate presence flags for rule gating
-    const flags = computeAggregateFlags(scopes);
 
     // Compact rule helper: uses cached deep query across all scopes
     const _q = (sel, type, sev, wcag, test, note, opts) => {

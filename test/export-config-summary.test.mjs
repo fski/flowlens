@@ -1,5 +1,5 @@
 /**
- * Tests for export config summary (depthMax, recipeId, rulePack in diagnostics)
+ * Tests for export config summary (depthMax, recipeId in diagnostics)
  * and machine-readable diff report (buildMachineReadableDiffReport).
  */
 
@@ -57,41 +57,6 @@ describe("buildDiagnosticsPayload — recipeId", () => {
 });
 
 // ══════════════════════════════════════════════════════
-// Diagnostics payload — rulePack
-// ══════════════════════════════════════════════════════
-
-describe("buildDiagnosticsPayload — rulePack", () => {
-  it("rulePack included with enabledCount when present", () => {
-    const payload = buildDiagnosticsPayload({
-      rulePack: { enabledRuleIds: ["A", "B"], disabledRuleIds: [] },
-    });
-    assert.ok(payload.rulePack, "rulePack should be present");
-    assert.equal(payload.rulePack.enabledCount, 2);
-    assert.equal(payload.rulePack.disabledCount, 0);
-  });
-
-  it("rulePack is null when not provided", () => {
-    const payload = buildDiagnosticsPayload({});
-    assert.equal(payload.rulePack, null);
-  });
-
-  it("rulePack is null when both lists are empty", () => {
-    const payload = buildDiagnosticsPayload({
-      rulePack: { enabledRuleIds: [], disabledRuleIds: [] },
-    });
-    assert.equal(payload.rulePack, null);
-  });
-
-  it("rulePack captures disabledCount", () => {
-    const payload = buildDiagnosticsPayload({
-      rulePack: { enabledRuleIds: ["A"], disabledRuleIds: ["X", "Y", "Z"] },
-    });
-    assert.equal(payload.rulePack.enabledCount, 1);
-    assert.equal(payload.rulePack.disabledCount, 3);
-  });
-});
-
-// ══════════════════════════════════════════════════════
 // Diagnostics markdown — depth & recipe lines
 // ══════════════════════════════════════════════════════
 
@@ -109,17 +74,7 @@ describe("buildDiagnosticsMarkdown — config summary lines", () => {
     assert.ok(md.includes("Recipe: chat_widget"), "should contain 'Recipe: chat_widget'");
   });
 
-  it("markdown includes rule pack line when present", () => {
-    const payload = buildDiagnosticsPayload({
-      rulePack: { enabledRuleIds: ["A", "B", "C"], disabledRuleIds: ["X"] },
-    });
-    const md = buildDiagnosticsMarkdown(payload);
-    assert.ok(md.includes("Rule Pack:"), "should contain Rule Pack line");
-    assert.ok(md.includes("enabled=3"), "should show enabled count");
-    assert.ok(md.includes("disabled=1"), "should show disabled count");
-  });
-
-  it("markdown omits rule pack line when null", () => {
+  it("markdown has no rule pack line (rule packs were removed)", () => {
     const payload = buildDiagnosticsPayload({});
     const md = buildDiagnosticsMarkdown(payload);
     assert.ok(!md.includes("Rule Pack:"), "should not contain Rule Pack line");

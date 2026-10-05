@@ -1447,6 +1447,8 @@ initColToggles();
 updateScopeUi();
 setVersionBadge();
 loadUiPrefs();
+// The removed Snap "history" diff kept one ever-growing global key; drop it.
+storageRemove(["history"]).catch(() => {});
 
 (async () => {
   await refreshInspectedUrl();

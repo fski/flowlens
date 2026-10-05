@@ -170,7 +170,6 @@ function gatherDiagnosticsOpts() {
     })(),
     depthMax: getActiveDepthMax(),
     recipeId: getActiveRecipeId(),
-    rulePack: getActiveRulePack(),
     hostConfigId: hostConfig?.id || "generic",
     frameGatingSelectorCount: hostConfig?.match?.domSelectorsAny?.length || 0,
     excludedFrameCount: (() => {
@@ -586,12 +585,6 @@ function buildDiagnosticsPayload(opts) {
     reducedDiffConfidence: !!o.reducedDiffConfidence,
     depthMax: (o.depthMax === 1 || o.depthMax === 2 || o.depthMax === 3) ? o.depthMax : 3,
     recipeId: o.recipeId ? String(o.recipeId) : "auto",
-    rulePack: o.rulePack && (o.rulePack.enabledRuleIds?.length || o.rulePack.disabledRuleIds?.length)
-      ? {
-          enabledCount: o.rulePack.enabledRuleIds?.length || 0,
-          disabledCount: o.rulePack.disabledRuleIds?.length || 0,
-        }
-      : null,
     dataVersionsLine: formatDataVersionsLine(dv),
     hostConfigId: o.hostConfigId ? String(o.hostConfigId) : "generic",
     frameGatingSelectorCount: Number(o.frameGatingSelectorCount) || 0,
@@ -663,7 +656,6 @@ function buildDiagnosticsMarkdown(payload) {
     `- Depth Filter: ${p.depthMax || 3} (${p.depthMax === 1 ? "Fast" : p.depthMax === 2 ? "Balanced" : "Full"})`,
     ...(p.depthSuggestion ? [`- **Depth suggestion: ${p.depthSuggestion.suggestedDepth}** (profile ${p.depthSuggestion.profileId})`] : []),
     `- Recipe: ${p.recipeId || "auto"}`,
-    ...(p.rulePack ? [`- Rule Pack: enabled=${p.rulePack.enabledCount}, disabled=${p.rulePack.disabledCount}`] : []),
     "",
     "## Depth 3 Engine",
     `- Enabled: ${p.depth3Engine?.enabled ? "yes" : "no"}`,
