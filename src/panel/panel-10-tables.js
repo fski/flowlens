@@ -578,13 +578,13 @@ function setPressed(action) {
 function applySnapCta(mode) {
   const cta = (MODES[mode] || MODES.run).cta;
   let label = cta.label;
-  if (state.hasRunMode.has(mode)) label = cta.rerun || label;
+  if (hasRunMode(mode)) label = cta.rerun || label;
   if (els.runLabel) els.runLabel.textContent = label;
   if (els.runCurrentMode) {
     els.runCurrentMode.className = "ctaBtn " + cta.cls;
   }
   if (els.snapHelper) els.snapHelper.textContent = cta.helper;
-  if (els.runIcon) els.runIcon.src = state.hasRunMode.has(mode) ? "icons/Rerun Icon.svg" : "icons/Run Icon.svg";
+  if (els.runIcon) els.runIcon.src = hasRunMode(mode) ? "icons/Rerun Icon.svg" : "icons/Run Icon.svg";
 }
 
 function updateSnapCta(mode) {
@@ -609,8 +609,7 @@ function showMode(mode) {
   // renderRecord, so without this the default-visible empty <div> (and a
   // stale virtual-table render from when the section was hidden) leak into
   // view.
-  if (runLike && state.findingsByMode[mode]) {
-    state.currentFindings = applyAllFindingFilters(state.findingsByMode[mode]);
+  if (runLike && rawFindingsForMode(mode)) {
     rerenderFindings("mode_switch");
   } else if (runLike) {
     renderSevTabs();

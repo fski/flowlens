@@ -581,6 +581,9 @@ async function loadRecords(scopeKey) {
   state.records = arr;
   state.byId = {};
   for (const rec of state.records) state.byId[String(rec.id)] = rec;
+  // The CTA's Run/Rerun label derives from the records — refresh it whenever
+  // they are replaced (it kept "Rerun" after navigating to a fresh origin).
+  updateSnapCta(state.activeMode || "run");
 }
 
 function resetFilters() {
@@ -604,7 +607,7 @@ function resetFilters() {
 function renderRecord(rec) {
   if (!rec) return;
   state.currentId = rec.id;
-  state.hasRunMode.add(rec.action);
+  state.selectedByMode[rec.action] = rec.id;
   // Store per-record highlight context (prevents global leakage)
   state._activeHighlightCtx = rec._highlightContext || {
     bestFrameId: rec.best?.frameId ?? 0,
@@ -620,7 +623,6 @@ function renderRecord(rec) {
 
   // default reset
   els.allTableBody.innerHTML = "";
-  state.currentFindings = [];
   if (mode !== "contrast") renderSevTabs();
   if (els.integrityOverview) els.integrityOverview.hidden = true;
   if (els.shadowCoverageRow) els.shadowCoverageRow.hidden = true;
@@ -628,10 +630,6 @@ function renderRecord(rec) {
 
   if (mode === "run") {
     renderRunSummary(bestResult, rec);
-    const allFindings = Array.isArray(bestResult?.findings) ? bestResult.findings : [];
-    const findings = applyAllFindingFilters(allFindings);
-    state.currentFindings = findings;
-    state.findingsByMode.run = allFindings;
     rerenderFindings();
   } else if (mode === "contrast") {
     state.contrastFilter = "all";
@@ -641,11 +639,7 @@ function renderRecord(rec) {
     renderSevTabs();
     renderTabWalk(bestResult);
   } else if (mode === "observe" && bestResult) {
-    const allFindings = Array.isArray(bestResult.findings) ? bestResult.findings : [];
-    const oFindings = applyAllFindingFilters(allFindings);
-    if (oFindings.length) {
-      state.currentFindings = oFindings;
-      state.findingsByMode.observe = allFindings;
+    if (currentFindings().length) {
       showMode("observe");
       rerenderFindings();
     } else {
@@ -738,13 +732,13 @@ async function deleteSingleRun(id) {
   const deletedIdx = state.records.indexOf(deleted);
   state.records = state.records.filter(x => String(x.id) !== idStr);
   delete state.byId[idStr];
+  updateSnapCta(state.activeMode || "run");
   if (String(state.currentId) === idStr) {
     if (state.records.length) {
       state.currentId = state.records[0].id;
       renderRecord(state.records[0]);
     } else {
       state.currentId = null;
-      state.currentFindings = [];
       state.lastResult = null;
       els.json.textContent = "(no results yet)";
       updateResultsVisibility(false);
@@ -770,12 +764,11 @@ async function deleteAllRunsAction() {
   state.records = [];
   state.byId = {};
   state.currentId = null;
-  state.currentFindings = [];
   state.lastResult = null;
-  state.hasRunMode = new Set();
-  state.findingsByMode = {};
+  state.selectedByMode = {};
   els.json.textContent = "(no results yet)";
   updateResultsVisibility(false);
+  updateSnapCta(state.activeMode || "run");
   renderPastRuns();
   const { origin, env } = getCurrentScopeInfo();
   const scopeKey = `records::${origin || ""}::${env}`;

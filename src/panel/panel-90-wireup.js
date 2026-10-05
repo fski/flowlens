@@ -598,15 +598,8 @@ if (els.wcagLevel) {
 if (els.depthMax) {
   els.depthMax.addEventListener("change", async () => {
     await updateUiPrefs({ depthMax: Number(els.depthMax.value) || 3 });
-    // Re-render current findings with new depth filter
-    const currentRec = state.currentId ? state.byId[state.currentId] : state.records?.[0];
-    const mode = currentRec?.action || "run";
-    const cached = state.findingsByMode[mode];
-    if (cached) {
-      const filtered = applyAllFindingFilters(cached);
-      state.currentFindings = filtered;
-      scheduleRerenderFindings("depth_filter");
-    }
+    // Findings are derived through the depth filter — just re-render.
+    scheduleRerenderFindings("depth_filter");
     renderDiagnostics();
   });
 }
@@ -709,7 +702,7 @@ if (els.copyCiJson) {
 
 // Explorer reactive filters (debounced). Routed through rerenderFindings so
 // the integrity-pill group filter stays applied — rendering straight from
-// state.currentFindings silently dropped it.
+// currentFindings() silently dropped it.
 let __explorerT = null;
 function scheduleExplorerRender() {
   clearTimeout(__explorerT);
@@ -773,7 +766,7 @@ if (els.sevTabs) {
       }
     }
 
-    renderSevTabs(state.currentFindings);
+    renderSevTabs(currentFindings());
     scheduleExplorerRender();
     const refocus = els.sevTabs.querySelector(`.sevTab[data-sev="${sev}"]`);
     if (refocus) refocus.focus();
@@ -1199,14 +1192,17 @@ function maybeAutoCapture(url, { fromAuditedFrame = false } = {}) {
 }
 
 chrome.devtools.network.onNavigated.addListener(async () => {
-  state.findingsByMode = {};
-  state.hasRunMode = new Set();
+  // The old page's records were persisted when they were made; drop them
+  // from view and say "restoring" until the new scope's records load
+  // (refreshInspectedUrl clears the flag and renders). Everything Snap
+  // shows derives from state.records, so this one reset keeps data and
+  // view consistent.
+  state.records = [];
+  state.byId = {};
+  state.currentId = null;
+  state.restoringScope = true;
   state.contrastFilter = "all";
-  // Data and view must reset TOGETHER: clearing findingsByMode/hasRunMode
-  // while the explorer kept its painted rows left the view lying about
-  // state — the next partial re-render then showed the run-CTA under the
-  // stale list (rAF-deferred VT clear vs sync empty write).
-  state.currentFindings = [];
+  updateSnapCta(state.activeMode || "run");
   scheduleRerenderFindings("navigation");
   await refreshInspectedUrl();
   await refreshFrames();

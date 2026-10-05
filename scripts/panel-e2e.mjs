@@ -130,6 +130,28 @@ try {
   const leaked = pageConsole.filter((t) => /A11YFlowAudit\.run|Raw findings|Sanity:/.test(t));
   check(leaked.length === 0, "no audit output in the inspected page's console", leaked[0]);
 
+  // ── Navigation keeps data and view consistent (the 6.10.x hotfix class) ──
+  // Another origin (localhost vs 127.0.0.1): no stale rows, fresh "Run" CTA.
+  // Back: the scope's records restore with their rows and a "Rerun" CTA.
+  const snapState = () => panel.evaluate(() => ({
+    rows: document.querySelectorAll("#allTable tr.trow").length,
+    label: document.getElementById("runLabel")?.textContent || "",
+    empty: document.getElementById("explorerEmpty")?.hidden === false ? document.getElementById("explorerEmpty").textContent : null,
+    results: document.getElementById("resultsZone")?.hidden === false,
+  }));
+  const ranLabel = (await snapState()).label;
+  await page.goto(`http://localhost:${PORT}/corpus/chat.html`);
+  await panel.waitForFunction((u) => document.getElementById("inspectedUrl")?.dataset.full === u, `http://localhost:${PORT}/corpus/chat.html`, { timeout: 10000 }).catch(() => {});
+  await panel.waitForTimeout(300);
+  const other = await snapState();
+  check(other.rows === 0 && !other.results && other.label !== ranLabel,
+    "navigating to another origin shows no stale findings and a fresh CTA", JSON.stringify(other));
+  await page.goto(PAGE_URL);
+  await panel.waitForFunction(() => document.querySelectorAll("#allTable tr.trow").length > 0, null, { timeout: 10000 }).catch(() => {});
+  const back = await snapState();
+  check(back.rows > 10 && back.label === ranLabel && back.empty === null,
+    "navigating back restores the scope's audit (rows + rerun CTA, no empty message)", JSON.stringify(back));
+
   // ── Single-key shortcuts: on by default, can be turned off ───────────────
   await panel.locator("body").focus();
   await panel.evaluate(() => document.activeElement && document.activeElement.blur());

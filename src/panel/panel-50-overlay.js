@@ -741,7 +741,7 @@ function updateContrastView() {
   const filters = [];
   if (q) filters.push("search");
   applySectionView("contrast", sorted, sectionEmptyText("contrast", {
-    ran: state.hasRunMode.has("contrast") || hasData,
+    ran: hasRunMode("contrast") || hasData,
     total: Math.max(state.contrastData.length, state.contrastSamples.length),
     shown: sorted.length,
     filters,
@@ -817,7 +817,7 @@ function renderTabWalk(res) {
   }
   const events = applySortState(filtered, 'tab');
   applySectionView("tabWalk", events, sectionEmptyText("tabWalk", {
-    ran: state.hasRunMode.has("tabWalk") || walkRan,
+    ran: hasRunMode("tabWalk") || walkRan,
     total: raw.length,
     shown: events.length,
     filters: q ? ["search"] : [],
@@ -1118,7 +1118,7 @@ function normalizeFindingForRender(f) {
  */
 function rerenderFindings(reason) {
   var t0 = (typeof performance !== "undefined" && performance.now) ? performance.now() : 0;
-  var base = state.currentFindings || [];
+  var base = currentFindings();
   var groupFiltered = filterFindingsByGroup(base, activeGroupFilter);
   var normalized = groupFiltered.map(normalizeFindingForRender);
   renderSevTabs(normalized);
@@ -1180,29 +1180,19 @@ function renderExplorer(findings) {
   // The empty message names what is actually hiding rows instead of a
   // catch-all "no results match your search".
   const mode = state.activeMode === "observe" ? "observe" : "run";
-  const rawFindings = Array.isArray(state.findingsByMode[mode]) ? state.findingsByMode[mode] : null;
+  const rawFindings = rawFindingsForMode(mode);
   const rawTotal = rawFindings ? rawFindings.length : all.length;
   const filters = [];
-  if (rawFindings && (state.currentFindings || []).length < rawFindings.length) filters.push("depth/rule-pack setting");
+  if (rawFindings && currentFindings().length < rawFindings.length) filters.push("depth setting");
   if (activeGroupFilter) filters.push("integrity pill");
   if (state.sevFilter.size > 0) filters.push("severity tab");
   if (state.reviewFilter) filters.push("needs-review chip");
   if ((els.q?.value || "").trim()) filters.push("search");
 
   applySectionView("explorer", filtered, sectionEmptyText("explorer", {
-    // "ran" must survive navigation: hasRunMode is wiped by onNavigated, but
-    // the run RECORDS for this scope persist and restore — showing the
-    // "Run an Audit to see results" CTA while a just-finished audit exists
-    // in records was the 23.07 report. Any durable evidence counts.
-    ran: state.hasRunMode.has("run") || state.hasRunMode.has("observe")
-      || (state.currentFindings || []).length > 0
-      || (state.records || []).some((r) => r.action === "run" || r.action === "observe"),
-    // Records exist but live state is wiped (post-nav, pre-restore): rawTotal
-    // is 0 there, and "came back clean" would misreport an audit whose
-    // findings simply aren't loaded yet (Codex on #92).
-    restoring: !(state.hasRunMode.has("run") || state.hasRunMode.has("observe"))
-      && (state.currentFindings || []).length === 0
-      && (state.records || []).some((r) => r.action === "run" || r.action === "observe"),
+    // Both derive from the scope's records — no parallel flags to wipe.
+    ran: hasRunMode("run") || hasRunMode("observe"),
+    restoring: state.restoringScope,
     total: rawTotal,
     shown: filtered.length,
     filters,
@@ -1232,6 +1222,7 @@ function refreshInspectedUrl(retries = 3) {
     // load stored records for this origin/env
     const scopeKey = `records::${origin || ""}::${env}`;
     await loadRecords(scopeKey);
+    state.restoringScope = false;
     await loadActiveSessionForScope(origin || "", env || "");
     // Detect orphaned session and prompt for resume/discard
     if (sessionState.current && sessionState.current.startedAt && !sessionState.current.endedAt) {
@@ -1246,8 +1237,8 @@ function refreshInspectedUrl(retries = 3) {
       renderRecord(state.records[0]);
     } else {
       state.currentId = null;
-      state.currentFindings = [];
       renderRunSummary(null);
+      rerenderFindings("scope_loaded");
       showMode(state.activeMode || "run");
       updateResultsVisibility(false);
     }
