@@ -1,313 +1,224 @@
 # FlowLens — Architecture
 
-> Version 3.0.0 · Chrome DevTools extension for accessibility auditing (WCAG)
->
-> **Audience:** Maintainers, contributors, anyone needing to understand data flow and system internals.
+> **Audience:** Maintainers, contributors, anyone needing to understand data flow and system internals. Code is referenced by file and symbol; use grep to locate it.
 
 ---
 
 ## Table of Contents
 
 1. [High-Level Architecture](#1-high-level-architecture)
-2. [Module Inventory](#2-module-inventory)
+2. [Build and Module Inventory](#2-build-and-module-inventory)
 3. [Message Contracts](#3-message-contracts)
 4. [Frame Targeting and Scoring](#4-frame-targeting-and-scoring)
 5. [Profiles](#5-profiles)
-6. [Persistence Model](#6-persistence-model)
-7. [Export Contracts](#7-export-contracts)
-8. [Env Isolation](#8-env-isolation)
-9. [Determinism Metadata](#9-determinism-metadata)
-10. [Evidence and Debug Surfaces](#10-evidence-and-debug-surfaces)
-11. [Quick Start Presets (Internals)](#11-quick-start-presets-internals)
+6. [Snap State](#6-snap-state)
+7. [Persistence Model](#7-persistence-model)
+8. [Export Contracts](#8-export-contracts)
+9. [Env Isolation](#9-env-isolation)
+10. [Determinism Metadata](#10-determinism-metadata)
+11. [Evidence and Debug Surfaces](#11-evidence-and-debug-surfaces)
 
 ---
 
 ## 1. High-Level Architecture
 
 ```
-┌─────────────────────┐      chrome.runtime       ┌──────────────────────┐
-│   Panel (DevTools)  │  ──── onMessage ────────▶  │   Service Worker     │
-│   panel.html / .js  │  ◀─── sendResponse ─────   │   sw.js              │
-│   panel.css         │                            │                      │
-└─────────────────────┘                            └──────────┬───────────┘
-                                                              │
-                                                   chrome.scripting
-                                                   .executeScript
-                                                              │
-                                                   ┌──────────▼───────────┐
-                                                   │  Audit Snippet       │
-                                                   │  a11y-audit-snippet  │
-                                                   │  .js                 │
-                                                   │  (MAIN world)        │
-                                                   └──────────────────────┘
+┌─────────────────────┐   chrome.runtime        ┌──────────────────────┐
+│   Panel (DevTools)  │  ── sendMessage ──────▶ │   Service Worker     │
+│   panel.html / .js  │  ◀─ sendResponse ─────  │   sw.js              │
+│   panel.css         │  ◀─ "flowlens-nav" port │                      │
+└─────────────────────┘                         └──────────┬───────────┘
+                                                           │ chrome.scripting
+                                                           │ .executeScript
+                                                ┌──────────▼───────────┐
+                                                │  Audit Snippet       │
+                                                │  a11y-audit-snippet  │
+                                                │  (MAIN world)        │
+                                                └──────────────────────┘
 ```
 
 **Data flow:**
-1. User clicks a mode button in the panel (`panel.js`).
-2. Panel sends a `RUN_AUDIT` or `CAPTURE_STEP` message to the service worker (`sw.js`).
-3. Service worker resolves target frames (scope/frame targeting), injects the snippet (`a11y-audit-snippet.js`) into the frame in `MAIN` world context.
-4. Snippet executes the audit and returns the result to the service worker.
-5. Service worker normalizes the result, selects the "best entry", and responds to the panel.
-6. Panel renders results in virtual tables, persists to `chrome.storage.local`.
+1. The user runs a mode in the Snap tab or records a flow in the Flow tab.
+2. The panel sends `RUN_AUDIT` or `CAPTURE_STEP` to the service worker.
+3. The SW resolves target frames (scope + scoring + pin), injects the snippet into each target frame in the `MAIN` world, and runs the action (frames run concurrently, except Tab Walk, which moves real focus and runs sequentially). One audit per tab at a time (`acquireAuditLock()`).
+4. The SW normalizes results (`normalizeAuditResult()`), picks the best entry (`chooseBestEntry()`), runs the cross-frame C4 evaluators when several frames were audited, and responds.
+5. The panel renders virtualized tables and persists results to `chrome.storage.local`.
 
 ---
 
-## 2. Module Inventory
+## 2. Build and Module Inventory
 
-> `panel.js` source lives as ordered parts under `src/panel/` (see `panel.parts.json`);
-> the build concatenates them into a single `dist/panel.js`. `panel.js:NNNN` line
-> references elsewhere in this document predate the split — locate code by symbol/grep.
+`npm run build` (`scripts/build.mjs`) writes the loadable extension to `dist/`:
 
-| File | Lines | Role |
-|------|------:|------|
-| `src/manifest/manifest.base.json` | 25 | MV3 config: permissions (`scripting`, `webNavigation`, `storage`), `host_permissions` (`<all_urls>` — captureVisibleTab accepts only this or activeTab), service worker, devtools page |
-| `src/devtools/` | ~10 | DevTools panel registration (`chrome.devtools.panels.create`) |
-| `src/panel/panel.html` | 549 | Panel HTML: 3 top tabs (Snap/Flow/Settings), mode toolbar, severity filters, findings, bottom sheets |
-| `src/panel/panel-00-core.js` | 553 | Globals, `els`, state, HostConfig, profiles, recipes, sorting |
-| `src/panel/panel-10-tables.js` | 613 | Virtualized tables, JSON syntax highlighting |
-| `src/panel/panel-20-views.js` | 1742 | View routing, severity tabs, past runs sheet |
-| `src/panel/panel-30-flow.js` | 920 | Flow steps: labels, delete, session persistence/diffs, session comparison |
-| `src/panel/panel-40-engine.js` | 795 | Review status, deterministic export sort, JUnit export, shadow coverage, stable signature engine |
-| `src/panel/panel-45-capture.js` | 439 | Session lifecycle: startSession/endSession/captureStepOptionC (the capture state machine) |
-| `src/panel/panel-50-overlay.js` | 1882 | Overlay/highlight, determinism metadata, fix suggestions, diagnostics, exports, recorder |
-| `src/panel/panel-60-export.js` | 720 | Presets, exports, WCAG coverage summary |
-| `src/panel/panel-90-wireup.js` | 1283 | Event wiring, delegated table clicks, keyboard shortcuts (excluded from the test harness) |
-| `src/panel/panel.css` | 2657 | Styles: dark theme only (per Figma), severity colors, responsive layout |
-| `src/sw/sw.js` | 1605 | Service worker: message validation, frame scope resolution, frame scoring, script injection, result normalization, frame key generation |
-| `src/snippet/a11y-audit-snippet.js` | 4285 | WCAG audit engine: ~120 rule types (124 in RULE_TO_WCAG), `run()`, `observe()`, `watch()`, `tabWalk()`, `contrastScan()`, profile-aware checks |
-| `fixtures/a11y-rule-fixtures.html` | 178 | Test page with fixtures for FP verification |
-| `src/assets/icons/` | — | Extension icons (16, 32, 48, 128px) |
+- **Panel**: the ordered parts listed in `src/panel/panel.parts.json` are concatenated into one classic script, `dist/panel.js` (shared global scope).
+- **SW and snippet**: `src/sw/sw.js` and `src/snippet/a11y-audit-snippet.js` are ES modules that import the shared state-transition engine (`src/engine/stateTransitionEngine.js`). esbuild bundles each into a single file (`dist/sw.js`, `dist/a11y-audit-snippet.js`); the engine is not shipped as a separate file. esbuild is a hard build requirement (devDependency) — it also injects the version via `define`.
+- **Shared scripts** (`src/shared/*.js`, `src/engine/depth3Aggregates.js`, `src/engine/ciExporter.js`) are copied as classic scripts and loaded by `panel.html`.
+- `--dev` builds unminified with sourcemaps. `HOST_CONFIG` selects a HostConfig (see README → Build Variants).
+
+| File | Role |
+|------|------|
+| `src/manifest/manifest.base.json` | MV3 config: permissions `scripting`, `webNavigation`, `storage`; `host_permissions: <all_urls>` (required by `captureVisibleTab`); SW; devtools page |
+| `src/devtools/` | Registers the DevTools panel |
+| `src/panel/panel.html` | Three top tabs (Snap / Flow / Settings), Snap mode sub-tabs, severity filters, findings tables, bottom sheets |
+| `src/panel/panel-00-core.js` | `els`, `state`, derived Snap state, `MODES` registry, constants, HostConfig, profiles, recipes, sorting |
+| `src/panel/panel-10-tables.js` | Virtualized tables, storage wrappers (`storageGet`/`storageSet`/`storageRemove`), `updateUiPrefs`, `detectEnv`, `_lockedPreset` |
+| `src/panel/panel-20-views.js` | View routing, results shell, nav classification, severity filters, record persistence, Flow view builders |
+| `src/panel/panel-30-flow.js` | Step labels/delete, session persistence and archive index, session comparison, raw appendix, signature bundles, step diffs |
+| `src/panel/panel-40-engine.js` | Review status, export sort, JUnit, shadow coverage, stable signatures, Flow diff/lifecycle builders |
+| `src/panel/panel-45-capture.js` | Session lifecycle: `startSession`, `endSession`, `captureStepOptionC` |
+| `src/panel/panel-50-overlay.js` | Highlight, determinism metadata, session exports, fix suggestions, finding filters/rerender, video recorder |
+| `src/panel/panel-60-export.js` | Settings restore, profile pills, diagnostics, WCAG coverage, CI report |
+| `src/panel/panel-90-wireup.js` | Event wiring, keyboard handling (excluded from the test harness) |
+| `src/sw/sw.js` | Message validation, frame scope resolution and scoring, injection, normalization, frame keys, screenshots, DOM fingerprint probe, nav port |
+| `src/snippet/a11y-audit-snippet.js` | Audit engine (`window.A11YFlowAudit`): `run`, `observe`, `watch`, `tabWalk`, `contrastScan` |
+| `src/engine/stateTransitionEngine.js` | C1–C4 evaluators and transition-state helpers (ES module, bundled into SW + snippet) |
+| `src/engine/depth3Aggregates.js`, `ciExporter.js` | Depth 3 aggregates; CI JSON report builder/validator |
+| `src/shared/` | `version.js`, `limits.js`, `flow-profiles.js`, `wcag-coverage.js` (`RULE_TO_WCAG`), `en301549-map.js`, `flow-media-store.js` (IndexedDB media) |
 
 ---
 
 ## 3. Message Contracts
 
-Communication between Panel and SW uses `chrome.runtime.sendMessage`. The SW validates every incoming message in `validateIncomingMessage()` (`sw.js:33-71`).
+The SW accepts only messages from the extension itself (`sender.id === chrome.runtime.id`) whose `type` is in `MESSAGE_TYPES`; `validateIncomingMessage()` checks every field (e.g. `tabId` must be a non-negative integer; `action` must be one of `run`/`observe`/`watch`/`tabWalk`/`contrast`; `wcagLevel` one of `2.1-AA`, `2.1-AAA`, `2.2-AA`, `2.2-AAA`). Rejections return `{ ok: false, error }` (`UNAUTHORIZED_SENDER`, `BAD_MESSAGE_SCHEMA`, `UNKNOWN_MESSAGE`, `BAD_TAB_ID`, …).
 
-| Message type | Direction | Purpose | Key fields |
-|-------------|----------|---------|------------|
-| `LIST_FRAMES` | Panel → SW | Get the list of frames in the tab | `tabId` |
-| `RUN_AUDIT` | Panel → SW | Run an audit in the selected mode | `tabId`, `action` (`run`/`contrast`/`tabWalk`/`watch`/`observe`), `target` (scope, frameIds, match), `wcagLevel`, `modeHints`, `appMarkers` |
-| `CAPTURE_STEP` | Panel → SW | Capture a session step (baseline + active) | `tabId`, `action`, `activeMode`, `target`, `wcagLevel`, `modeHints`, `appMarkers` |
-| `HIGHLIGHT` | Panel → SW | Highlight an element on the inspected page | `tabId`, `frameId`, `finding` |
+| Type | Purpose | Key fields |
+|------|---------|------------|
+| `LIST_FRAMES` | List the tab's frames (`webNavigation.getAllFrames`) | `tabId` |
+| `RUN_AUDIT` | Run one mode | `tabId`, `action`, `target` (`scope`, `frameIds`, `pinned`, …), `wcagLevel`, `match`, `modeHints`, `appMarkers`, `rootSelector`, `alsoConsole` |
+| `CAPTURE_STEP` | Flow step: baseline `run` + active mode | as `RUN_AUDIT` plus `activeMode` |
+| `HIGHLIGHT` | Highlight a finding's element | `tabId`, `frameId`, `finding` |
+| `CAPTURE_SHOT` | Viewport screenshot for a Flow step; clears FlowLens overlays first; optional crop rect for an embedded frame | `tabId`, `cropFrameUrl` |
+| `PROBE_DOM_FINGERPRINT` | Read-only screen fingerprint (isolated world) for the DOM-step sentinel | `tabId`, `frameIds` (≤ 50) |
 
-**Responses** always contain `ok: boolean` plus result data or `error: string`.
+The panel always sends `target.scope`; an unknown scope falls back to `primary`.
+
+Audit responses: `{ ok, action, usedFrameIds, perFrame, bestEntry, bestFrameProbe, selectionReason, scope, schemaVersion, signatureVersion, frameKeyVersion, excludedFrameCount, rootSelectorMatchedFrameIds }`. If every frame failed, `ok: false` with `PAGE_NOT_SCRIPTABLE`, `AUDIT_TIMED_OUT` or `AUDIT_FAILED`. `CAPTURE_SHOT` fails with `inspected-tab-not-visible` unless the inspected tab is the active tab of its window.
+
+**Nav port**: the panel opens a `flowlens-nav` port and sends its `tabId`; the SW forwards `SPA_NAV` (top-frame History API / fragment changes) and `FRAME_NAV` (subframe navigations) for Flow auto-capture.
+
+**Snippet console gate**: before each run the SW sets `window.__A11YFLOW_CONSOLE__` from the panel's "Log to console" setting; when `false` the snippet writes nothing to the page console.
 
 ---
 
 ## 4. Frame Targeting and Scoring
 
-### Scope enum
-
-Defined in `sw.js:225-274` (`FRAME_SCOPE`, `normalizeFrameScope`, `normalizeScopeAndCompatibility`):
+### Scopes (`FRAME_SCOPE`, `normalizeTargetScope()`)
 
 | Scope | Behavior |
 |-------|----------|
-| `PRIMARY` | Scans exactly one auto-selected frame using scoring heuristics |
-| `HOST` | Scans only the top-level document (`frameId=0`) |
-| `EMBEDDED` | Scans one detected/selected iframe; uses pinned frame if set |
-| `ALL` | Scans host + all iframes |
+| `primary` (default) | Exactly one frame, the best-scoring one (falls back to the top frame) |
+| `host` | Top-level document only (`frameId 0`) |
+| `embedded` | One iframe: the pinned/selected one, else the best-scoring iframe |
+| `all` | Host + all iframes |
 
-### Scoring algorithm
+Pinned/selected frames are a strict override (`hasManualOverride()`): every pinned frame must still exist, otherwise the run fails with `MANUAL_FRAMES_MISSING` instead of silently auditing something else.
 
-Implemented in `computeFrameScores()` (`sw.js:798-855`):
+### Scoring (`computeFrameScores()`)
 
 | Signal | Points |
 |--------|--------|
-| URL includes match (per match) | +5 |
-| DOM selector match | +10 |
-| Frame area (viewport proportion) | +0 to +3 |
-| Iframe bonus (when heuristics apply) | +1 |
+| URL matches a `urlExcludesAny` entry | score forced to 0 (frame excluded) |
+| Each `urlIncludes` match | +5 |
+| DOM selector match (`domSelectorsAny`) | +10; when selectors are given and none match, score is forced to 0 |
+| Frame area (relative to the largest frame) | +0…+3, only for frames that already scored |
+| Subframe tie-break | +1, only for frames that already scored (an unrelated ad iframe no longer beats the top document) |
 
-The highest-scoring frame is selected as `best`. The `selectionReason` field in results explains the outcome: `auto_scored`, `manual_pin`, `manual_select`, `no_frames`, `scope_embedded_missing`, etc.
+Ties break by lower `frameId`. `selectionReason` explains the result (e.g. `scope_primary_scored_best`, `scope_primary_fallback_top`, `scope_embedded_manual_override`, `manual_frame_missing`, `no_scope_match_embedded_missing`).
 
-### Pin behavior
+After the audit, `chooseBestEntry()` picks the best result among the audited frames: manual frames first; otherwise highest `summaryScore` (then blocking count); with all scores 0, probe heuristics (chat, marker hits, help root, article, non-shell); else the top frame.
 
-- Toggling **Pin frame** persists the selected frame per origin in the `pinnedFrames` storage key.
-- A pinned frame acts as a manual override within the chosen scope.
-- Pin is origin-scoped and survives SPA navigation and hard reloads.
+### Pin
 
-### Frame key generation
+**Pin** (Settings → Targeting) stores the selected frame per origin in `pinnedFrames`; it survives SPA navigation and reloads.
 
-Implemented in `deriveFrameKey()` (`sw.js:127-143`):
+### Frame keys
 
-```
-fk::v1::<origin>::<pathHint>::<markerHash8>
-```
-
-- `origin`: frame URL origin (fallback: parent origin / `about:blank`)
-- `pathHint`: first stable URL segments with volatile numeric/UUID-like tokens normalized
-- `markerHash8`: FNV-1a hash over stable selector/marker booleans
-- `frameId` is kept for debugging and runtime targeting; session diff identity uses `frameKey`
-- `frameKeyVersion` is persisted in session metadata for forward compatibility
-
-### Resolution flow
-
-`resolveTargetFrameIds()` (`sw.js:867-1099`) orchestrates the full targeting pipeline:
-1. List available frames via `chrome.webNavigation.getAllFrames`.
-2. Apply scope filter.
-3. Apply profile-based heuristics (URL includes, DOM selectors).
-4. Compute scores via `computeFrameScores()`.
-5. Apply pin override if active.
-6. Select best entry via `chooseBestEntry()` (`sw.js:324-354`).
+`deriveFrameKey()`: `frameKeyStable = fk::v1::<origin>::<pathHint>` (identity, used by signatures) and `frameKey = <frameKeyStable>::<markerHash8>` (adds a hash of marker hits). Colliding stable keys within one audit get a `::dupN` suffix. See [SESSION_MODEL.md](./SESSION_MODEL.md#3-signatures).
 
 ---
 
 ## 5. Profiles
 
-Profiles add product-specific frame heuristics and audit rules.
+Built-in profiles are defined in `src/shared/flow-profiles.js` (`GENERIC_PROFILES`) — vendor-agnostic: targeting uses ARIA roles and semantic elements only (`urlIncludes` is empty). Vendor selectors belong in a private HostConfig build.
 
-### Built-in profiles
-
-Defined in `BUILTIN_PROFILES` (`panel.js:208-256`):
-
-| Profile | URL includes | DOM selectors | Sub-hints |
-|---------|-------------|---------------|-----------|
-| `helpcenter` | `helpcenter-webclient`, `usehurrier.com`, `helpcenter` | `#help-center-root`, `[data-testid='help-center-wrapper']`, etc. | `helpcenter-bot`, `helpcenter-tree` |
-| `chat` | — | `[data-testid^='GST_CHAT__']`, `#GST_CHAT__FEED`, `[role='log']` | `chat` |
-
-### Profile state
-
-- `profileState` (`panel.js:208-256`): runtime state tracking active profiles.
-- `activeProfiles` storage key: array of active profile IDs.
-- `customProfiles` storage key: user-defined profile objects that extend or override built-ins.
-
-Profiles are rendered as pill toggles in the Settings section (`panel.js:3473-3520`).
+Runtime state is `profileState` (`panel-00-core.js`); pills are rendered by `renderProfileSelect()` in Settings. Storage: `activeProfiles` (active ids) and `customProfiles` (user-defined profiles). Recipes (`RECIPES`: Auto, Chat Widget, Help Center, Hybrid, Wizard / Form) preset frame scope, depth, active mode and a profile allowlist.
 
 ---
 
-## 6. Persistence Model
+## 6. Snap State
 
-### Normalization pipeline
+The current scope's records (`state.records`, newest first, loaded per `records::<origin>::<env>`) are the single source of truth for the Snap tab. Everything else is derived on demand (`panel-00-core.js`):
 
-| Layer | Location | Description |
-|-------|----------|-------------|
-| **Result normalization** | `sw.js:145-223` (`normalizeAuditResult`) | Unified per-mode scoring: `blockingCount`, `summaryScore`, `primaryCounts` |
-| **Record compaction** | `panel.js:828-937` (`persistRecords`) | Progressive compaction on quota exceeded: 3 tiers (50→25→10 records) |
-| **Session compaction** | `panel.js:1737-1875` | `rawAppendix` cap (200 entries), soft-compact (keep recent 30 steps), orphan pruning |
-| **Persistence backend** | `panel.js:419-434` (`storageGet`/`storageSet`) | `chrome.storage.local` with `localStorage` fallback |
+- `hasRunMode(mode)` — whether any record for that mode exists in the scope.
+- `rawFindingsForMode(mode)` — unfiltered findings of the record shown for Run/Observe: the one the user picked in **Past runs** (`state.selectedByMode[mode]`, ignored if not in the scope), else the newest.
+- `currentFindings()` — those findings filtered by the Depth setting, for the active run-like mode (Run or Observe). Severity, search, review and integrity-group filters are applied at render time.
 
-### Storage keys
+`state.restoringScope` is true between a navigation and the new scope's records being loaded, so the UI doesn't flash an empty state or stale results.
 
-| Key | Scope | Contents | Reset behavior |
-|-----|-------|----------|----------------|
-| `records::{origin}::{env}` | Per origin + env | Array of up to 20 compacted audit results. Each record: action, bestEntry, perFrame, timestamp | Never auto — overwritten progressively. Manual: clear extension storage |
-| `pinnedFrames` | Global | `{ [origin]: { frameId: number } }` — pinned frames per origin | Manual: disable pin or clear storage |
-| `session::active::{origin}::{env}` | Per origin + env | Active session — full object with steps, rawAppendix | Auto: moved to archive on End session. Manual: clear storage |
-| `session::archive::{origin}::{env}::{sessionId}` | Per origin + env + session | Archived (ended) session | Manual: clear storage |
-| `uiPrefs` | Global | `{ wcagLevel, alsoConsole, depthMax, recipeId, junitCiOptions }` | Manual: change in settings UI |
-| `customProfiles` | Global | Custom MFE profile definitions | Manual: change in settings UI |
-| `activeProfiles` | Global | Array of active profile IDs (e.g., `["helpcenter"]`) | Manual: toggle pill in settings |
-| `colPrefs` | Global | `{ [tableId]: { [colIdx]: boolean } }` — column visibility per table | Manual: toggle in Columns dropdown |
-| `history` | Per origin | `{ [snapshotKey]: summary }` — snapshots for diff calculation | Overwritten on new results |
+Presets: the empty state offers **Quick scan** (`_lockedPreset(["run", "contrast"])`) and **Deep audit** (`_lockedPreset(["watch", "observe", "run"])`); `_lockedPreset` runs modes sequentially with the UI locked.
 
-### Reset behavior on navigation
+---
+
+## 7. Persistence Model
+
+Storage goes through `storageGet`/`storageSet`/`storageRemove` (`chrome.storage.local`, `localStorage` fallback). Flow media lives in IndexedDB (`flowlens-media`), never in `chrome.storage.local`.
+
+| Key | Contents | Retention |
+|-----|----------|-----------|
+| `records::<origin>::<env>` | Up to 20 compacted Snap results | `persistRecords()` retries with progressively more compact payloads when a write fails (20→15→10→8→5 records, shrinking row/string caps); a failed save shows a toast |
+| `records::index` | `{ scopeKey: lastWrite }` | At most 25 record scopes; the least recently written are deleted |
+| `session::active::<origin>::<env>` | Recording session | Moved to the archive on End |
+| `session::archive::<origin>::<env>::<id>` | Ended session | Evicted via the index |
+| `session::archiveIndex` | `[{ key, id, startedAt, steps }]`, newest first | At most 30 archived sessions; screenshots/video kept for the newest 5. Archives are listed from this index, never with `storage.get(null)` (one-time migration excepted) |
+| `pinnedFrames` | `{ [origin]: { frameId } }` | Until unpinned |
+| `uiPrefs` | `wcagLevel`, `alsoConsole`, `singleKeyShortcuts`, `depthMax`, `recipeId`, `frameScope`, `autoCaptureNav`, `autoCaptureDelay`, `flowVideoOnRecord`, `junitCiOptions` | Settings |
+| `activeProfiles`, `customProfiles` | Profiles | Settings |
+| `colPrefs` | Column visibility by column name | Columns menu |
+
+The obsolete global `history` key is removed on panel start.
+
+Session caps and raw-appendix compaction: [SESSION_MODEL.md §6](./SESSION_MODEL.md#6-caps-compaction-storage).
+
+### Navigation
 
 | Event | Effect |
 |-------|--------|
-| **SPA navigation** (no hard reload) | Frames may change — click Refresh frames. Session continues. Pin preserved |
-| **Hard reload** | Panel reloads. Records loaded from storage. Active session loaded from storage (if exists per origin/env). Pin preserved |
-| **Origin change** | New scope key — records, session, history from new origin. Pin from new origin (or none). UI prefs (global) preserved |
-| **Env change** | New scope key — records, session from new env. Pin per origin preserved |
-| **Clear extension storage** | Everything reset |
+| SPA navigation | Same scope; Flow may auto-capture a step. Pin preserved |
+| Hard reload / origin or env change | Scope key recomputed; that scope's records load (`state.restoringScope` meanwhile); an active session for the scope offers resume. UI prefs are global |
 
 ---
 
-## 7. Export Contracts
+## 8. Export Contracts
 
-### Single-run exports
-
-| Export | Format | Source | Content |
-|--------|--------|--------|---------|
-| Copy JSON | Clipboard (JSON) | `state.lastResult` | Full result object |
-| Copy Markdown | Clipboard (MD) | `buildMarkdown()` (`panel.js:2483-2540`) | Top 10 findings + metadata (URL, frameIds, mode, env, counts) |
-| Download JSON | File (`.json`) | `state.lastResult` | `a11yflowaudit-{timestamp}.json` |
-
-### Session exports
-
-| Export | Format | Source | Content |
-|--------|--------|--------|---------|
-| Session JSON | File (`.json`) | Session object | `flowlens-session_{originSlug}_{env}_{date}-{time}.json`. Contains `determinismMeta`, `steps[]`, `rawAppendix`, `frames` index |
-| Session MD | Clipboard (MD) | `buildSessionMarkdown()` (`panel.js:2350-2481`) | Session metadata, flow summary (top 24 blocking sigs), per-step diffs, frame key appendix |
-
-Export handlers: `panel.js:3721-3738` (single run), `panel.js:3384-3452` (session).
-
-### Session Markdown sort order
-
-The flow summary table sorts blocking signatures deterministically:
-1. `blockingWeight` descending
-2. `occurrences` descending
-3. `firstSeenStep` ascending
-4. Signature lexicographic
+| Export | Source | Notes |
+|--------|--------|-------|
+| Download / Copy JSON | `enrichRunJsonExport(state.lastResult)` | `a11yflowaudit-<ts>.json` |
+| Download Markdown | `buildMarkdown()` | `a11yflowaudit-<ts>.md` |
+| Download JUnit XML | `buildJunitXmlForRun()` | CI options: fail on blocking, treat needs-review as failures, max failures |
+| Session JSON / Markdown / JUnit | `compactSessionForExport()`, `buildSessionMarkdown()`, `buildJunitXmlForSession()` | `flowlens-session_<origin>_<env>_<YYYYMMDD-HHMM>.json` |
+| Diff Report JSON | `buildMachineReadableDiffReport()` | `flowlens-<version>-<env>-diff-report.json` |
+| Screenshots (.zip) | flow media store | Per-step PNGs |
+| Copy CI JSON (Settings → Diagnostics) | `buildCIReportFromState()` → `buildCIReport()` | No page text or DOM paths; `rulePackHash: null` |
+| Copy diagnostics | Settings → Diagnostics | `rulePack: null` |
 
 ---
 
-## 8. Env Isolation
+## 9. Env Isolation
 
-Env tag is automatically derived from URL heuristics — checks for patterns: `localhost`, `staging`, `dev`, `preview`, `canary`, `production`, `prod`.
-
-Env affects the **scope key** — records and sessions are isolated per `{origin}::{env}`. This means:
-- Staging and production results never mix.
-- Local development gets its own storage namespace.
-- Switching environments on the same origin loads different record/session histories.
+`detectEnv(url)` classifies the **hostname** only: `localhost`/`127.0.0.1` → `local`; a `staging`, `stage`, `preprod`, `preview`, `dev`, `test` or `qa` label → `staging`; else `prod`. Records and sessions are keyed by `<origin>::<env>`.
 
 ---
 
-## 9. Determinism Metadata
+## 10. Determinism Metadata
 
-Session JSON includes `determinismMeta`, built during export:
-
-| Field | Value | Purpose |
-|-------|-------|---------|
-| `schemaVersion` | `1` | Bump when persisted session shape changes |
-| `signatureVersion` | `1` | Bump when issue-signature construction rules change |
-| `frameKeyVersion` | `1` | Bump when frame key algorithm changes |
-| `totalSteps` | number | Total step count |
-| `perStepFrameKeys` | bounded `count + hash` records | Frame key summary per step |
-| `warnings[]` | string[] | Non-fatal consistency warnings (e.g., missing `usedFrameKeys`, version mismatch) |
-
-This enables forward compatibility — downstream tools can check whether a session was built with a compatible version of the signature/schema/frameKey logic before processing.
+Session JSON carries `determinismMeta` (`buildDeterminismMeta()`): `schemaVersion` (4), `signatureVersion` (2), `frameKeyVersion` (1), `enMappingVersion`, `totalSteps`, `perStepFrameKeys` (count + hash), `shadowCoverageSummary`, `warnings[]`. Versions are stamped by the SW. Details: [SESSION_MODEL.md §8](./SESSION_MODEL.md#8-exports-and-determinism-versioning).
 
 ---
 
-## 10. Evidence and Debug Surfaces
+## 11. Evidence and Debug Surfaces
 
-### Finding evidence
-
-Every finding has evidence fields built by `add()` (`a11y-audit-snippet.js:313-336`):
-- `extra`: object with rule-specific details (must be serializable — no DOM refs, no circular structures)
-- `html`: HTML snippet of the element
-- `path`: CSS path to the element
-- `testId`: `data-testid` attribute value
-- `role`: ARIA role
-- `tag`: HTML tag name
-
-### Highlight
-
-Clicking a row in the findings table highlights the element on the inspected page (cyan CSS overlay) via the `HIGHLIGHT` message → `sw.js:578-678`.
-
-### Raw JSON toggle
-
-The `jsonToggle` in the panel opens/closes the raw JSON result in a `<pre>` block. Copy via `copyJsonRaw`.
-
-### Targeting summary
-
-`targetingSummary` in `panel.html` shows the current targeting state after each run: scope, selected frame, pin status, selection reason.
-
-### Debug flag
-
-`DEBUG_SESSION` is dev-only, `false` by default in both `panel.js` and `sw.js`. When enabled, logs metadata-only diagnostics: durations, frame counts, selection reason, persistence size outcomes.
-
----
-
-## 11. Quick Start Presets (Internals)
-
-Defined in `panel.html:103-112`, handled in `panel.js:3615-3658`.
-
-| Preset | Modes | Mechanism |
-|--------|-------|-----------|
-| `presetQuick` | Audit + Contrast | `_lockedPreset(["run", "contrast"])` |
-| `presetRelease` | Watch + Observe + Audit | `_lockedPreset(["watch", "observe", "run"])` |
-| `presetFocus` | Tab Walk + Audit | `_lockedPreset(["tabWalk", "run"])` |
-
-`_lockedPreset([...modes])` runs modes sequentially, locking the UI between each mode execution.
+- **Finding evidence** (snippet `add()`): `type`, `severity`, `confidence`, `wcag`, `level`, `name`, `role`, `tag`, `testId`, `path`, `html` excerpt, `note`, `extra` (serializable, bounded), `fix`. Fix suggestions live in the panel (`FIX_SUGGESTIONS`, `panel-50-overlay.js`).
+- **Highlight**: activating a finding row sends `HIGHLIGHT` (`highlightFinding()`); cross-frame findings without an element show a toast instead.
+- **Raw JSON** sheet, **Targeting summary** (Settings → Targeting) and **FlowLens Diagnostics** (Settings) show the last result, targeting and versions.
+- **Perf counters**: `window.__flPerf` (rerender counts/timings); set `localStorage["flowlens:debugPerf"] = "1"` to show a Perf row in Diagnostics.
+- `DEBUG_SESSION` (`false` in panel and SW) enables metadata-only session logging.

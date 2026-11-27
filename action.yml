@@ -36,27 +36,39 @@ runs:
       working-directory: ${{ github.action_path }}
       run: |
         npm ci
-        npm i -D playwright
         npx playwright install --with-deps chromium
     - name: Build audit snippet
       shell: bash
       working-directory: ${{ github.action_path }}
       run: npm run build
+    # Inputs reach the script only through env vars and are passed as a bash
+    # array — never interpolated into the script text — so a URL containing
+    # quotes, $(...), backticks, spaces or glob characters stays one literal
+    # argument.
     - name: Run flow audit
       shell: bash
+      env:
+        FL_ACTION_PATH: ${{ github.action_path }}
+        FL_URLS: ${{ inputs.urls }}
+        FL_STEPS_FILE: ${{ inputs.steps-file }}
+        FL_WCAG: ${{ inputs.wcag }}
+        FL_FAIL_ON_BLOCKING: ${{ inputs.fail-on-blocking }}
+        FL_MAX_FAILURES: ${{ inputs.max-failures }}
+        FL_OUT: ${{ inputs.out }}
       run: |
-        ARGS=""
-        if [ -n "${{ inputs.steps-file }}" ]; then
-          ARGS="--steps ${{ inputs.steps-file }}"
+        set -euo pipefail
+        args=()
+        if [ -n "$FL_STEPS_FILE" ]; then
+          args+=(--steps "$FL_STEPS_FILE")
         else
           while IFS= read -r url; do
-            [ -n "$url" ] && ARGS="$ARGS --url $url"
-          done <<< "${{ inputs.urls }}"
+            if [ -n "$url" ]; then args+=(--url "$url"); fi
+          done <<< "$FL_URLS"
         fi
-        if [ "${{ inputs.fail-on-blocking }}" = "true" ]; then
-          ARGS="$ARGS --fail-on-blocking"
+        if [ "$FL_FAIL_ON_BLOCKING" = "true" ]; then
+          args+=(--fail-on-blocking)
         fi
-        node "${{ github.action_path }}/scripts/ci-runner.mjs" $ARGS \
-          --wcag "${{ inputs.wcag }}" \
-          --max-failures "${{ inputs.max-failures }}" \
-          --out "${{ inputs.out }}"
+        node "$FL_ACTION_PATH/scripts/ci-runner.mjs" "${args[@]}" \
+          --wcag "$FL_WCAG" \
+          --max-failures "$FL_MAX_FAILURES" \
+          --out "$FL_OUT"

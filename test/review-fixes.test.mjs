@@ -75,8 +75,8 @@ describe('flowVerdictHeaderHtml — confidence note gating', () => {
   function verdictHtmlFor(ctx, stepOverrides) {
     const sess = {
       id: 'sess_x',
-      steps: [{
-        index: 1,
+      steps: [{ index: 1, diffs: { consolidated: { blockingAdded: 0 } }, snapshots: {}, findingIndex: {} }, {
+        index: 2,
         diffs: { consolidated: { blockingAdded: 0 } },
         snapshots: {},
         findingIndex: {},
@@ -89,8 +89,8 @@ describe('flowVerdictHeaderHtml — confidence note gating', () => {
   it('rootSelectorNotFound alone surfaces the reduced-confidence note', () => {
     const ctx = createContext();
     const html = verdictHtmlFor(ctx, { rootSelectorNotFound: true });
-    assert.match(html, /Diff confidence: reduced/);
-    assert.match(html, /root selector not found/);
+    assert.match(html, /Comparison less reliable/);
+    assert.match(html, /root element was not found/);
   });
 
   it('rootMissing no longer suppresses the low-profile-confidence reason', () => {
@@ -98,7 +98,7 @@ describe('flowVerdictHeaderHtml — confidence note gating', () => {
     // profileLabel present: suspect only counts when a profile was in play
     // (2026-07-20 UX audit — bare suspect flagged every generic page).
     const html = verdictHtmlFor(ctx, { rootSelectorNotFound: true, profileSuspect: true, profileLabel: 'Wizard' });
-    assert.match(html, /root selector not found/);
-    assert.match(html, /low profile confidence/);
+    assert.match(html, /root element was not found/);
+    assert.match(html, /page type match is uncertain/);
   });
 });

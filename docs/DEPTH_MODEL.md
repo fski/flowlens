@@ -51,6 +51,8 @@ Are new messages announced to assistive technology?
 
 When a bot responds, the new message must be surfaced through an `aria-live` region or equivalent mechanism in the same frame as the content. If the live region and the message content are in different frames, the announcement will not fire.
 
+C1 fires only when the message count grew and nothing would announce it: a feed with `role="log"` counts as announced (it is an implicit polite live region), and in Observe — which does not count announcement events — a polite/assertive live region in scope is given the benefit of the doubt. Watch counts announcements and can flag a live region that stayed silent.
+
 ### C2 — Focus Stability
 
 Does the composer retain focus after bot responses?

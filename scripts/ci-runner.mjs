@@ -15,8 +15,9 @@
  * steps.json: [{ "url": "https://…", "label": "checkout step 1" }, …]
  *
  * Requires the `playwright` devDependency (browsers via `npx playwright
- * install chromium`, or an installed Google Chrome — the runner tries the
- * `chrome` channel first).
+ * install chromium`; set FLOWLENS_CHROMIUM to use a specific executable).
+ * Pages are opened with CSP bypassed so the inline-injected snippet runs on
+ * sites with a strict `script-src`.
  *
  * Determinism note: findings come from the same snippet the extension
  * injects. Runner signatures (fnv1a over type|wcag|testId|path) are a
@@ -26,6 +27,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { createContext as vmCreateContext, Script } from "node:vm";
+import { launchChromium, newAuditPage } from "./lib/launch-browser.mjs";
 
 const ROOT = join(import.meta.dirname, "..");
 const SNIPPET_PATH = join(ROOT, "dist", "a11y-audit-snippet.js");
@@ -66,10 +68,10 @@ function loadCiExporter() {
 // ── Blocking rule (mirrors panel isRunFindingBlocking) ──────────────────────
 function isBlocking(f) {
   const sev = String(f?.severity || "").toLowerCase();
-  if (sev !== "high" && sev !== "medium") return false;
+  if (sev !== "critical" && sev !== "high" && sev !== "medium") return false;
   const conf = String(f?.confidence || "strict").toLowerCase();
   if (conf === "advisory") return false;
-  if (sev === "high") return true;
+  if (sev === "critical" || sev === "high") return true;
   return conf === "strict";
 }
 
@@ -89,23 +91,9 @@ const xmlEscape = (s) => String(s ?? "")
 
 // ── Main ────────────────────────────────────────────────────────────────────
 async function main() {
-  let playwright;
-  try {
-    playwright = await import("playwright");
-  } catch {
-    console.error("ERROR: playwright not installed. Run: npm i -D playwright && npx playwright install chromium");
-    process.exit(2);
-  }
-
-  let browser = null;
-  for (const attempt of [{ channel: "chrome" }, {}]) {
-    try { browser = await playwright.chromium.launch({ headless: true, ...attempt }); break; }
-    catch { /* try next launch option */ }
-  }
-  if (!browser) { console.error("ERROR: could not launch Chromium (install browsers: npx playwright install chromium)"); process.exit(2); }
-
+  const browser = await launchChromium();
   const snippetSource = readFileSync(SNIPPET_PATH, "utf8");
-  const page = await browser.newPage();
+  const page = await newAuditPage(browser);
   const stepResults = [];
 
   for (const step of steps) {

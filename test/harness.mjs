@@ -121,6 +121,10 @@ function buildMockChrome() {
   };
 }
 
+const PANEL_IDS = new Set(
+  [...readFileSync(join(__dirname, '..', 'src', 'panel', 'panel.html'), 'utf8').matchAll(/\sid="([^"]+)"/g)].map((m) => m[1])
+);
+
 function buildMockDocument() {
   const noop = () => {};
   const _elCache = {};
@@ -159,7 +163,13 @@ function buildMockDocument() {
   body.appendChild = noop;
   body.removeChild = noop;
   const doc = {
-    getElementById: (id) => { if (!_elCache[id]) _elCache[id] = _makeEl('div'); return _elCache[id]; },
+    // Only ids that exist in panel.html resolve (like the real DOM). A mock
+    // that invented any id let a mistyped els.foo pass every test.
+    getElementById: (id) => {
+      if (!PANEL_IDS.has(id) && !(id in _elCache)) return null;
+      if (!_elCache[id]) _elCache[id] = _makeEl('div');
+      return _elCache[id];
+    },
     querySelector: () => _makeEl('div'),
     querySelectorAll: () => [],
     createElement: (tag) => _makeEl(tag),

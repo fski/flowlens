@@ -3,7 +3,7 @@
 ## 1) FP Hotspots (ranked)
 
 1. `FOCUS_VISIBLE_SUPPRESSED` (`RULE_REGISTRY.FOCUS_VISIBLE_SUPPRESSED.run`)
-   - FP reason: used at-rest computed style only; ignored `:focus-visible` styles in stylesheets.
+   - FP reason (historical): flagged every control without an outline at rest, ignoring the browser's default `:focus-visible` ring and authored focus styles.
 2. `CLICK_WITHOUT_KEYBOARD` (run block under `// 2.1.1 Keyboard`)
    - FP reason: assumed missing keyboard support from missing `tabindex` only; ignored delegated key handlers and actionable preconditions.
 3. `ARIA_HIDDEN_FOCUSABLE` (run block under `// 4.1.2: aria-hidden="true" containing focusable elements`)
@@ -23,12 +23,11 @@
 
 ### Fix A: Focus-visible precision and evidence
 - Rule: `FOCUS_VISIBLE_SUPPRESSED`
-- Root cause: at-rest style checks missed authored focus selectors.
+- Root cause: at-rest style checks treated the absence of an outline as suppression.
 - Change:
-  - Scans stylesheet rules for matching `:focus`/`:focus-visible` selectors.
-  - Suppresses finding when matching selector provides visible indicator.
-  - Downgrades unresolved result to `confidence: advisory`.
-  - Adds bounded evidence in `finding.extra`: `matchedFocusRules`, `matchedIndicatorRules`, `scannedFocusRules`, `inaccessibleStylesheets`, outline/box-shadow state.
+  - Flags a control only when an author stylesheet rule or inline style removes its outline (none/hidden/0) **and** no matching `:focus`/`:focus-visible` rule supplies a replacement (outline, box-shadow, border, background, text decoration). Untouched controls keep the UA ring and are not flagged.
+  - Emitted as `severity: low`, `confidence: advisory`.
+  - Evidence in `finding.extra`: `inlineOutlineRemoved`, `scannedFocusRules`, `inaccessibleStylesheets`.
 - Fixture test:
   - `#badFocusButton` should flag.
   - `.good-focus` should not flag.
@@ -69,9 +68,11 @@
   - Rule confidence downgraded from `strict` to `heuristic`.
   - Exempts inline text link pattern (`display:inline`, in running text).
   - Skips targets with larger interactive ancestor proxy.
+  - Applies the 2.5.8 spacing exception: an undersized target passes when a 24 px circle centred on it overlaps no other target and no other undersized target's circle.
   - Adds evidence and honest fix guidance.
 - Fixture test:
-  - `#tinyIconButton` should flag.
+  - `#tinyIconButton` should flag (adjacent to `#tinyIconButton2`).
+  - `#spacedTinyButton` should not flag (spacing exception).
   - `#inlineTextLink` should not flag.
 
 ### Fix E: Iframe title exemptions
@@ -83,6 +84,15 @@
 - Fixture test:
   - `#iframeMissingTitle` should flag.
   - Presentational/aria-hidden fixture iframes should not flag.
+
+### Later precision fixes (axe-core spike, 2026-10)
+
+Measured against axe-core on an annotated corpus — see [AXE_SPIKE.md](./AXE_SPIKE.md) for method and numbers:
+
+- Accessible name follows a simplified accname order (`aria-labelledby` → `aria-label` → native label/alt/value → content for name-from-content roles → `title` → `placeholder`), resolving ID references inside shadow roots (`fixtures/accname-fixtures.html`).
+- Contrast blends text alpha and ancestor opacity; `opacity: 0` text is skipped; text over a gradient/image is a `bgUncertain` sample, not a failure (`fixtures/contrast-fixtures.html`).
+- `DUPLICATE_ID` compares IDs per document/shadow root.
+- C1 treats `role="log"` feeds as announced and, in Observe, does not fire when a live region is present.
 
 ## 3) Confidence and Severity Adjustments
 
@@ -96,7 +106,7 @@
 - Fixture file: `fixtures/a11y-rule-fixtures.html`
 - Protocol:
   1. Open fixture in Chrome.
-  2. Paste `a11y-audit-snippet.js` into DevTools console.
+  2. Paste the built `dist/a11y-audit-snippet.js` into the DevTools console.
   3. Run `A11YFlowAudit.run({ strict: true })`.
   4. Run:
      ```js
@@ -106,13 +116,12 @@
      }, {});
      console.table(byType);
      ```
-  5. Confirm expected counts (ENFORCED in CI by `scripts/e2e-smoke.mjs` —
-     update both places together; historical counts predating v6 fixture
-     additions were stale, re-measured 2026-07-19):
-     - `FOCUS_VISIBLE_SUPPRESSED`: 23 (page-wide: fixture suppresses focus styles broadly)
+  5. Confirm expected counts (enforced in CI by `EXPECTED` in `scripts/e2e-smoke.mjs` —
+     update both places together):
+     - `FOCUS_VISIBLE_SUPPRESSED`: 1 (`#badFocusButton` — the only control whose outline the author removes without a replacement)
      - `CLICK_WITHOUT_KEYBOARD`: 7
      - `ARIA_HIDDEN_FOCUSABLE`: 1
-     - `TOUCH_TARGET_TOO_SMALL`: 23
+     - `TOUCH_TARGET_TOO_SMALL`: 11 (two adjacent 16px icon buttons, two default selects, seven stacked 23px-high click targets; the lone, spaced `#spacedTinyButton` meets the 2.5.8 spacing exception)
      - `DUPLICATE_MAIN_LANDMARK`: 1
      - `IFRAME_MISSING_TITLE`: 1
      - `COMPETING_SKIP_NAV`: 1
@@ -133,8 +142,7 @@
 
 ## 5) Verification Checklist
 
-- [ ] `node --check a11y-audit-snippet.js` passes
-- [ ] `node --check panel.js` passes
-- [ ] Fixture counts match expected values above
+- [ ] `npm test` and `npm run build` pass
+- [ ] `npm run test:e2e` passes (fixture counts, accname and contrast fixtures)
 - [ ] No strict-regression on deterministic rules (e.g., missing labels, missing `lang`, broken ARIA refs)
 - [ ] Flow summary blocking now excludes advisory findings and de-weights heuristic findings

@@ -1,0 +1,31 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Dashboard</title>
+<style>body{font:16px sans-serif} .muted{color:#999;background:#fff} .hero{color:#fff;background:linear-gradient(#003,#114);padding:8px}</style></head>
+<body>
+<header><nav aria-label="Main"><a href="/">Home</a> <a href="/reports">Reports</a></nav></header>
+<nav data-defect="second nav unlabelled"><a href="/a">A</a> <a href="/b">B</a></nav>
+<main>
+  <h1>Dashboard</h1>
+  <p class="hero" data-ok="white on dark gradient">Welcome back</p>
+  <h4 data-defect="heading skip">Recent activity</h4>
+  <p class="muted" data-defect="low contrast">Last updated 5 min ago</p>
+  <div role="tablist" aria-label="Views">
+    <button role="tab" aria-selected="true" aria-controls="p1" id="t1" data-ok="tab">Table</button>
+    <button role="tab" aria-selected="false" aria-controls="p2" id="t2" tabindex="-1" data-ok="tab">Chart</button>
+  </div>
+  <div role="tabpanel" id="p1" aria-labelledby="t1" data-ok="tabpanel"><table><caption>Orders</caption><tr><th scope="col">Id</th><th scope="col">Total</th></tr><tr><td>1</td><td>9</td></tr></table></div>
+  <div role="tabpanel" id="p2" aria-labelledby="t2" hidden></div>
+  <x-card id="card"></x-card>
+  <dialog id="dlg" aria-labelledby="dlg-h" data-ok="dialog labelled"><h2 id="dlg-h">Settings</h2><button>Close</button></dialog>
+  <ul><li><a href="/x" aria-label="Open report X" data-ok="aria-label link">X</a></li></ul>
+  <div aria-hidden="true"><a href="/hidden" data-defect="focusable in aria-hidden">hidden link</a></div>
+  <input type="text" aria-label="Filter" data-ok="aria-label input">
+  <span id="dup">a</span><span id="dup" data-defect="duplicate id">b</span>
+  <div role="listbox" aria-label="Fruit" data-defect="listbox no options"></div>
+  <button aria-expanded="maybe" data-defect="invalid aria value">Menu</button>
+  <div role="buton" data-defect="invalid role">Typo role</div>
+</main>
+<script>
+customElements.define("x-card", class extends HTMLElement { constructor(){ super(); const r=this.attachShadow({mode:"open"});
+ r.innerHTML='<h2 id="h">Card</h2><button aria-labelledby="h" data-ok="shadow labelledby">⋯</button><button data-defect="shadow empty button"></button>'; } });
+</script>
+</body></html>

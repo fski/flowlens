@@ -8,18 +8,22 @@
  */
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { launchChromium, newAuditPage } from "./lib/launch-browser.mjs";
 
 const ROOT = join(import.meta.dirname, "..");
 const SNIPPET_PATH = join(ROOT, "dist", "a11y-audit-snippet.js");
 const FIXTURE_URL = `file://${join(ROOT, "fixtures", "a11y-rule-fixtures.html")}`;
+const ACCNAME_URL = `file://${join(ROOT, "fixtures", "accname-fixtures.html")}`;
+const CONTRAST_URL = `file://${join(ROOT, "fixtures", "contrast-fixtures.html")}`;
+const NAME_RULES = ["NO_ACCESSIBLE_NAME", "LINK_NO_ACCESSIBLE_NAME", "FORM_CONTROL_NO_LABEL", "BROKEN_ARIA_REFERENCE", "DIALOG_NO_ACCESSIBLE_NAME", "DUPLICATE_NAV_NO_LABEL"];
 
 // Expected counts — keep in sync with docs/A11Y_RULE_FP_AUDIT.md §4 step 5.
 // Any fixture or rule change that shifts these must update BOTH places.
 const EXPECTED = {
-  FOCUS_VISIBLE_SUPPRESSED: 23,
+  FOCUS_VISIBLE_SUPPRESSED: 1,
   CLICK_WITHOUT_KEYBOARD: 7,
   ARIA_HIDDEN_FOCUSABLE: 1,
-  TOUCH_TARGET_TOO_SMALL: 23,
+  TOUCH_TARGET_TOO_SMALL: 11,
   DUPLICATE_MAIN_LANDMARK: 1,
   IFRAME_MISSING_TITLE: 1,
   ACCESSKEY_CHAR_SHORTCUT: 1,
@@ -34,15 +38,8 @@ if (!existsSync(SNIPPET_PATH)) {
   process.exit(2);
 }
 
-const { chromium } = await import("playwright");
-let browser = null;
-for (const attempt of [{ channel: "chrome" }, {}]) {
-  try { browser = await chromium.launch({ headless: true, ...attempt }); break; }
-  catch { /* try next */ }
-}
-if (!browser) { console.error("ERROR: no Chromium (npx playwright install chromium)"); process.exit(2); }
-
-const page = await browser.newPage();
+const browser = await launchChromium();
+const page = await newAuditPage(browser);
 await page.goto(FIXTURE_URL, { waitUntil: "load" });
 await page.addScriptTag({ content: readFileSync(SNIPPET_PATH, "utf8") });
 const byType = await page.evaluate(async () => {
@@ -51,9 +48,63 @@ const byType = await page.evaluate(async () => {
   for (const f of (r?.findings || [])) m[f.type] = (m[f.type] || 0) + 1;
   return m;
 });
+
+// Console gate: with __A11YFLOW_CONSOLE__ = false (the extension's default)
+// the snippet must not write audit data to the page console, where page-side
+// RUM/error tooling would pick it up.
+const consoleLines = [];
+page.on("console", (m) => consoleLines.push(m.text()));
+await page.evaluate(async () => {
+  window.__A11YFLOW_CONSOLE__ = false;
+  await window.A11YFlowAudit.run({ strict: true });
+  await window.A11YFlowAudit.contrastScan({ limit: 50 });
+});
+
+// Accessible-name fixtures: ok-* elements must not trigger a name rule,
+// bad-* elements must trigger the rule in their data-expect attribute.
+const accPage = await newAuditPage(browser);
+await accPage.goto(ACCNAME_URL, { waitUntil: "load" });
+await accPage.addScriptTag({ content: readFileSync(SNIPPET_PATH, "utf8") });
+const acc = await accPage.evaluate(async (NAME_RULES) => {
+  window.__A11YFLOW_CONSOLE__ = false;
+  const r = await window.A11YFlowAudit.run({ strict: true });
+  const hits = (r.findings || []).filter(f => NAME_RULES.includes(f.type)).map(f => ({ type: f.type, path: f.path || "" }));
+  const ids = [...document.querySelectorAll("[id^='ok-'],[id^='bad-']")].map(e => ({ id: e.id, expect: e.dataset.expect || null }));
+  ids.push({ id: "ok-shadow-btn", expect: null });
+  return { hits, ids };
+}, NAME_RULES);
+
+// Contrast fixtures: fail-* must be failures, ok-* must not.
+const cPage = await newAuditPage(browser);
+await cPage.goto(CONTRAST_URL, { waitUntil: "load" });
+await cPage.addScriptTag({ content: readFileSync(SNIPPET_PATH, "utf8") });
+const contrast = await cPage.evaluate(async () => {
+  window.__A11YFLOW_CONSOLE__ = false;
+  const r = await window.A11YFlowAudit.contrastScan({ limit: 50 });
+  const failing = new Set((r.failures || []).map(f => f.path || ""));
+  return [...document.querySelectorAll("[id^='ok-'],[id^='fail-']")]
+    .map(e => ({ id: e.id, failed: [...failing].some(p => p.endsWith(`#${e.id}`)) }));
+});
 await browser.close();
 
 let failed = 0;
+for (const { id, failed: isFail } of contrast) {
+  const ok = id.startsWith("fail-") ? isFail : !isFail;
+  if (!ok) failed++;
+  console.log(`${ok ? "✓" : "✗"} contrast ${id}: ${id.startsWith("fail-") ? "expected failure" : "expected pass"}`);
+}
+for (const { id, expect } of acc.ids) {
+  const mine = acc.hits.filter(h => h.path.endsWith(`#${id}`) || h.path === `button#${id}`);
+  const ok = expect ? mine.some(h => h.type === expect) : mine.length === 0;
+  if (!ok) failed++;
+  console.log(`${ok ? "✓" : "✗"} accname ${id}: ${expect ? `expects ${expect}` : "no name finding"}${ok ? "" : ` — got ${JSON.stringify(mine)}`}`);
+}
+if (consoleLines.length) {
+  failed++;
+  console.log(`✗ console gate: ${consoleLines.length} page-console line(s) with the gate off, e.g. ${JSON.stringify(consoleLines[0]).slice(0, 120)}`);
+} else {
+  console.log("✓ console gate: silent with __A11YFLOW_CONSOLE__ = false");
+}
 for (const [type, expected] of Object.entries(EXPECTED)) {
   const actual = byType[type] || 0;
   const ok = actual === expected;
@@ -61,7 +112,7 @@ for (const [type, expected] of Object.entries(EXPECTED)) {
   console.log(`${ok ? "✓" : "✗"} ${type}: expected ${expected}, got ${actual}`);
 }
 if (failed) {
-  console.error(`\nE2E SMOKE FAILED — ${failed} rule count(s) drifted from docs/A11Y_RULE_FP_AUDIT.md`);
+  console.error(`\nE2E SMOKE FAILED — ${failed} check(s) failed (rule counts: docs/A11Y_RULE_FP_AUDIT.md)`);
   console.error("All counts:", JSON.stringify(byType, null, 2));
   process.exit(1);
 }

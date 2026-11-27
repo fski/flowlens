@@ -1,6 +1,6 @@
 /**
  * Hash-route navigation detection — microfrontends like the DH help center
- * (helpcenter-webclient…usehurrier.com) navigate exclusively via the URL
+ * (an embedded help-center webclient) navigate exclusively via the URL
  * fragment (`#?screen=…`, `#/route`). Two gaps hid every such step:
  *
  * 1. The SW nav port only watched onHistoryStateUpdated + onCommitted;
@@ -31,7 +31,7 @@ describe("classifyNavForCapture hash routes", () => {
 
   it("accepts a #?param route change (DH helpcenter pattern)", () => {
     assert.equal(
-      f("https://hc.usehurrier.com/?g=1#?screen=contact&user_id=x", "https://hc.usehurrier.com/?g=1#?screen=home&user_id=x"),
+      f("https://help.example-widget.com/?g=1#?screen=contact&user_id=x", "https://help.example-widget.com/?g=1#?screen=home&user_id=x"),
       true,
     );
   });
@@ -159,8 +159,8 @@ describe("SW nav port fragment routing", () => {
 
   it("forwards subframe fragment changes as FRAME_NAV (MFE hash router)", () => {
     const { webNavEvents, messages } = connectNavPort();
-    webNavEvents.onReferenceFragmentUpdated.fire({ tabId: 5, frameId: 7, url: "https://hc.usehurrier.com/#?screen=contact" });
-    assert.deepEqual(JSON.parse(JSON.stringify(messages)), [{ type: "FRAME_NAV", url: "https://hc.usehurrier.com/#?screen=contact", frameId: 7 }]);
+    webNavEvents.onReferenceFragmentUpdated.fire({ tabId: 5, frameId: 7, url: "https://help.example-widget.com/#?screen=contact" });
+    assert.deepEqual(JSON.parse(JSON.stringify(messages)), [{ type: "FRAME_NAV", url: "https://help.example-widget.com/#?screen=contact", frameId: 7 }]);
   });
 
   it("ignores fragment changes from other tabs", () => {

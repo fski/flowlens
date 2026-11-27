@@ -1,0 +1,28 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Checkout</title>
+<style>body{font:16px sans-serif;background:#fff;color:#111} .hint{color:#aaa} .btn{background:#060;color:#fff;padding:12px 20px;border:0}</style></head>
+<body><header><a href="#main" class="skip">Skip to content</a><nav aria-label="Primary"><a href="/">Home</a> <a href="/cart">Cart</a></nav></header>
+<main id="main"><h1>Checkout</h1>
+<form>
+  <h2>Contact</h2>
+  <label for="email">Email</label><input id="email" type="email" autocomplete="email" data-ok="labelled input">
+  <input id="phone" type="tel" placeholder="Phone" data-defect="placeholder-only label">
+  <p class="hint" data-defect="low contrast hint">We never share your number.</p>
+  <h2>Shipping</h2>
+  <div><span>Full name</span><input id="name" type="text" data-defect="unlabelled input"></div>
+  <label>Country <select id="country" data-ok="wrapped label"><option>PL</option><option>DE</option></select></label>
+  <fieldset><legend>Delivery</legend>
+    <label><input type="radio" name="d" value="std" data-ok="radio in group"> Standard</label>
+    <label><input type="radio" name="d" value="exp" data-ok="radio in group"> Express</label>
+  </fieldset>
+  <label for="zip">Postal code</label><input id="zip" aria-describedby="zip-err" aria-invalid="true" data-ok="described error"><span id="zip-err">Enter a valid postal code.</span>
+  <label for="card">Card</label><input id="card" aria-describedby="nope-missing" data-defect="broken describedby">
+  <input type="image" src="data:," data-defect="image input no alt">
+  <input type="submit" value="Pay now" class="btn" data-ok="submit with value">
+  <button type="button" class="btn" data-ok="text button">Apply coupon</button>
+  <a href="/terms" data-defect="ambiguous link text">click here</a>
+  <div class="btn" onclick="void 0" data-defect="div button no keyboard">Back</div>
+  <button type="button" data-defect="empty button"></button>
+  <img src="data:," data-defect="img no alt">
+  <img src="data:," alt="" data-ok="decorative img">
+</form></main>
+<footer><p>© Shop</p></footer></body></html>

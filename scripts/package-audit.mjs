@@ -69,7 +69,6 @@ const REQUIRED = [
   "wcag-coverage.js",
   "limits.js",
   "flow-media-store.js",
-  "stateTransitionEngine.js",
   "depth3Aggregates.js",
   "ciExporter.js",
   "icons/icon16.png",

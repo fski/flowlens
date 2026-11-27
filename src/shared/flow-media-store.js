@@ -27,7 +27,18 @@ var flowMediaStore = (function () {
   }
 
   // Real IndexedDB adapter. Only used in the browser; tests override _openDb.
+  // One connection per panel lifetime (was: a new, never-closed connection
+  // per call). A failed open is not cached, so a later call can retry.
+  var _dbPromise = null;
   function _openDb() {
+    if (!_dbPromise) {
+      _dbPromise = _openDbOnce();
+      _dbPromise.catch(function () { _dbPromise = null; });
+    }
+    return _dbPromise;
+  }
+
+  function _openDbOnce() {
     return new Promise(function (resolve, reject) {
       if (typeof indexedDB === "undefined") { reject(new Error("no-indexeddb")); return; }
       var req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -123,6 +134,27 @@ var flowMediaStore = (function () {
     }).then(function () { return undefined; }).catch(function () { return undefined; });
   }
 
+  // Delete all media of the given sessions in one key scan.
+  function deleteSessions(sessionIds) {
+    var drop = {};
+    (sessionIds || []).forEach(function (id) { drop[String(id)] = true; });
+    return api._openDb().then(function (db) {
+      var shots = db.store(SHOTS);
+      var videos = db.store(VIDEOS);
+      var removed = 0;
+      return Promise.all([shots.getAllKeys(), videos.getAllKeys()]).then(function (res) {
+        var dels = [];
+        (res[0] || []).forEach(function (k) {
+          if (drop[sessionOfShotKey(k)]) { removed++; dels.push(shots.delete(k)); }
+        });
+        (res[1] || []).forEach(function (k) {
+          if (drop[String(k)]) { removed++; dels.push(videos.delete(k)); }
+        });
+        return Promise.all(dels).then(function () { return { removed: removed }; });
+      });
+    }).catch(function () { return { removed: 0 }; });
+  }
+
   function pruneToSessions(keepSessionIds) {
     var keep = {};
     (keepSessionIds || []).forEach(function (id) { keep[String(id)] = true; });
@@ -153,6 +185,7 @@ var flowMediaStore = (function () {
     getVideo: getVideo,
     deleteShot: deleteShot,
     deleteSession: deleteSession,
+    deleteSessions: deleteSessions,
     pruneToSessions: pruneToSessions,
   };
   return api;

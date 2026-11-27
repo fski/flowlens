@@ -14,6 +14,8 @@ const els = {
   copyFrameUrl: document.getElementById("copyFrameUrl"),
   profileSelect: document.getElementById("profileSelect"),
   alsoConsole: document.getElementById("alsoConsole"),
+  singleKeyShortcuts: document.getElementById("singleKeyShortcuts"),
+  devMode: document.getElementById("devMode"),
   pinFrame: document.getElementById("pinFrame"),
   wcagLevel: document.getElementById("wcagLevel"),
   targetingSummary: document.getElementById("targetingSummary"),
@@ -57,21 +59,17 @@ const els = {
   flowUnresolvedOnly: document.getElementById("flowUnresolvedOnly"),
   flowFilmstripCount: document.getElementById("flowFilmstripCount"),
   flowLifecycleCount: document.getElementById("flowLifecycleCount"),
-  flowRecordVideo: document.getElementById("flowRecordVideo"),
-  flowRecordVideoLabel: document.getElementById("flowRecordVideoLabel"),
+  flowVideoOnRecord: document.getElementById("flowVideoOnRecord"),
 
   runCurrentMode: document.getElementById("runCurrentMode"),
 
   json: document.getElementById("json"),
   inspectedUrl: document.getElementById("inspectedUrl"),
   envBadge: document.getElementById("envBadge"),
-  usedFrames: document.getElementById("usedFrames"),
-  diff: document.getElementById("diff"),
 
   sevTabs: document.getElementById("sevTabs"),
   emptyState: document.getElementById("emptyState"),
   resultsZone: document.getElementById("resultsZone"),
-  shadowCoverageRow: document.getElementById("shadowCoverageRow"),
 
   // explorer
   q: document.getElementById("q"),
@@ -147,9 +145,6 @@ const els = {
   coverageMissingList: document.getElementById("coverageMissingList"),
 
   // save status HUD
-  saveStatusHud: document.getElementById("saveStatusHud"),
-  saveStatusDot: document.getElementById("saveStatusDot"),
-  saveStatusText: document.getElementById("saveStatusText"),
 
   // new tab shell elements
   snapContent: document.getElementById("snapContent"),
@@ -158,8 +153,6 @@ const els = {
   snapHelper: document.getElementById("snapHelper"),
   flowRecordingBanner: document.getElementById("flowRecordingBanner"),
   flowRecordActions: document.getElementById("flowRecordActions"),
-  flowSessionInfoBody: document.getElementById("flowSessionInfoBody"),
-  flowTimelineBody: document.getElementById("flowTimelineBody"),
   watchSection: document.getElementById("watchSection"),
   watchSummary: document.getElementById("watchSummary"),
   watchVerdicts: document.getElementById("watchVerdicts"),
@@ -168,7 +161,6 @@ const els = {
   flowLabelField: document.getElementById("flowLabelField"),
   flowLabelSave: document.getElementById("flowLabelSave"),
   flowLabelSkip: document.getElementById("flowLabelSkip"),
-  flowVerdict: document.getElementById("flowVerdict"),
   autoCaptureNav: document.getElementById("autoCaptureNav"),
   autoCaptureDelay: document.getElementById("autoCaptureDelay"),
   explorerEmpty: document.getElementById("explorerEmpty"),
@@ -211,7 +203,6 @@ const state = {
   records: [],
   byId: {},
   currentId: null,
-  currentFindings: [],
   lastResult: null,
   bestFrameId: 0,
   _activeHighlightCtx: null,
@@ -225,19 +216,53 @@ const state = {
   activeMode: "run",
   sevFilter: new Set(),
   reviewFilter: false, // true = show only needs-review findings
-  findingsByMode: {},
+  // mode -> record id the user selected for that mode (past-runs sheet).
+  // Ids that aren't in the current scope's records are simply ignored.
+  selectedByMode: {},
+  // True between a navigation and the new scope's records being loaded.
+  restoringScope: false,
   contrastFilter: "all",
   contrastSamplesExpanded: false,
   expandedFGroups: {},
-  hasRunMode: new Set(),
   topTab: "snap",
   pinnedFrameId: null,
-  lastDiffSummary: "—",
-  lastUsedFramesSummary: "—",
   lastPersistentStatus: { status: "IDLE", reason: "-", detail: "" },
   lastSelectionReason: "—",
   hasPersistentStatus: false,
 };
+
+// ═══ SNAP DERIVED STATE ═══
+// The current scope's records (state.records, newest first) are the single
+// source of truth for what the Snap tab shows. "Has this mode run?", "which
+// findings belong to Run/Observe?" and "the filtered list on screen" are
+// derived from them on demand instead of being kept in parallel fields
+// (hasRunMode / findingsByMode / currentFindings) that navigation, deletes
+// and restores had to keep in sync by hand — the source of the 6.10.x
+// "empty state over results" / "run CTA under findings" hotfix series.
+
+function recordForMode(mode) {
+  const sel = state.selectedByMode[mode];
+  const picked = sel != null ? state.byId[String(sel)] : null;
+  if (picked && picked.action === mode) return picked;
+  return state.records.find(r => r && r.action === mode) || null;
+}
+
+function hasRunMode(mode) {
+  return state.records.some(r => r && r.action === mode);
+}
+
+// Unfiltered findings of the record shown for a Run/Observe mode, or null.
+function rawFindingsForMode(mode) {
+  const f = recordForMode(mode)?.best?.result?.findings;
+  return Array.isArray(f) ? f : null;
+}
+
+// The depth-filtered findings of the active run-like mode.
+function currentFindings() {
+  const mode = state.activeMode === "observe" ? "observe" : "run";
+  const raw = rawFindingsForMode(mode);
+  return raw ? applyAllFindingFilters(raw) : [];
+}
 
 /**
  * @typedef {"strict"|"heuristic"|"advisory"} Confidence
@@ -485,7 +510,6 @@ const RECIPES = {
   },
 };
 let activeRecipeId = "auto";
-let activeRulePack = null; // { enabledRuleIds?: string[], disabledRuleIds?: string[] } or null
 
 // --- Column sorting ---
 const sortState = {

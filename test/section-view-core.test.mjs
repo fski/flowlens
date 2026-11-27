@@ -45,6 +45,14 @@ describe("sectionEmptyText — pure decisions", () => {
   });
 });
 
+// Snap state derives from the scope's records — seed a record, not flags.
+function seedRecord(ctx, action, findings = []) {
+  const rec = { id: `r_${action}_${ctx.state.records.length}`, action, best: { result: { findings } } };
+  ctx.state.records = [rec, ...ctx.state.records];
+  ctx.state.byId[rec.id] = rec;
+  return rec;
+}
+
 describe("stylesheet hidden semantics", () => {
   it("panel.css has the global [hidden] guard — class display rules must never resurrect hidden elements", () => {
     const css = fsReadFileSync(new URL("../src/panel/panel.css", import.meta.url), "utf8");
@@ -57,7 +65,7 @@ describe("applySectionView — rows and empty state applied atomically", () => {
   beforeEach(() => { ctx = createContext(); });
 
   it("contrast with data: rows rendered, empty hidden — in the same sync pass", () => {
-    ctx.state.hasRunMode.add("contrast");
+    seedRecord(ctx, "contrast");
     ctx.state.contrastData = [{ ratio: 2.1, apcaLc: -40, required: 4.5, largeText: false, text: "x", tag: "a", testId: "", path: "a", note: "" }];
     ctx.state.contrastSamples = [...ctx.state.contrastData];
     ctx.state.contrastFilter = "all";
@@ -71,7 +79,7 @@ describe("applySectionView — rows and empty state applied atomically", () => {
     // had the field: a restored past-run can be failures>0, samples=[].
     // Filter "all" used to render an empty table with the empty state
     // showing above real results (report 23.07).
-    ctx.state.hasRunMode.add("contrast");
+    seedRecord(ctx, "contrast");
     ctx.state.contrastData = [{ ratio: 2.1, apcaLc: -40, required: 4.5, largeText: false, text: "x", tag: "a", testId: "", path: "a", note: "" }];
     ctx.state.contrastSamples = [];
     ctx.state.contrastFilter = "all";
@@ -89,7 +97,7 @@ describe("applySectionView — rows and empty state applied atomically", () => {
     // VT paints on rAF, which does not run while the panel tab is hidden;
     // the empty write is sync. Without a sync clear, the CTA could render
     // under still-painted stale rows (report 23.07).
-    ctx.state.hasRunMode.add("run");
+    seedRecord(ctx, "run");
     // Simulate the real panel: VT exists but its rAF paint never runs
     // (hidden panel) — setData is a deferred no-op here. Without the sync
     // clear this is exactly the state the user saw.
@@ -100,18 +108,22 @@ describe("applySectionView — rows and empty state applied atomically", () => {
     assert.equal(ctx.els.explorerEmpty.hidden, false);
   });
 
-  it("run CTA never shows while run records exist — even after onNavigated wiped hasRunMode", () => {
-    // Navigation clears hasRunMode/findingsByMode; the scope's records
-    // persist and restore. Rendering the explorer in that window used to
-    // produce "Run an Audit to see results" right after a finished audit.
-    ctx.state.hasRunMode = new Set();
-    ctx.state.findingsByMode = {};
-    ctx.state.records = [{ id: "r1", action: "run", best: {} }];
-    ctx.state.currentFindings = [];
+  it("between navigation and the new scope's records loading → 'Restoring', never the CTA or 'clean'", () => {
+    // onNavigated empties records and sets restoringScope; showing the
+    // run-CTA or "came back clean" in that window was the 23.07 report /
+    // Codex on #92.
+    ctx.state.records = [];
+    ctx.state.restoringScope = true;
     ctx.renderExplorer([]);
     assert.equal(ctx.els.explorerEmpty.hidden, false, "empty shows (no rows yet)");
-    assert.equal(ctx.els.explorerEmpty.textContent, "Restoring last audit…",
-      "not the CTA (an audit ran) and not 'came back clean' (findings not loaded yet — Codex on #92)");
+    assert.equal(ctx.els.explorerEmpty.textContent, "Restoring last audit…");
+  });
+
+  it("run records loaded for the scope → never the run CTA", () => {
+    seedRecord(ctx, "run", []);
+    ctx.state.activeMode = "run";
+    ctx.renderExplorer([]);
+    assert.notEqual(ctx.els.explorerEmpty.textContent, "Run an Audit to see results");
   });
 
   it("contrast without data: empty visible with CTA text, zero rows", () => {
@@ -174,19 +186,15 @@ describe("explorer empty-state honesty", () => {
   ];
 
   it("plain run with findings → rows visible, empty hidden", () => {
-    ctx.state.hasRunMode.add("run");
+    seedRecord(ctx, "run", FINDINGS);
     ctx.state.activeMode = "run";
-    ctx.state.findingsByMode.run = FINDINGS;
-    ctx.state.currentFindings = FINDINGS;
     ctx.renderExplorer(FINDINGS);
     assert.equal(ctx.els.explorerEmpty.hidden, true);
   });
 
   it("review filter hiding everything → names the chip, not 'your search'", () => {
-    ctx.state.hasRunMode.add("run");
+    seedRecord(ctx, "run", FINDINGS);
     ctx.state.activeMode = "run";
-    ctx.state.findingsByMode.run = FINDINGS;
-    ctx.state.currentFindings = FINDINGS;
     ctx.state.reviewFilter = true; // none of FINDINGS is needs_review
     ctx.renderExplorer(FINDINGS);
     assert.equal(ctx.els.explorerEmpty.hidden, false);
@@ -195,10 +203,8 @@ describe("explorer empty-state honesty", () => {
   });
 
   it("clean audit (zero findings) → clean-result text", () => {
-    ctx.state.hasRunMode.add("run");
+    seedRecord(ctx, "run", []);
     ctx.state.activeMode = "run";
-    ctx.state.findingsByMode.run = [];
-    ctx.state.currentFindings = [];
     ctx.renderExplorer([]);
     assert.equal(ctx.els.explorerEmpty.hidden, false);
     assert.match(ctx.els.explorerEmpty.textContent, /came back clean/);

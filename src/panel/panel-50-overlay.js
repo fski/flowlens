@@ -90,7 +90,7 @@ function compactSessionForExport(session) {
     profileConfidence: lastStep?.profileConfidence || null,
     profileMatchSignals: lastStep?.profileMatchSignals || [],
     frameScope: clone.settings?.scopeAtCapture || clone.settings?.targetModeAtCapture || "primary",
-    rulePack: lastStep?.rulePack || null,
+    rulePack: null, // rule packs were removed; field kept (additive-schema rule)
     // Same predicate as the verdict header — suspect counts only when a
     // profile/root selector was actually in play; a looser copy here made the
     // panel and the CI export disagree about the same session.
@@ -266,19 +266,36 @@ function cellHtml(value, maxLen = 60) {
   return `<span class="cellWrap"><span class="cellText" title="${escapeHtml(full)}">${escapeHtml(truncateMiddle(full, maxLen))}</span><button class="cellCopy" type="button" data-copy="${escapeHtml(full)}" aria-label="Copy"></button></span>`;
 }
 
+// Rule ids (CLICK_WITHOUT_KEYBOARD) → readable issue names ("Click without
+// keyboard") for the findings table; the id stays in the tooltip, the detail
+// row and every export. Acronyms keep their case.
+const RULE_ACRONYMS = { ARIA: "ARIA", ID: "ID", H1: "H1", HTML: "HTML", SVG: "SVG", UI: "UI", DOM: "DOM",
+  IMG: "Image", HC: "Help center:", NAV: "Nav", TD: "TD", TH: "TH", DL: "DL", AAA: "AAA", P: "<p>" };
+function ruleTitle(type) {
+  const t = String(type || "");
+  if (!/^[A-Z0-9_]+$/.test(t)) return t;
+  const words = t.split("_").filter(Boolean).map((w, i) => {
+    if (RULE_ACRONYMS[w]) return RULE_ACRONYMS[w];
+    const lw = w.toLowerCase();
+    return i === 0 ? lw.charAt(0).toUpperCase() + lw.slice(1) : lw;
+  });
+  if (words[0] === "Chat") words[0] = "Chat:";
+  return words.join(" ");
+}
+
 /** Shared row renderers — used by both VirtualTable and fallback paths. */
 function explorerRowHtml(f, idx) {
   const sev = f.severity || 'info';
   const isCrossFrame = isCrossFrameFinding(f);
   const crossBadge = isCrossFrame ? ' <span class="badge crossFrame">Cross-frame</span>' : '';
-  return `<tr class="trow" data-i="${idx}" data-sev="${escapeHtml(sev)}"${isCrossFrame ? ' data-crossframe="1"' : ''}><td><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span></td><td>${escapeHtml(f.wcag ?? "")}</td><td>${cellHtml(f.name, 50)}${crossBadge}</td><td>${cellHtml(f.type ?? "", 30)}</td></tr>`;
+  return `<tr class="trow" tabindex="0" data-i="${idx}" data-sev="${escapeHtml(sev)}"${isCrossFrame ? ' data-crossframe="1"' : ''}><td><span class="pill ${escapeHtml(sev)}">${escapeHtml(sev)}</span></td><td>${escapeHtml(f.wcag ?? "")}</td><td>${cellHtml(f.name, 50)}${crossBadge}</td><td title="${escapeHtml(f.type ?? "")}">${escapeHtml(ruleTitle(f.type))}</td></tr>`;
 }
 function contrastRowHtml(f, idx) {
   const pass = f.ratio >= f.required;
-  return `<tr class="trow${pass ? ' contrastPass' : ''}" data-i="${idx}"><td>${escapeHtml(String(f.ratio ?? ""))}</td><td>${escapeHtml(String(f.apcaLc ?? "\u2013"))}</td><td>${escapeHtml(String(f.required ?? ""))}</td><td>${f.largeText ? "yes" : "no"}</td><td>${cellHtml(f.text, 50)}</td><td>${escapeHtml(f.tag ?? "")}</td><td>${escapeHtml(f.testId ?? "")}</td><td>${cellHtml(f.path, 60)}</td><td>${cellHtml(f.note, 50)}</td></tr>`;
+  return `<tr class="trow${pass ? ' contrastPass' : ''}" tabindex="0" data-i="${idx}"><td>${escapeHtml(String(f.ratio ?? ""))}</td><td>${escapeHtml(String(f.apcaLc ?? "\u2013"))}</td><td>${escapeHtml(String(f.required ?? ""))}</td><td>${f.largeText ? "yes" : "no"}</td><td>${cellHtml(f.text, 50)}</td><td>${escapeHtml(f.tag ?? "")}</td><td>${escapeHtml(f.testId ?? "")}</td><td>${cellHtml(f.path, 60)}</td><td>${cellHtml(f.note, 50)}</td></tr>`;
 }
 function tabRowHtml(e, idx) {
-  return `<tr class="trow${e._issue ? ' tabIssue' : ''}" data-i="${idx}"><td>${escapeHtml(String(e.i ?? ""))}</td><td>${escapeHtml(String(e.type ?? ""))}</td><td>${escapeHtml(String(e.tabIndex ?? ""))}</td><td>${cellHtml(e.name, 50)}</td><td>${cellHtml(e.path, 60)}</td><td>${cellHtml(e.note, 50)}</td></tr>`;
+  return `<tr class="trow${e._issue ? ' tabIssue' : ''}" tabindex="0" data-i="${idx}"><td>${escapeHtml(String(e.i ?? ""))}</td><td>${escapeHtml(String(e.type ?? ""))}</td><td>${escapeHtml(String(e.tabIndex ?? ""))}</td><td>${cellHtml(e.name, 50)}</td><td>${cellHtml(e.path, 60)}</td><td>${cellHtml(e.note, 50)}</td></tr>`;
 }
 
 function txt(s, n = 140) {
@@ -296,35 +313,8 @@ function actionIsWatch(resultObj) {
   return !!(resultObj && ("silentMs" in resultObj || "bursts" in resultObj) && ("focusLossCount" in resultObj));
 }
 
-/**
- * Render shadow coverage receipt into a container element.
- * @param {HTMLElement|null} containerEl
- * @param {object|null|undefined} shadowCoverage
- */
-function renderShadowCoverage(containerEl, shadowCoverage) {
-  if (!containerEl) return;
-  const fmt = formatShadowCoverage(shadowCoverage);
-  if (!fmt.text) {
-    containerEl.hidden = true;
-    containerEl.innerHTML = "";
-    return;
-  }
-  const badgeHtml = fmt.badges.map(b =>
-    `<span class="shadowCoverageBadge shadowCoverageBadge--${escapeHtml(b.kind)}">${escapeHtml(b.label)}</span>`
-  ).join("");
-  containerEl.innerHTML = `<span>${escapeHtml(fmt.text)}</span>${badgeHtml}`;
-  containerEl.hidden = false;
-}
-
 function renderRunSummary(r, rec = null) {
-  if (!r) {
-    renderSevTabs();
-    renderShadowCoverage(els.shadowCoverageRow, null);
-    return;
-  }
-  const findings = Array.isArray(r?.findings) ? r.findings : [];
-  renderSevTabs(findings);
-  renderShadowCoverage(els.shadowCoverageRow, r?.shadowCoverage || null);
+  renderSevTabs(r && Array.isArray(r.findings) ? r.findings : undefined);
 }
 
 
@@ -552,13 +542,10 @@ var flowRecorder = (function () {
   return { start: start, stop: stop, isRecording: isRecording };
 })();
 
-// Stream ended outside our Stop button (user clicked Chrome's own "Stop
-// sharing" bar): finalize with the same side effects the button performs —
-// without this the button stayed on "Stop recording", hasVideo never got
-// persisted, and the header download control didn't appear until a re-render.
+// Stream ended before End (user clicked Chrome's own "Stop sharing" bar):
+// finalize so hasVideo is persisted and the header download control appears.
 async function handleRecorderAutoStop() {
   var r = await flowRecorder.stop();
-  if (typeof setRecordVideoUi === "function") setRecordVideoUi(false);
   if (r && r.ok && r.saved && sessionState.current) {
     persistActiveSessionBestEffort(compactSessionForExport(sessionState.current)).catch(function () {});
   }
@@ -628,6 +615,35 @@ async function captureStepShot(sessionId, step, scopeInfo, at) {
     step.shotErrorReason = String((e && e.message) || "exception").slice(0, 200);
     return false;
   }
+}
+
+// Flow screen video: started with the flow when Settings → Flow → "Record a
+// video with each flow" is on, stopped (saved + downloaded) on End.
+async function startFlowVideo() {
+  const sess = sessionState.current;
+  if (!sess?.id || typeof flowRecorder === "undefined") return false;
+  const r = await flowRecorder.start(sess.id);
+  if (r?.ok) { toast("Recording video — pick the tab to capture"); return true; }
+  if (r?.reason === "cancelled") return false; // user dismissed the picker
+  if (r?.reason === "blocked") {
+    console.warn("getDisplayMedia blocked by permissions policy", r);
+    toast("Video recording blocked in the DevTools panel (display-capture policy)");
+  } else {
+    console.warn("getDisplayMedia failed", r);
+    toast("Screen recording unavailable" + (r?.errorName ? ` — ${r.errorName}` : ""));
+  }
+  return false;
+}
+
+async function stopFlowVideoIfRecording() {
+  if (typeof flowRecorder === "undefined" || !flowRecorder.isRecording()) return false;
+  const r = await flowRecorder.stop();
+  if (r?.ok && r.blob) {
+    const sid = (sessionState.current || sessionState.lastEndedSession)?.id || "flow";
+    downloadBlobFile(r.blob, `flowlens-flow-${sid}.webm`);
+    toast(r.saved ? "Video saved & downloaded" : "Video downloaded — saving to browser storage failed");
+  }
+  return true;
 }
 
 // Trigger a local download of a Blob (flow video). Object URL revoked after.
@@ -741,7 +757,7 @@ function updateContrastView() {
   const filters = [];
   if (q) filters.push("search");
   applySectionView("contrast", sorted, sectionEmptyText("contrast", {
-    ran: state.hasRunMode.has("contrast") || hasData,
+    ran: hasRunMode("contrast") || hasData,
     total: Math.max(state.contrastData.length, state.contrastSamples.length),
     shown: sorted.length,
     filters,
@@ -817,7 +833,7 @@ function renderTabWalk(res) {
   }
   const events = applySortState(filtered, 'tab');
   applySectionView("tabWalk", events, sectionEmptyText("tabWalk", {
-    ran: state.hasRunMode.has("tabWalk") || walkRan,
+    ran: hasRunMode("tabWalk") || walkRan,
     total: raw.length,
     shown: events.length,
     filters: q ? ["search"] : [],
@@ -1052,29 +1068,8 @@ function filterFindingsByDepth(findings, depthMax) {
   });
 }
 
-function filterFindingsByRulePack(findings, rulePack) {
-  if (!Array.isArray(findings) || !rulePack) return findings || [];
-  const { enabledRuleIds, disabledRuleIds } = rulePack;
-  const hasEnabled = Array.isArray(enabledRuleIds) && enabledRuleIds.length > 0;
-  const hasDisabled = Array.isArray(disabledRuleIds) && disabledRuleIds.length > 0;
-  if (!hasEnabled && !hasDisabled) return findings;
-  const enabledSet = hasEnabled ? new Set(enabledRuleIds) : null;
-  const disabledSet = hasDisabled ? new Set(disabledRuleIds) : null;
-  return findings.filter(f => {
-    if (enabledSet && !enabledSet.has(f.type)) return false;
-    if (disabledSet && disabledSet.has(f.type)) return false;
-    return true;
-  });
-}
-
-function getActiveRulePack() {
-  return activeRulePack;
-}
-
 function applyAllFindingFilters(findings) {
-  let result = filterFindingsByDepth(findings, getActiveDepthMax());
-  result = filterFindingsByRulePack(result, getActiveRulePack());
-  return result;
+  return filterFindingsByDepth(findings, getActiveDepthMax());
 }
 
 /**
@@ -1139,7 +1134,7 @@ function normalizeFindingForRender(f) {
  */
 function rerenderFindings(reason) {
   var t0 = (typeof performance !== "undefined" && performance.now) ? performance.now() : 0;
-  var base = state.currentFindings || [];
+  var base = currentFindings();
   var groupFiltered = filterFindingsByGroup(base, activeGroupFilter);
   var normalized = groupFiltered.map(normalizeFindingForRender);
   renderSevTabs(normalized);
@@ -1201,29 +1196,19 @@ function renderExplorer(findings) {
   // The empty message names what is actually hiding rows instead of a
   // catch-all "no results match your search".
   const mode = state.activeMode === "observe" ? "observe" : "run";
-  const rawFindings = Array.isArray(state.findingsByMode[mode]) ? state.findingsByMode[mode] : null;
+  const rawFindings = rawFindingsForMode(mode);
   const rawTotal = rawFindings ? rawFindings.length : all.length;
   const filters = [];
-  if (rawFindings && (state.currentFindings || []).length < rawFindings.length) filters.push("depth/rule-pack setting");
+  if (rawFindings && currentFindings().length < rawFindings.length) filters.push("depth setting");
   if (activeGroupFilter) filters.push("integrity pill");
   if (state.sevFilter.size > 0) filters.push("severity tab");
   if (state.reviewFilter) filters.push("needs-review chip");
   if ((els.q?.value || "").trim()) filters.push("search");
 
   applySectionView("explorer", filtered, sectionEmptyText("explorer", {
-    // "ran" must survive navigation: hasRunMode is wiped by onNavigated, but
-    // the run RECORDS for this scope persist and restore — showing the
-    // "Run an Audit to see results" CTA while a just-finished audit exists
-    // in records was the 23.07 report. Any durable evidence counts.
-    ran: state.hasRunMode.has("run") || state.hasRunMode.has("observe")
-      || (state.currentFindings || []).length > 0
-      || (state.records || []).some((r) => r.action === "run" || r.action === "observe"),
-    // Records exist but live state is wiped (post-nav, pre-restore): rawTotal
-    // is 0 there, and "came back clean" would misreport an audit whose
-    // findings simply aren't loaded yet (Codex on #92).
-    restoring: !(state.hasRunMode.has("run") || state.hasRunMode.has("observe"))
-      && (state.currentFindings || []).length === 0
-      && (state.records || []).some((r) => r.action === "run" || r.action === "observe"),
+    // Both derive from the scope's records — no parallel flags to wipe.
+    ran: hasRunMode("run") || hasRunMode("observe"),
+    restoring: state.restoringScope,
     total: rawTotal,
     shown: filtered.length,
     filters,
@@ -1253,6 +1238,7 @@ function refreshInspectedUrl(retries = 3) {
     // load stored records for this origin/env
     const scopeKey = `records::${origin || ""}::${env}`;
     await loadRecords(scopeKey);
+    state.restoringScope = false;
     await loadActiveSessionForScope(origin || "", env || "");
     // Detect orphaned session and prompt for resume/discard
     if (sessionState.current && sessionState.current.startedAt && !sessionState.current.endedAt) {
@@ -1267,8 +1253,8 @@ function refreshInspectedUrl(retries = 3) {
       renderRecord(state.records[0]);
     } else {
       state.currentId = null;
-      state.currentFindings = [];
       renderRunSummary(null);
+      rerenderFindings("scope_loaded");
       showMode(state.activeMode || "run");
       updateResultsVisibility(false);
     }
@@ -1362,10 +1348,6 @@ async function refreshFrames() {
 function getTargetSpec() {
   const scope = getScopeValue();
   const target = { scope };
-  // Keep legacy mode field for best-effort compatibility with older runtimes.
-  if (scope === "host") target.mode = "top";
-  else if (scope === "all") target.mode = "all";
-  else target.mode = "auto";
 
   if (els.pinFrame.checked) {
     const frameId = els.frameSelect.value === "" ? NaN : Number(els.frameSelect.value);
@@ -1373,7 +1355,6 @@ function getTargetSpec() {
       target.frameIds = [frameId];
       target.manual = true;
       target.pinned = true;
-      target.mode = "manual";
     }
   }
   return target;
@@ -1651,36 +1632,6 @@ async function _highlightFindingInner(finding, highlightCtx) {
   return res;
 }
 
-async function saveHistorySnapshot({ key, snapshot }) {
-  const { history = {} } = await storageGet(["history"]);
-  history[key] = snapshot;
-  await storageSet({ history });
-}
-
-async function loadHistorySnapshot(key) {
-  const { history = {} } = await storageGet(["history"]);
-  return history[key] || null;
-}
-
-function diffSnapshots(prev, next) {
-  if (!prev || !next) return { text: "(no previous)" };
-  const prevSet = new Set(prev.findingHashes || []);
-  const nextSet = new Set(next.findingHashes || []);
-
-  let added = 0;
-  let removed = 0;
-  for (const h of nextSet) if (!prevSet.has(h)) added++;
-  for (const h of prevSet) if (!nextSet.has(h)) removed++;
-
-  const cPrev = prev.counts || { high:0, medium:0, low:0, info:0 };
-  const cNext = next.counts || { high:0, medium:0, low:0, info:0 };
-
-  const d = (k) => (cNext[k] || 0) - (cPrev[k] || 0);
-  const fmt = (n) => (n > 0 ? `+${n}` : `${n}`);
-  const text = `added=${added}, fixed=${removed} • high ${fmt(d("high"))}, medium ${fmt(d("medium"))}, low ${fmt(d("low"))}, info ${fmt(d("info"))}`;
-  return { added, removed, text };
-}
-
 function buildMachineReadableDiffReport(session) {
   const steps = Array.isArray(session?.steps) ? session.steps : [];
   if (steps.length < 2) return null;
@@ -1732,10 +1683,12 @@ function buildMachineReadableDiffReport(session) {
 async function runAction(action, opts = {}) {
   state.activeMode = action;
   setPressed(action);
-  setRunTelemetry({ usedFrames: "Running…", diff: "—" });
   setPersistentStatus("RUNNING", action.toUpperCase(), "Execution in progress", "snap");
 
   const { url, envTag } = getCurrentScopeInfo();
+  // The result belongs to the page the run STARTED on. Deriving the key at
+  // completion filed it under whatever origin the panel had navigated to.
+  const scopeKey = `records::${originFrom(url)}::${detectEnv(url)}`;
 
   const target = getTargetSpec();
   const match = buildMatch();
@@ -1762,7 +1715,6 @@ async function runAction(action, opts = {}) {
     const failed = { ok: false, action, error: String(err?.message || err) };
     state.lastResult = failed;
     renderRawJson(els.json, els.rawJsonBody, pretty(failed));
-    setRunTelemetry({ usedFrames: "—", diff: "(run failed)" });
     setPersistentStatus("FAILED", "TRANSPORT", "Run transport failure", "snap");
     console.error("RUN_AUDIT transport failure", err);
     toast(`${action} failed`);
@@ -1781,7 +1733,6 @@ async function runAction(action, opts = {}) {
     const noScope = r?.reason === "NO_SCOPE_MATCH" || r?.error === "NO_SCOPE_MATCH";
     const manualMissing = r?.reason === "MANUAL_FRAMES_MISSING" || r?.error === "MANUAL_FRAMES_MISSING";
     if (manualMissing) {
-      setRunTelemetry({ usedFrames: "\u2014", diff: "(pinned frame not available)" });
       setPersistentStatus("FAILED", "MANUAL_FRAMES_MISSING", "Pinned frame not available", "snap");
       console.warn("RUN_AUDIT: pinned frame missing", r);
       toast("Pinned frame not available. Clear pin to continue.", {
@@ -1794,7 +1745,6 @@ async function runAction(action, opts = {}) {
     const failMsg = notScriptable
       ? "This page can't be audited (browser-restricted URL)"
       : noScope ? "No frame matches selected scope" : `${action} failed`;
-    setRunTelemetry({ usedFrames: "\u2014", diff: notScriptable ? "(page not scriptable)" : noScope ? "(no frame matches selected scope)" : "(run failed)" });
     setPersistentStatus("FAILED", notScriptable ? "PAGE_NOT_SCRIPTABLE" : noScope ? "NO_SCOPE_MATCH" : "BACKEND", failMsg, "snap");
     console.error("RUN_AUDIT backend failure", r);
     toast(failMsg);
@@ -1806,8 +1756,6 @@ async function runAction(action, opts = {}) {
   updateTargetingSummary(state.lastSelectionReason);
 
   // store result record for quick switching
-  const url0 = els.inspectedUrl.dataset.full || els.inspectedUrl.textContent || "";
-  const scopeKey = `records::${originFrom(url0)}::${detectEnv(url0)}`;
   const rec = {
     id: String(Date.now()) + "_" + Math.random().toString(16).slice(2),
     at: new Date().toISOString(),
@@ -1820,6 +1768,18 @@ async function runAction(action, opts = {}) {
       usedFrameIds: r?.usedFrameIds || [],
     },
   };
+  // Navigated to another origin/env mid-run: the panel now shows that scope's
+  // history, so file the result under the start scope without rendering it.
+  const nowInfo = getCurrentScopeInfo();
+  if (`records::${originFrom(nowInfo.url)}::${detectEnv(nowInfo.url)}` !== scopeKey) {
+    const stored = await storageGet([scopeKey]);
+    const prevRecs = Array.isArray(stored?.[scopeKey]) ? stored[scopeKey] : [];
+    await persistRecords(scopeKey, [rec, ...prevRecs].slice(0, 20));
+    setPersistentStatus("OK", action.toUpperCase(), "Saved to the previous page's history", "snap");
+    toast(`${modeLabel(action)} finished after navigation — saved to ${originFrom(url) || "previous page"} history`);
+    return true;
+  }
+
   // newest first
   state.records = [rec, ...state.records.filter(x => String(x.id) !== String(rec.id))];
   state.byId[String(rec.id)] = rec;
@@ -1830,7 +1790,6 @@ async function runAction(action, opts = {}) {
     console.warn("Record rendered but history persistence failed");
   }
 
-  setRunTelemetry({ usedFrames: (r?.usedFrameIds || []).join(", ") || "—" });
 
   const bestEntry = rec.best || null;
   // Per-record highlight context — no global leakage
@@ -1841,29 +1800,12 @@ async function runAction(action, opts = {}) {
   const allFindings = Array.isArray(bestResult?.findings) ? bestResult.findings : [];
   const findings = applyAllFindingFilters(allFindings);
 
-  // History/diff uses unfiltered findings for consistency across depth/rulePack changes
-  const key = `snap::${originFrom(url)}::${detectEnv(url)}::${bestEntry?.frameUrl || ""}`;
-  const prev = await loadHistorySnapshot(key);
-  const snapshot = {
-    at: new Date().toISOString(),
-    envTag,
-    counts: countBySeverity(allFindings),
-    findingHashes: allFindings.map(hashFinding),
-  };
-  if (allFindings.length) {
-    const d = diffSnapshots(prev, snapshot);
-    setRunTelemetry({ diff: d.text });
-    await saveHistorySnapshot({ key, snapshot });
-  } else {
-    setRunTelemetry({ diff: "(no findings snapshot)" });
-  }
-
   const _fc = findings.length;
   const _cc = bestResult?.failuresCount ?? bestResult?.failures?.length;
   const _ec = bestResult?.events?.length;
-  const detail = _fc ? ` — ${_fc} findings` : _cc != null ? ` — ${_cc} failures` : _ec != null ? ` — ${_ec} events` : "";
+  // No success toast: the rendered results and the live findings count
+  // (aria-live) already report completion; toasts are for problems.
   setPersistentStatus("OK", action.toUpperCase(), `${_fc || _cc || _ec || 0} issues`, "snap");
-  toast(`${modeLabel(action)} done${detail}`);
   return true;
 }
 

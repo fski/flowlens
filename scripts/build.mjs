@@ -228,15 +228,15 @@ function buildFileMap() {
   return [
     // JS entrypoints
     { src: "panel/panel.parts.json",       dist: "panel.js",               type: "js", concatPanel: true },
-    { src: "sw/sw.js",                     dist: "sw.js",                  type: "js" },
-    { src: "snippet/a11y-audit-snippet.js", dist: "a11y-audit-snippet.js", type: "js" },
+    // Bundled: both import the shared engine (src/engine/stateTransitionEngine.js).
+    { src: "sw/sw.js",                     dist: "sw.js",                  type: "js", bundle: true },
+    { src: "snippet/a11y-audit-snippet.js", dist: "a11y-audit-snippet.js", type: "js", bundle: true },
     { src: "devtools/devtools.js",         dist: "devtools.js",            type: "js" },
     { src: "shared/en301549-map.js",       dist: "en301549-map.js",        type: "js" },
     { src: "shared/flow-profiles.js",      dist: "flow-profiles.js",       type: "js" },
     { src: "shared/wcag-coverage.js",      dist: "wcag-coverage.js",       type: "js" },
     { src: "shared/limits.js",             dist: "limits.js",              type: "js" },
     { src: "shared/flow-media-store.js",   dist: "flow-media-store.js",    type: "js" },
-    { src: "engine/stateTransitionEngine.js", dist: "stateTransitionEngine.js", type: "js" },
     { src: "engine/depth3Aggregates.js", dist: "depth3Aggregates.js", type: "js" },
     { src: "engine/ciExporter.js", dist: "ciExporter.js", type: "js" },
 
@@ -257,40 +257,46 @@ const ASSET_DIRS = [
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+// esbuild is a hard requirement (devDependency): the SW and snippet are
+// bundled with the shared engine, and define substitution is correctness —
+// shipping a literal __HOST_CONFIG__ token is a runtime ReferenceError.
 let _esbuild = null;
 async function loadEsbuild() {
-  if (_esbuild !== undefined && _esbuild !== null) return _esbuild;
+  if (_esbuild) return _esbuild;
   try {
     _esbuild = await import("esbuild");
     return _esbuild;
   } catch {
-    console.warn("  ⚠ esbuild not installed — copying without minification");
-    _esbuild = null;
-    return null;
+    console.error("  ✗ esbuild is required — run `npm ci`");
+    process.exit(1);
   }
-}
-
-// Define substitution is CORRECTNESS, not cosmetics: shipping literal
-// __HOST_CONFIG__ / __FLOWLENS_VERSION__ tokens is a runtime ReferenceError.
-// Applied manually when esbuild is unavailable (minification alone is safe
-// to skip; unreplaced defines are not).
-function applyDefinesManually(code, define) {
-  let out = code;
-  for (const [token, replacement] of Object.entries(define || {})) {
-    out = out.split(token).join(replacement);
-  }
-  return out;
 }
 
 async function processJS(code, { define } = {}) {
-  if (isDev && !define) return code;
   const esbuild = await loadEsbuild();
-  if (!esbuild) return define ? applyDefinesManually(code, define) : code;
   const opts = { target: "es2022" };
   if (!isDev) opts.minify = true;
   if (define) opts.define = define;
   const result = await esbuild.transform(code, opts);
   return result.code;
+}
+
+// Bundle an ES-module entry (and its imports) into one classic script: the
+// SW is registered as a classic worker and the snippet is injected with
+// chrome.scripting.executeScript({ files }) / pasted into a console.
+async function bundleJS(entryPath, { define } = {}) {
+  const esbuild = await loadEsbuild();
+  const result = await esbuild.build({
+    entryPoints: [entryPath],
+    bundle: true,
+    format: "iife",
+    target: "es2022",
+    minify: !isDev,
+    define,
+    write: false,
+    logLevel: "silent",
+  });
+  return result.outputFiles[0].text;
 }
 
 async function processCSS(code) {
@@ -383,12 +389,8 @@ async function main() {
           "__FLOWLENS_VERSION__": JSON.stringify(version),
           "__HOST_CONFIG__": hostConfigJSON,
         };
-      } else if (entry.dist === "sw.js") {
-        jsOpts.define = {
-          "__HOST_CONFIG__": hostConfigJSON,
-        };
       }
-      output = await processJS(raw, jsOpts);
+      output = entry.bundle ? await bundleJS(srcPath, jsOpts) : await processJS(raw, jsOpts);
     } else if (entry.type === "css") {
       output = await processCSS(raw);
     } else if (entry.type === "html") {

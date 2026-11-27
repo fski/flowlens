@@ -4,8 +4,9 @@
  *
  * Checks:
  *   1. src/shared/version.js version is valid semver (X.Y.Z)
- *   2. dist/manifest.json version matches version.js
- *   3. artifacts/flowlens-<version>.zip exists with matching version in filename
+ *   2. package.json version matches version.js (docs/RELEASE.md bumps both)
+ *   3. dist/manifest.json version matches version.js
+ *   4. artifacts/flowlens-<version>.zip exists with matching version in filename
  */
 import { readFileSync, existsSync } from "node:fs";
 import { join, basename } from "node:path";
@@ -40,7 +41,15 @@ if (!/^\d+\.\d+\.\d+$/.test(srcVersion)) {
   errors.push(`version.js version "${srcVersion}" is not valid semver (expected X.Y.Z)`);
 }
 
-// ── 2. Check dist/manifest.json matches ─────────────────────────────────────
+// ── 2. package.json agrees ─────────────────────────────────────────────────
+
+const pkgVersion = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
+console.log(`  package.json version: ${pkgVersion}`);
+if (pkgVersion !== srcVersion) {
+  errors.push(`Version mismatch: version.js="${srcVersion}" vs package.json="${pkgVersion}"`);
+}
+
+// ── 3. Check dist/manifest.json matches ─────────────────────────────────────
 
 const manifestPath = join(DIST, "manifest.json");
 if (!existsSync(manifestPath)) {
@@ -57,7 +66,7 @@ if (!existsSync(manifestPath)) {
   }
 }
 
-// ── 3. Check artifacts zip filename matches ─────────────────────────────────
+// ── 4. Check artifacts zip filename matches ─────────────────────────────────
 
 const expectedZip = `flowlens-${srcVersion}.zip`;
 const zipPath = join(ARTIFACTS, expectedZip);
@@ -79,6 +88,6 @@ if (errors.length > 0) {
 } else {
   console.log("  RELEASE GUARD PASSED\n");
   console.log("  Semver format: ✓");
-  console.log("  version.js == manifest.json: ✓");
+  console.log("  version.js == package.json == manifest.json: ✓");
   console.log("  Artifact zip matches version: ✓");
 }
